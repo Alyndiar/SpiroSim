@@ -210,7 +210,7 @@ TRANSLATIONS = {
         "menu_options": "Options",
         "menu_regen": "Régénérer",
         "menu_layers_manage": "Gérer les couches et les tracés…",
-        "menu_options_spacing": "Espacement radial des trous…",
+        "menu_options_spacing": "Espacement radial des trous / pas des dents…",
         "menu_options_bgcolor": "Couleur de fond…",
         "menu_options_language": "Langue",
         "menu_lang_fr": "Français",
@@ -260,6 +260,7 @@ TRANSLATIONS = {
 
         "spacing_dialog_title": "Espacement radial des trous",
         "spacing_label": "Espacement (en mm) :",
+        "teeth_spacing_label": "Pas des dents (mm/dent) :",
 
         "bgcolor_dialog_title": "Couleur de fond",
         "bgcolor_label": "Couleur de fond (nom CSS4 ou #hex) :",
@@ -314,7 +315,7 @@ TRANSLATIONS = {
         "menu_options": "Options",
         "menu_regen": "Regenerate",
         "menu_layers_manage": "Manage layers and paths…",
-        "menu_options_spacing": "Hole radial spacing…",
+        "menu_options_spacing": "Hole radial spacing / tooth pitch…",
         "menu_options_bgcolor": "Background color…",
         "menu_options_language": "Language",
         "menu_lang_fr": "Français",
@@ -364,6 +365,7 @@ TRANSLATIONS = {
 
         "spacing_dialog_title": "Hole radial spacing",
         "spacing_label": "Spacing (mm):",
+        "teeth_spacing_label": "Tooth spacing (mm/tooth):",
 
         "bgcolor_dialog_title": "Background color",
         "bgcolor_label": "Background color (CSS4 name or #hex):",
@@ -470,14 +472,14 @@ class LayerConfig:
 
 # ---------- 2) GÉOMÉTRIE ----------
 
-def radius_from_teeth(teeth: int) -> float:
+def radius_from_teeth(teeth: int, pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH) -> float:
     """
     Calcule le rayon (en mm) d’un cercle de pas ayant 'teeth' dents,
-    en supposant un pas de 0,65 mm par dent.
+    en supposant un pas configurable (par défaut 0,65 mm par dent).
     """
     if teeth <= 0:
         return 0.0
-    return (PITCH_MM_PER_TOOTH * float(teeth)) / (2.0 * math.pi)
+    return (pitch_mm_per_tooth * float(teeth)) / (2.0 * math.pi)
 
 
 def contact_teeth_for_relation(gear: GearConfig, relation: str) -> int:
@@ -495,13 +497,15 @@ def contact_teeth_for_relation(gear: GearConfig, relation: str) -> int:
     return gear.teeth
 
 
-def contact_radius_for_relation(gear: GearConfig, relation: str) -> float:
+def contact_radius_for_relation(
+    gear: GearConfig, relation: str, pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH
+) -> float:
     """
     Rayon de contact des dents pour un engrenage donné, selon la relation,
     en mm (via radius_from_teeth).
     """
     t = contact_teeth_for_relation(gear, relation)
-    return radius_from_teeth(t)
+    return radius_from_teeth(t, pitch_mm_per_tooth=pitch_mm_per_tooth)
 
 
 def generate_simple_circle_for_index(
@@ -536,6 +540,7 @@ def generate_trochoid_points_for_layer_path(
     path: PathConfig,
     steps: int = 5000,
     hole_spacing_mm: float = 0.65,
+    pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
 ):
     """
     Génère la courbe pour un path donné, en utilisant la configuration
@@ -598,7 +603,7 @@ def generate_trochoid_points_for_layer_path(
             relation=relation,
             inner_teeth=inner_teeth,
             outer_teeth=outer_teeth,
-            pitch_mm_per_tooth=PITCH_MM_PER_TOOTH,
+            pitch_mm_per_tooth=pitch_mm_per_tooth,
         )
 
         teeth_moving = T1
@@ -618,8 +623,8 @@ def generate_trochoid_points_for_layer_path(
     # --- Cas 2 : comportement standard (anneau / roue ... ) ---
 
     # Rayons de contact en mm
-    R = contact_radius_for_relation(g0, relation)
-    r = contact_radius_for_relation(g1, relation)
+    R = contact_radius_for_relation(g0, relation, pitch_mm_per_tooth)
+    r = contact_radius_for_relation(g1, relation, pitch_mm_per_tooth)
 
     if R <= 0 or r <= 0:
         base_points = generate_simple_circle_for_index(
@@ -645,7 +650,7 @@ def generate_trochoid_points_for_layer_path(
     else:
         R_tip_teeth = g1.teeth
 
-    R_tip = radius_from_teeth(R_tip_teeth)
+    R_tip = radius_from_teeth(R_tip_teeth, pitch_mm_per_tooth=pitch_mm_per_tooth)
     d = R_tip - hole_index * hole_spacing_mm
     if d < 0:
         d = 0.0
@@ -1362,6 +1367,7 @@ def layers_to_svg(
     bg_color: str = "#ffffff",
     hole_spacing_mm: float = 0.65,
     points_per_path: int = 6000,
+    pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
 ) -> str:
     """
     Convertit une liste de LayerConfig -> SVG string.
@@ -1377,7 +1383,11 @@ def layers_to_svg(
         layer_zoom = getattr(layer, "zoom", 1.0)
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
-                layer, path, steps=points_per_path, hole_spacing_mm=hole_spacing_mm
+                layer,
+                path,
+                steps=points_per_path,
+                hole_spacing_mm=hole_spacing_mm,
+                pitch_mm_per_tooth=pitch_mm_per_tooth,
             )
             if not pts:
                 continue
@@ -1470,11 +1480,18 @@ class LayerEditDialog(QDialog):
       - pour un anneau : dents extérieures / intérieures
     """
 
-    def __init__(self, layer: LayerConfig, lang: str = "fr", parent=None):
+    def __init__(
+        self,
+        layer: LayerConfig,
+        lang: str = "fr",
+        parent=None,
+        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+    ):
         super().__init__(parent)
         self.lang = lang
         self.setWindowTitle(tr(self.lang, "dlg_layer_edit_title"))
         self.layer = layer
+        self.pitch_mm_per_tooth = pitch_mm_per_tooth
 
         layout = QFormLayout(self)
 
@@ -1513,6 +1530,8 @@ class LayerEditDialog(QDialog):
             # Édition de la notation modulaire (visible seulement pour engrenage 1 + type "modulaire")
             modular_edit = QLineEdit()
             modular_label = QLabel(tr(self.lang, "dlg_layer_gear_modular_notation"))
+            modular_button = QPushButton("…")
+            modular_button.setFixedWidth(28)
 
             sub = QVBoxLayout()
             sub.addWidget(group_label)
@@ -1548,6 +1567,7 @@ class LayerEditDialog(QDialog):
             row6 = QHBoxLayout()
             row6.addWidget(modular_label)
             row6.addWidget(modular_edit)
+            row6.addWidget(modular_button)
             sub.addLayout(row6)
 
             layout.addRow(sub)
@@ -1568,6 +1588,10 @@ class LayerEditDialog(QDialog):
                 rel_combo=rel_combo,
                 modular_label=modular_label,
                 modular_edit=modular_edit,
+                modular_button=modular_button,
+            )
+            modular_button.clicked.connect(
+                lambda _checked=False, gw=gw: self._open_modular_editor_from_widget(gw)
             )
             self.gear_widgets.append(gw)
 
@@ -1645,6 +1669,28 @@ class LayerEditDialog(QDialog):
         is_modular = (t == "modulaire" and idx == 0)
         gw["modular_label"].setVisible(is_modular)
         gw["modular_edit"].setVisible(is_modular)
+        gw["modular_button"].setVisible(is_modular)
+
+    def _open_modular_editor_from_widget(self, gw: dict):
+        if gw.get("index", 0) != 0:
+            return
+        if gw["type_combo"].currentText() != "modulaire":
+            return
+
+        notation = gw["modular_edit"].text().strip()
+        inner_teeth = gw["teeth_spin"].value()
+        outer_teeth = gw["outer_spin"].value() or inner_teeth
+
+        dlg = ModularTrackEditorDialog(
+            lang=self.lang,
+            parent=self,
+            initial_notation=notation,
+            inner_teeth=inner_teeth,
+            outer_teeth=outer_teeth,
+            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+        )
+        if dlg.exec() == QDialog.Accepted:
+            gw["modular_edit"].setText(dlg.result_notation())
 
     def accept(self):
         self.layer.name = self.name_edit.text().strip() or tr(self.lang, "default_layer_name")
@@ -1794,13 +1840,20 @@ class LayerManagerDialog(QDialog):
       - 3 colonnes : Nom | Type | Détails
     """
 
-    def __init__(self, layers: List[LayerConfig], lang: str = "fr", parent=None):
+    def __init__(
+        self,
+        layers: List[LayerConfig],
+        lang: str = "fr",
+        parent=None,
+        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+    ):
         super().__init__(parent)
         self.lang = lang
         self.setWindowTitle(tr(self.lang, "dlg_layers_title"))
         self.resize(550, 500)
 
         self.layers: List[LayerConfig] = copy.deepcopy(layers)
+        self.pitch_mm_per_tooth: float = pitch_mm_per_tooth
 
         self.selected_layer_idx: int = 0
         self.selected_path_idx: Optional[int] = 0  # None = layer seul
@@ -2026,7 +2079,12 @@ class LayerManagerDialog(QDialog):
         if not obj:
             return
         if kind == "layer":
-            dlg = LayerEditDialog(obj, lang=self.lang, parent=self)
+            dlg = LayerEditDialog(
+                obj,
+                lang=self.lang,
+                parent=self,
+                pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            )
         else:
             dlg = PathEditDialog(obj, lang=self.lang, parent=self)
         if dlg.exec() == QDialog.Accepted:
@@ -2257,11 +2315,21 @@ class ModularTrackEditorDialog(QDialog):
       - vue centrée sur le barycentre (via modular_tracks)
     """
 
-    def __init__(self, lang: str = "fr", parent=None):
+    def __init__(
+        self,
+        lang: str = "fr",
+        parent=None,
+        initial_notation: str = "",
+        inner_teeth: int = 96,
+        outer_teeth: int = 144,
+        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+    ):
         super().__init__(parent)
         self.lang = lang
         self.setWindowTitle(tr(self.lang, "mod_editor_title"))
         self.resize(900, 600)
+
+        self._initial_notation = initial_notation or ""
 
         self.track_view = ModularTrackView(self)
 
@@ -2284,17 +2352,17 @@ class ModularTrackEditorDialog(QDialog):
         params_layout = QHBoxLayout()
         self.inner_spin = QSpinBox()
         self.inner_spin.setRange(1, 2000)
-        self.inner_spin.setValue(96)
+        self.inner_spin.setValue(max(1, inner_teeth))
 
         self.outer_spin = QSpinBox()
         self.outer_spin.setRange(1, 4000)
-        self.outer_spin.setValue(144)
+        self.outer_spin.setValue(max(1, outer_teeth))
 
         self.pitch_spin = QDoubleSpinBox()
         self.pitch_spin.setRange(0.01, 5.0)
         self.pitch_spin.setDecimals(3)
         self.pitch_spin.setSingleStep(0.01)
-        self.pitch_spin.setValue(0.65)
+        self.pitch_spin.setValue(max(0.01, pitch_mm_per_tooth))
 
         params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_inner_teeth")))
         params_layout.addWidget(self.inner_spin)
@@ -2315,12 +2383,15 @@ class ModularTrackEditorDialog(QDialog):
         self.info_label = QLabel()
         main_layout.addWidget(self.info_label)
 
-        # Boutons OK/Annuler (ici juste "Fermer")
+        # Boutons OK/Annuler
         btn_layout = QHBoxLayout()
-        btn_close = QPushButton(tr(self.lang, "dlg_close"))
-        btn_close.clicked.connect(self.accept)
+        btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
+        btn_cancel = QPushButton(tr(self.lang, "dlg_cancel"))
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel.clicked.connect(self.reject)
         btn_layout.addStretch(1)
-        btn_layout.addWidget(btn_close)
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
         main_layout.addLayout(btn_layout)
 
         # Connexions
@@ -2330,8 +2401,11 @@ class ModularTrackEditorDialog(QDialog):
         self.pitch_spin.valueChanged.connect(self.update_track)
 
         # Valeurs initiales
-        self.notation_edit.setText("")
+        self.notation_edit.setText(self._initial_notation)
         self.update_track()
+
+    def result_notation(self) -> str:
+        return self.notation_edit.text().strip()
 
     def update_track(self):
         text = self.notation_edit.text()
@@ -2412,6 +2486,9 @@ class SpiroWindow(QWidget):
 
         # Espacement radial des trous en mm
         self.hole_spacing_mm: float = 0.65
+
+        # Espacement des dents en mm/dent
+        self.pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH
 
         # Couleur de fond
         self.bg_color: str = "#ffffff"
@@ -2595,6 +2672,7 @@ class SpiroWindow(QWidget):
             bg_color=bg_norm,
             hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
+            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
         self.load_svg(svg_data)
 
@@ -2605,7 +2683,12 @@ class SpiroWindow(QWidget):
     # ----- Actions -----
 
     def open_layer_manager(self):
-        dlg = LayerManagerDialog(self.layers, lang=self.language, parent=self)
+        dlg = LayerManagerDialog(
+            self.layers,
+            lang=self.language,
+            parent=self,
+            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+        )
         if dlg.exec() == QDialog.Accepted:
             self.layers = dlg.get_layers()
             self.update_svg()
@@ -2620,6 +2703,13 @@ class SpiroWindow(QWidget):
         spin.setValue(self.hole_spacing_mm)
         layout.addRow(tr(self.language, "spacing_label"), spin)
 
+        pitch_spin = QDoubleSpinBox()
+        pitch_spin.setRange(0.01, 5.0)
+        pitch_spin.setDecimals(3)
+        pitch_spin.setSingleStep(0.01)
+        pitch_spin.setValue(self.pitch_mm_per_tooth)
+        layout.addRow(tr(self.language, "teeth_spacing_label"), pitch_spin)
+
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.language, "dlg_ok"))
         btn_cancel = QPushButton(tr(self.language, "dlg_cancel"))
@@ -2631,10 +2721,15 @@ class SpiroWindow(QWidget):
 
         if dlg.exec() == QDialog.Accepted:
             self.hole_spacing_mm = spin.value()
+            self.pitch_mm_per_tooth = pitch_spin.value()
             self.update_svg()
 
     def open_modular_track_editor(self):
-        dlg = ModularTrackEditorDialog(lang=self.language, parent=self)
+        dlg = ModularTrackEditorDialog(
+            lang=self.language,
+            parent=self,
+            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+        )
         dlg.exec()
 
     def edit_bg_color(self):
@@ -2793,6 +2888,7 @@ class SpiroWindow(QWidget):
             "version": 1,
             "language": self.language,
             "hole_spacing_mm": self.hole_spacing_mm,
+            "pitch_mm_per_tooth": self.pitch_mm_per_tooth,
             "bg_color": self.bg_color,
             "canvas_width": self.canvas_width,
             "canvas_height": self.canvas_height,
@@ -2825,6 +2921,9 @@ class SpiroWindow(QWidget):
 
         self.language = data.get("language", self.language)
         self.hole_spacing_mm = float(data.get("hole_spacing_mm", self.hole_spacing_mm))
+        self.pitch_mm_per_tooth = float(
+            data.get("pitch_mm_per_tooth", self.pitch_mm_per_tooth)
+        )
         self.bg_color = data.get("bg_color", self.bg_color)
         self.canvas_width = int(data.get("canvas_width", self.canvas_width))
         self.canvas_height = int(data.get("canvas_height", self.canvas_height))
@@ -2856,6 +2955,7 @@ class SpiroWindow(QWidget):
             bg_color=self.bg_color,
             hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
+            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
 
         try:
@@ -2918,6 +3018,7 @@ class SpiroWindow(QWidget):
             bg_color=bg_norm,
             hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
+            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
 
         renderer = QSvgRenderer(QByteArray(svg_data.encode("utf-8")))
