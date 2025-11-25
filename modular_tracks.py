@@ -616,6 +616,8 @@ def generate_track_base_points(
     hole_spacing_mm: float,
     steps: int,
     relation: str = "dedans",
+    output_mode: str = "stylo",
+    wheel_phase_teeth: float = 0.0,
     inner_teeth: int = 96,
     outer_teeth: int = 144,
     pitch_mm_per_tooth: float = 0.65,
@@ -629,6 +631,13 @@ def generate_track_base_points(
       - nombre de dents de la roue mobile.
     hole_index :
       - index du trou (comme dans Gears.py).
+    output_mode :
+      - "stylo" (défaut) : renvoie le tracé du stylo.
+      - "contact" : renvoie le point de contact (centre de la piste).
+      - "centre" : renvoie la position du centre de la roue.
+    wheel_phase_teeth :
+      - décalage initial (en dents) de la roue par rapport au point 0 de la piste.
+        (positif = roue avancée vers la droite du point 0, négatif = vers la gauche)
     relation :
       - "dedans" : la roue roule côté intérieur de la piste.
       - "dehors" : la roue roule côté extérieur.
@@ -681,6 +690,10 @@ def generate_track_base_points(
 
     base_points: List[Point] = []
 
+    mode = output_mode.lower()
+    if mode not in {"stylo", "contact", "centre"}:
+        raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
+
     sign_side = -1.0 if relation == "dedans" else 1.0
 
     for i in range(steps):
@@ -695,10 +708,19 @@ def generate_track_base_points(
         cx = x_track + sign_side * nx * r_wheel
         cy = y_track + sign_side * ny * r_wheel
 
+        if mode == "centre":
+            base_points.append((cx, cy))
+            continue
+
         # approximation : on considère que la longueur parcourue sur la piste
-        # en dents est s / pitch_mm_per_tooth (s étant la distance curviligne).
-        teeth_rolled = s / pitch_mm_per_tooth
+        # en dents est s / pitch_mm_per_tooth (s étant la distance curviligne),
+        # avec un décalage initial wheel_phase_teeth.
+        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
         phi = -2.0 * math.pi * (teeth_rolled / float(wt))
+
+        if mode == "contact":
+            base_points.append((x_track, y_track))
+            continue
 
         px = cx + d * math.cos(phi)
         py = cy + d * math.sin(phi)
