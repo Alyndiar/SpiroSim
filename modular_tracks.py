@@ -44,6 +44,7 @@ class TrackBuildResult:
     total_length: float      # longueur totale (mm)
     total_teeth: float       # nombre "équivalent" de dents total (somme des pièces)
     offset_teeth: int        # décalage initial (en dents)
+    segments: List["TrackSegment"]  # segments analytiques pour retrouver la courbure locale
 
 
 @dataclass
@@ -69,6 +70,7 @@ class TrackSegment:
     kind: str              # "arc" ou "line"
     s_start: float
     s_end: float
+    side_sign: float = 0.0  # +1 = arc concave, -1 = arc convexe, 0 = segment droit
 
     # arcs
     cx: float = 0.0
@@ -180,6 +182,7 @@ def build_segments_for_parsed_track(
                     kind="line",
                     s_start=s_cur,
                     s_end=s_cur + L,
+                    side_sign=0.0,
                     x0=x0_local,
                     y0=y0_local,
                     x1=x1_local,
@@ -208,6 +211,7 @@ def build_segments_for_parsed_track(
                     kind="line",
                     s_start=s_cur,
                     s_end=s_cur + L,
+                    side_sign=0.0,
                     x0=x0,
                     y0=y0,
                     x1=x1,
@@ -293,6 +297,7 @@ def build_segments_for_parsed_track(
             kind="arc",
             s_start=s_cur,
             s_end=s_cur + L_arc,
+            side_sign=side,
             cx=cx,
             cy=cy,
             r_center=r_center,
@@ -513,6 +518,7 @@ def _build_polyline_for_parsed_track(
         total_length=total_length,
         total_teeth=total_teeth_equiv,
         offset_teeth=parsed.offset_teeth,
+        segments=segments,
     )
 
 def build_track_from_notation(
@@ -525,7 +531,7 @@ def build_track_from_notation(
     """Helper direct : parse puis construit la polyline pour une piste."""
     parsed = parse_track_notation(notation)
     if not parsed.elements:
-        return TrackBuildResult(points=[(0.0, 0.0)], total_length=0.0, total_teeth=0.0, offset_teeth=parsed.offset_teeth)
+        return TrackBuildResult(points=[(0.0, 0.0)], total_length=0.0, total_teeth=0.0, offset_teeth=parsed.offset_teeth, segments=[])
     return _build_polyline_for_parsed_track(
         parsed,
         inner_teeth=inner_teeth,
@@ -605,6 +611,64 @@ def _interpolate_on_track(
     return x, y, theta
 
 
+def _interpolate_on_segments(
+    s: float, track: TrackBuildResult
+) -> Tuple[float, float, float, Optional[TrackSegment], float]:
+    """
+    Interpolation analytique basée sur les segments, avec récupération du segment local
+    et de la courbure (0 pour une barre, ±1/r pour un arc).
+    """
+    if not track.segments:
+        cum, tangents = _precompute_length_and_tangent(track.points)
+        x, y, theta = _interpolate_on_track(s, track.points, cum, tangents)
+        return x, y, theta, None, 0.0
+
+    L = track.total_length
+    if L <= 0:
+        seg = track.segments[0]
+        if seg.kind == "line":
+            theta = math.atan2(seg.y1 - seg.y0, seg.x1 - seg.x0)
+            return seg.x0, seg.y0, theta, seg, 0.0
+        angle = seg.angle_start
+        x = seg.cx + seg.r_center * math.cos(angle)
+        y = seg.cy + seg.r_center * math.sin(angle)
+        theta = angle + seg.side_sign * (math.pi / 2.0)
+        curvature = seg.side_sign / seg.r_center if seg.r_center else 0.0
+        return x, y, theta, seg, curvature
+
+    s_mod = s % L
+    seg = track.segments[-1]
+    for candidate in track.segments:
+        if s_mod <= candidate.s_end:
+            seg = candidate
+            break
+
+    if seg.s_end <= seg.s_start:
+        if seg.kind == "line":
+            theta = math.atan2(seg.y1 - seg.y0, seg.x1 - seg.x0)
+            return seg.x0, seg.y0, theta, seg, 0.0
+        angle = seg.angle_start
+        x = seg.cx + seg.r_center * math.cos(angle)
+        y = seg.cy + seg.r_center * math.sin(angle)
+        theta = angle + seg.side_sign * (math.pi / 2.0)
+        curvature = seg.side_sign / seg.r_center if seg.r_center else 0.0
+        return x, y, theta, seg, curvature
+
+    t = (s_mod - seg.s_start) / (seg.s_end - seg.s_start)
+    if seg.kind == "line":
+        x = seg.x0 + (seg.x1 - seg.x0) * t
+        y = seg.y0 + (seg.y1 - seg.y0) * t
+        theta = math.atan2(seg.y1 - seg.y0, seg.x1 - seg.x0)
+        return x, y, theta, seg, 0.0
+
+    angle = seg.angle_start + (seg.angle_end - seg.angle_start) * t
+    x = seg.cx + seg.r_center * math.cos(angle)
+    y = seg.cy + seg.r_center * math.sin(angle)
+    theta = angle + seg.side_sign * (math.pi / 2.0)
+    curvature = seg.side_sign / seg.r_center if seg.r_center else 0.0
+    return x, y, theta, seg, curvature
+
+
 # ---------------------------------------------------------------------------
 # 5) Génération de la courbe trochoïdale le long d'une piste
 # ---------------------------------------------------------------------------
@@ -669,8 +733,12 @@ def generate_track_base_points(
     if d < 0:
         d = 0.0
 
-    cum, tangents = _precompute_length_and_tangent(track.points)
-    L = cum[-1]
+    cum: List[float] = []
+    tangents: List[float] = []
+    if not track.segments:
+        cum, tangents = _precompute_length_and_tangent(track.points)
+
+    L = track.total_length if track.total_length > 0 else (cum[-1] if cum else 0.0)
 
     # Nombre "équivalent" de dents pour la piste
     if track.total_teeth > 0:
@@ -696,9 +764,77 @@ def generate_track_base_points(
 
     sign_side = -1.0 if relation == "dedans" else 1.0
 
+    def rolling_mode(seg: Optional[TrackSegment]) -> str:
+        if seg is None or seg.kind == "line":
+            return "cycloide"
+        if seg.side_sign >= 0:
+            return "hypotrochoide" if relation == "dedans" else "epitrochoide"
+        return "epitrochoide" if relation == "dedans" else "hypotrochoide"
+
+    def rolling_factor(seg: Optional[TrackSegment]) -> float:
+        """Retourne dphi/ds pour le segment courant."""
+        if seg is None:
+            return -1.0 / r_wheel
+        if seg.kind == "line":
+            return -1.0 / r_wheel
+        R = max(seg.r_center, 1e-9)
+        mode = rolling_mode(seg)
+        if mode == "hypotrochoide":
+            return -(R - r_wheel) / (r_wheel * R)
+        return -(R + r_wheel) / (r_wheel * R)
+
+    # Pré-calcul de la contribution d'une boucle complète pour rendre phi continu
+    phi_per_lap = 0.0
+    for seg in track.segments:
+        dphi_ds = rolling_factor(seg)
+        phi_per_lap += dphi_ds * max(0.0, seg.s_end - seg.s_start)
+
+    phase_rad = -2.0 * math.pi * (float(wheel_phase_teeth) / float(wt))
+
     for i in range(steps):
         s = s_max * i / (steps - 1)
-        x_track, y_track, theta = _interpolate_on_track(s, track.points, cum, tangents)
+        if not track.segments:
+            x_track, y_track, theta = _interpolate_on_track(s, track.points, cum, tangents)
+            teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
+            phi = -2.0 * math.pi * (teeth_rolled / float(wt))
+
+            # normale vers la gauche
+            nx = -math.sin(theta)
+            ny = math.cos(theta)
+
+            cx = x_track + sign_side * nx * r_wheel
+            cy = y_track + sign_side * ny * r_wheel
+
+            if mode == "centre":
+                base_points.append((cx, cy))
+                continue
+
+            if mode == "contact":
+                base_points.append((x_track, y_track))
+                continue
+
+            px = cx + d * math.cos(phi)
+            py = cy + d * math.sin(phi)
+            base_points.append((px, py))
+            continue
+        laps = 0
+        if L > 0:
+            laps = int(s // L)
+        s_local = s - laps * L if L > 0 else 0.0
+
+        x_track, y_track, theta, seg, _ = _interpolate_on_segments(s_local, track)
+
+        # Calcul de phi en intégrant dphi/ds sur les segments
+        phi = phase_rad + phi_per_lap * laps
+        remaining = s_local
+        for seg_piece in track.segments:
+            seg_len = max(0.0, seg_piece.s_end - seg_piece.s_start)
+            if remaining > seg_len:
+                phi += rolling_factor(seg_piece) * seg_len
+                remaining -= seg_len
+            else:
+                phi += rolling_factor(seg_piece) * remaining
+                break
 
         # normale vers la gauche
         nx = -math.sin(theta)
@@ -711,12 +847,6 @@ def generate_track_base_points(
         if mode == "centre":
             base_points.append((cx, cy))
             continue
-
-        # approximation : on considère que la longueur parcourue sur la piste
-        # en dents est s / pitch_mm_per_tooth (s étant la distance curviligne),
-        # avec un décalage initial wheel_phase_teeth.
-        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
-        phi = -2.0 * math.pi * (teeth_rolled / float(wt))
 
         if mode == "contact":
             base_points.append((x_track, y_track))
