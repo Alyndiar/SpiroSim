@@ -72,6 +72,9 @@ class TrackSegment:
     s_end: float
     side_sign: float = 0.0  # +1 = arc concave, -1 = arc convexe, 0 = segment droit
 
+    # rayon de pas utilisé pour l'engrènement (inner/outer selon le signe)
+    r_pitch: float = 0.0
+
     # arcs
     cx: float = 0.0
     cy: float = 0.0
@@ -237,7 +240,6 @@ def build_segments_for_parsed_track(
 
         r_center = r_center_base
         L_arc = abs(r_center * angle)
-        teeth_here = L_arc / pitch_mm_per_tooth
 
         # côté concave/convexe : signe +/-
         # + => concave (côté "intérieur")
@@ -245,6 +247,14 @@ def build_segments_for_parsed_track(
         side = 1.0
         if elem.sign == "-":
             side = -1.0
+
+        # rayon de pas utilisé pour le comptage des dents (inner/outer)
+        r_pitch = r_inner if side > 0 else r_outer
+        teeth_here = 0.0
+        if r_pitch > 0.0:
+            teeth_here = (abs(angle_deg) / 360.0) * (
+                inner_teeth if side > 0 else outer_teeth
+            )
 
         if not first_piece_done:
             # 1ʳᵉ pièce courbe : point de départ au (0, 0)
@@ -301,6 +311,7 @@ def build_segments_for_parsed_track(
             cx=cx,
             cy=cy,
             r_center=r_center,
+            r_pitch=r_pitch if r_pitch > 0.0 else r_center,
             angle_start=alpha0,
             angle_end=alpha1,
             teeth_equiv=teeth_here,
@@ -777,7 +788,7 @@ def generate_track_base_points(
             return -1.0 / r_wheel
         if seg.kind == "line":
             return -1.0 / r_wheel
-        R = max(seg.r_center, 1e-9)
+        R = max(seg.r_pitch if seg.r_pitch > 0.0 else seg.r_center, 1e-9)
         mode = rolling_mode(seg)
         if mode == "hypotrochoide":
             return -(R - r_wheel) / (r_wheel * R)
