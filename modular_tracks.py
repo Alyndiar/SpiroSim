@@ -44,6 +44,7 @@ class TrackBuildResult:
     total_length: float      # longueur totale (mm)
     total_teeth: float       # nombre "équivalent" de dents total (somme des pièces)
     offset_teeth: int        # décalage initial (en dents)
+    teeth_progress: List[float] | None = None  # dents cumulées le long de la polyline
 
 
 @dataclass
@@ -134,6 +135,10 @@ def build_segments_for_parsed_track(
         r_center_base = 10.0
 
     # point et tangente courants (pour les pièces > 1)
+    # Orientation canonique :
+    #   - on part du point (0, 0) à l'angle 0 (vers +X)
+    #   - une rotation globale de +90° sera appliquée plus tard pour placer
+    #     le départ en haut (π/2) pour l'affichage/usages externes.
     x0 = 0.0
     y0 = 0.0
     theta = 0.0  # direction initiale (vers +X)
@@ -158,7 +163,8 @@ def build_segments_for_parsed_track(
             L = teeth_here * pitch_mm_per_tooth
 
             if not first_piece_done:
-                # 1ʳᵉ pièce droite : centrée sur (0, 0)
+                # 1ʳᵉ pièce droite : centrée sur (0, 0) et VERTICALE
+                # (cohérent avec l'orientation à angle 0 avant rotation globale)
                 x_center = 0.0
                 y_center = 0.0
 
@@ -166,10 +172,10 @@ def build_segments_for_parsed_track(
                 x_center += remaining_offset_mm
                 remaining_offset_mm = 0.0
 
-                x0_local = x_center - L / 2.0
-                x1_local = x_center + L / 2.0
-                y0_local = y_center
-                y1_local = y_center
+                x0_local = x_center
+                x1_local = x_center
+                y0_local = y_center - L / 2.0
+                y1_local = y_center + L / 2.0
 
                 seg = TrackSegment(
                     kind="line",
@@ -186,10 +192,10 @@ def build_segments_for_parsed_track(
                 s_cur += L
                 total_teeth_equiv += teeth_here
 
-                # pour la pièce suivante, on continue à partir de l’extrémité droite
+                # pour la pièce suivante, on continue à partir de l’extrémité haute
                 x0 = x1_local
                 y0 = y1_local
-                theta = 0.0  # toujours vers +X ici
+                theta = math.pi / 2.0  # vers +Y pour rester cohérent avec angle 0
 
                 first_piece_done = True
             else:
@@ -239,14 +245,14 @@ def build_segments_for_parsed_track(
 
         if not first_piece_done:
             # 1ʳᵉ pièce courbe : point de départ au (0, 0)
-            # et centre à (0, R) pour convexe, (0, -r) pour concave.
-            cx = 0.0
-            cy = r_center if elem.sign == "-" else -r_center
-
-            # angle de départ pour que le point (0,0) soit sur l’arc
-            # concave (centre en (0, -r))  -> angle +π/2 donne (0,0)
-            # convexe (centre en (0,  r))  -> angle -π/2 donne (0,0)
-            alpha0 = math.pi / 2.0 if elem.sign == "+" else -math.pi / 2.0
+            # centre sur l'axe X pour se placer à angle 0 (droite)
+            if elem.sign == "+":
+                cx = -r_center
+                alpha0 = 0.0  # vecteur centre->point = (r, 0)
+            else:
+                cx = r_center
+                alpha0 = math.pi  # vecteur centre->point = (-r, 0)
+            cy = 0.0
 
             # --- appliquer l’offset sur cette 1ʳᵉ pièce courbe ---
             if remaining_offset_mm != 0.0:
@@ -315,11 +321,22 @@ def build_segments_for_parsed_track(
     total_length = s_cur
     return segments, total_length, total_teeth_equiv
 
-def segments_to_polyline(segments: List[TrackSegment], steps_per_tooth: int) -> List[Point]:
+def segments_to_polyline(
+    segments: List[TrackSegment], steps_per_tooth: int
+) -> Tuple[List[Point], List[float]]:
     """
     Échantillonne une liste de segments analytiques en polyline centrale.
+
+    Retourne
+    -------
+    points :
+        polyline de la piste
+    teeth_progress :
+        dents cumulées au long de la polyline (mêmes longueurs que points)
     """
     points: List[Point] = []
+    teeth_progress: List[float] = []
+    cum_teeth = 0.0
 
     for seg in segments:
         if seg.s_end <= seg.s_start:
@@ -333,6 +350,7 @@ def segments_to_polyline(segments: List[TrackSegment], steps_per_tooth: int) -> 
                 x = seg.x0 + (seg.x1 - seg.x0) * t
                 y = seg.y0 + (seg.y1 - seg.y0) * t
                 points.append((x, y))
+                teeth_progress.append(cum_teeth + seg.teeth_equiv * t)
 
         elif seg.kind == "arc":
             if seg.r_center == 0.0:
@@ -345,10 +363,15 @@ def segments_to_polyline(segments: List[TrackSegment], steps_per_tooth: int) -> 
                 x = seg.cx + seg.r_center * math.cos(a)
                 y = seg.cy + seg.r_center * math.sin(a)
                 points.append((x, y))
+                teeth_progress.append(cum_teeth + seg.teeth_equiv * t)
+
+        cum_teeth += seg.teeth_equiv
 
     if not points:
         points = [(0.0, 0.0)]
-    return points
+        teeth_progress = [0.0]
+
+    return points, teeth_progress
 
 # Angles approximatifs pour les pièces courbes
 # E/F/Z : barres (ou fin de piste) définies par un nombre de dents "de rack"
@@ -359,7 +382,8 @@ PIECES = {
     "D": PieceDef("D", arc_degrees=120.0),
     "E": PieceDef("E", arc_degrees=None, straight_teeth=20.0),
     "F": PieceDef("F", arc_degrees=None, straight_teeth=56.0),
-    "Y": PieceDef("Y", arc_degrees=60.0, straight_teeth=0.0),  # jonction triple
+    # Pièce Y : jonction triple, arcs concaves de 120° (orientation gérée ailleurs)
+    "Y": PieceDef("Y", arc_degrees=120.0, straight_teeth=0.0),
     "Z": PieceDef("Z", arc_degrees=None, straight_teeth=14.0),  # end piece
 }
 
@@ -474,9 +498,8 @@ def _build_polyline_for_parsed_track(
     - Ici, on se contente de :
         * générer les segments,
         * les échantillonner en polyligne,
-        * recentrer sur le barycentre.
-
-    AUCUNE rotation globale, AUCUNE orientation canonique.
+        * recentrer sur le barycentre puis appliquer une rotation
+          globale de +90° pour positionner le départ à π/2.
     """
 
     segments, total_length, total_teeth_equiv = build_segments_for_parsed_track(
@@ -487,21 +510,28 @@ def _build_polyline_for_parsed_track(
         offset_teeth=parsed.offset_teeth,   # offset utilisé dans les segments
     )
 
-    points = segments_to_polyline(segments, steps_per_tooth)
+    points, teeth_progress = segments_to_polyline(segments, steps_per_tooth)
 
     if not points:
         points = [(0.0, 0.0)]
 
-    # --- Recentrer sur le barycentre (UNIQUEMENT ce recentrage) ---
+    # --- Recentrer sur le barycentre ---
     cx = sum(p[0] for p in points) / len(points)
     cy = sum(p[1] for p in points) / len(points)
     points = [(x - cx, y - cy) for (x, y) in points]
+
+    # --- Rotation globale de +90° pour aligner le départ à π/2 ---
+    rot = math.pi / 2.0
+    cos_r = math.cos(rot)
+    sin_r = math.sin(rot)
+    points = [(x * cos_r - y * sin_r, x * sin_r + y * cos_r) for (x, y) in points]
 
     return TrackBuildResult(
         points=points,
         total_length=total_length,
         total_teeth=total_teeth_equiv,
         offset_teeth=parsed.offset_teeth,
+        teeth_progress=teeth_progress,
     )
 
 def build_track_from_notation(
@@ -514,7 +544,13 @@ def build_track_from_notation(
     """Helper direct : parse puis construit la polyline pour une piste."""
     parsed = parse_track_notation(notation)
     if not parsed.elements:
-        return TrackBuildResult(points=[(0.0, 0.0)], total_length=0.0, total_teeth=0.0, offset_teeth=parsed.offset_teeth)
+        return TrackBuildResult(
+            points=[(0.0, 0.0)],
+            total_length=0.0,
+            total_teeth=0.0,
+            offset_teeth=parsed.offset_teeth,
+            teeth_progress=[0.0],
+        )
     return _build_polyline_for_parsed_track(
         parsed,
         inner_teeth=inner_teeth,
@@ -551,6 +587,71 @@ def _precompute_length_and_tangent(points: List[Point]):
         cum.append(total)
         tangents.append(math.atan2(dy, dx))
     return cum, tangents
+
+
+def _prepare_teeth_profile(
+    points: List[Point],
+    teeth_progress: Optional[List[float]],
+    total_teeth: float,
+    total_length: float,
+    pitch_mm_per_tooth: float,
+):
+    """
+    Garantit une liste de dents cumulées alignée sur la polyline.
+
+    Si aucune progression n'est fournie (ancien format), on reconstruit une
+    approximation linéaire basée sur la longueur totale.
+    """
+
+    if teeth_progress and len(teeth_progress) == len(points):
+        return teeth_progress
+
+    if total_length <= 0 or not points:
+        return [0.0]
+
+    # fallback : interpolation linéaire des dents sur la longueur
+    nb_points = len(points)
+    teeth: List[float] = []
+    total_teeth_span = total_teeth if total_teeth > 0 else total_length / pitch_mm_per_tooth
+    for i in range(nb_points):
+        t = i / max(1, nb_points - 1)
+        teeth.append(total_teeth_span * t)
+    return teeth
+
+
+def _interpolate_scalar_on_track(
+    s: float, cum: List[float], values: List[float], default_value: float
+) -> float:
+    """Interpole un scalaire le long d'une polyline, en bouclant sur la longueur."""
+    if not values or len(values) != len(cum):
+        L = cum[-1] if cum else 0.0
+        if L <= 0:
+            return default_value
+        return default_value * (s % L) / L
+
+    if not cum:
+        return values[0]
+
+    L = cum[-1]
+    if L <= 0:
+        return values[0]
+
+    s = s % L
+
+    i = 1
+    n = len(cum)
+    while i < n and cum[i] < s:
+        i += 1
+    if i >= n:
+        i = n - 1
+
+    s0 = cum[i - 1]
+    s1 = cum[i]
+    if s1 <= s0:
+        return values[i]
+
+    t = (s - s0) / (s1 - s0)
+    return values[i - 1] + (values[i] - values[i - 1]) * t
 
 
 def _interpolate_on_track(
@@ -605,6 +706,8 @@ def generate_track_base_points(
     hole_spacing_mm: float,
     steps: int,
     relation: str = "dedans",
+    output_mode: str = "stylo",
+    wheel_phase_teeth: float = 0.0,
     inner_teeth: int = 96,
     outer_teeth: int = 144,
     pitch_mm_per_tooth: float = 0.65,
@@ -618,6 +721,13 @@ def generate_track_base_points(
       - nombre de dents de la roue mobile.
     hole_index :
       - index du trou (comme dans Gears.py).
+    output_mode :
+      - "stylo" (défaut) : renvoie le tracé du stylo.
+      - "contact" : renvoie le point de contact (centre de la piste).
+      - "centre" : renvoie la position du centre de la roue.
+    wheel_phase_teeth :
+      - décalage initial (en dents) de la roue par rapport au point 0 de la piste.
+        (positif = roue avancée vers la droite du point 0, négatif = vers la gauche)
     relation :
       - "dedans" : la roue roule côté intérieur de la piste.
       - "dehors" : la roue roule côté extérieur.
@@ -650,6 +760,13 @@ def generate_track_base_points(
         d = 0.0
 
     cum, tangents = _precompute_length_and_tangent(track.points)
+    teeth_profile = _prepare_teeth_profile(
+        track.points,
+        track.teeth_progress,
+        track.total_teeth,
+        track.total_length,
+        pitch_mm_per_tooth,
+    )
     L = cum[-1]
 
     # Nombre "équivalent" de dents pour la piste
@@ -670,6 +787,10 @@ def generate_track_base_points(
 
     base_points: List[Point] = []
 
+    mode = output_mode.lower()
+    if mode not in {"stylo", "contact", "centre"}:
+        raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
+
     sign_side = -1.0 if relation == "dedans" else 1.0
 
     for i in range(steps):
@@ -684,10 +805,22 @@ def generate_track_base_points(
         cx = x_track + sign_side * nx * r_wheel
         cy = y_track + sign_side * ny * r_wheel
 
-        # approximation : on considère que la longueur parcourue sur la piste
-        # en dents est s / pitch_mm_per_tooth (s étant la distance curviligne).
-        teeth_rolled = s / pitch_mm_per_tooth
+        if mode == "centre":
+            base_points.append((cx, cy))
+            continue
+
+        # on interpole la phase d'engrènement le long de la piste (dents cumulées)
+        # puis on applique l'offset initial de la roue.
+        default_teeth_span = track.total_teeth if track.total_teeth > 0 else L / pitch_mm_per_tooth
+        teeth_on_track = _interpolate_scalar_on_track(
+            s, cum, teeth_profile, default_value=default_teeth_span
+        )
+        teeth_rolled = teeth_on_track + float(wheel_phase_teeth)
         phi = -2.0 * math.pi * (teeth_rolled / float(wt))
+
+        if mode == "contact":
+            base_points.append((x_track, y_track))
+            continue
 
         px = cx + d * math.cos(phi)
         py = cy + d * math.sin(phi)
