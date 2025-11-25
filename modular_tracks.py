@@ -45,6 +45,7 @@ class TrackBuildResult:
     total_teeth: float       # nombre "équivalent" de dents total (somme des pièces)
     offset_teeth: int        # décalage initial (en dents)
     segments: List["TrackSegment"]  # segments analytiques pour retrouver la courbure locale
+    pieces: List["PieceUsage"] = field(default_factory=list)
 
 
 @dataclass
@@ -64,6 +65,22 @@ class PieceDef:
     arc_degrees: Optional[float] = None
     straight_teeth: float = 0.0
 
+
+@dataclass
+class PieceUsage:
+    """Instance construite d'une pièce modulaire avec ses métriques utiles."""
+
+    name: str
+    sign: str
+    kind: str  # "arc" ou "line"
+    arc_degrees: Optional[float]
+    length_mm: float
+    teeth_equiv: float
+    s_start: float
+    s_end: float
+    r_pitch: Optional[float] = None
+    r_center: Optional[float] = None
+
 # Segments analytiques de la piste (centre)
 @dataclass
 class TrackSegment:
@@ -71,6 +88,7 @@ class TrackSegment:
     s_start: float
     s_end: float
     side_sign: float = 0.0  # +1 = arc concave, -1 = arc convexe, 0 = segment droit
+    piece_name: Optional[str] = None
 
     # rayon de pas utilisé pour l'engrènement (inner/outer selon le signe)
     r_pitch: float = 0.0
@@ -97,7 +115,7 @@ def build_segments_for_parsed_track(
     outer_teeth: float,
     pitch_mm_per_tooth: float,
     offset_teeth: float = 0.0,
-) -> Tuple[List[TrackSegment], float, float]:
+) -> Tuple[List[TrackSegment], List[PieceUsage], float, float]:
     """
     Construit des segments analytiques (arcs / lignes) pour la piste.
 
@@ -119,6 +137,7 @@ def build_segments_for_parsed_track(
     """
 
     segments: List[TrackSegment] = []
+    pieces: List[PieceUsage] = []
     s_cur = 0.0
     total_teeth_equiv = 0.0
 
@@ -156,6 +175,7 @@ def build_segments_for_parsed_track(
             continue
 
         pdef = PIECES[elem.piece_name]
+        sign_char = elem.sign or "+"
 
         # -------------------------
         # PIÈCES DROITES (E, F, Z…)
@@ -186,6 +206,7 @@ def build_segments_for_parsed_track(
                     s_start=s_cur,
                     s_end=s_cur + L,
                     side_sign=0.0,
+                    piece_name=pdef.name,
                     x0=x0_local,
                     y0=y0_local,
                     x1=x1_local,
@@ -193,6 +214,19 @@ def build_segments_for_parsed_track(
                     teeth_equiv=teeth_here,
                 )
                 segments.append(seg)
+
+                pieces.append(
+                    PieceUsage(
+                        name=pdef.name,
+                        sign=sign_char,
+                        kind="line",
+                        arc_degrees=None,
+                        length_mm=L,
+                        teeth_equiv=teeth_here,
+                        s_start=s_cur,
+                        s_end=s_cur + L,
+                    )
+                )
 
                 s_cur += L
                 total_teeth_equiv += teeth_here
@@ -215,6 +249,7 @@ def build_segments_for_parsed_track(
                     s_start=s_cur,
                     s_end=s_cur + L,
                     side_sign=0.0,
+                    piece_name=pdef.name,
                     x0=x0,
                     y0=y0,
                     x1=x1,
@@ -222,6 +257,19 @@ def build_segments_for_parsed_track(
                     teeth_equiv=teeth_here,
                 )
                 segments.append(seg)
+
+                pieces.append(
+                    PieceUsage(
+                        name=pdef.name,
+                        sign=sign_char,
+                        kind="line",
+                        arc_degrees=None,
+                        length_mm=L,
+                        teeth_equiv=teeth_here,
+                        s_start=s_cur,
+                        s_end=s_cur + L,
+                    )
+                )
 
                 s_cur += L
                 total_teeth_equiv += teeth_here
@@ -308,6 +356,7 @@ def build_segments_for_parsed_track(
             s_start=s_cur,
             s_end=s_cur + L_arc,
             side_sign=side,
+            piece_name=pdef.name,
             cx=cx,
             cy=cy,
             r_center=r_center,
@@ -317,6 +366,21 @@ def build_segments_for_parsed_track(
             teeth_equiv=teeth_here,
         )
         segments.append(seg)
+
+        pieces.append(
+            PieceUsage(
+                name=pdef.name,
+                sign=sign_char,
+                kind="arc",
+                arc_degrees=angle_deg,
+                length_mm=L_arc,
+                teeth_equiv=teeth_here,
+                s_start=s_cur,
+                s_end=s_cur + L_arc,
+                r_pitch=r_pitch if r_pitch > 0.0 else None,
+                r_center=r_center,
+            )
+        )
 
         s_cur += L_arc
         total_teeth_equiv += teeth_here
@@ -334,7 +398,7 @@ def build_segments_for_parsed_track(
         first_piece_done = True
 
     total_length = s_cur
-    return segments, total_length, total_teeth_equiv
+    return segments, pieces, total_length, total_teeth_equiv
 
 def segments_to_polyline(segments: List[TrackSegment], steps_per_tooth: int) -> List[Point]:
     """
@@ -384,6 +448,53 @@ PIECES = {
     "Y": PieceDef("Y", arc_degrees=120.0, straight_teeth=0.0),
     "Z": PieceDef("Z", arc_degrees=None, straight_teeth=14.0),  # end piece
 }
+
+
+def describe_track_pieces(track: TrackBuildResult) -> List[str]:
+    """Renvoie une description textuelle des pièces utilisées pour une piste."""
+
+    descriptions: List[str] = []
+    for idx, p in enumerate(track.pieces, start=1):
+        face = "concave/intérieur" if p.sign == "+" else "convexe/extérieur"
+        teeth_txt = f"{p.teeth_equiv:.3f} dents équiv."
+        length_txt = f"{p.length_mm:.2f} mm"
+
+        if p.kind == "arc":
+            arc_txt = f"{p.arc_degrees:g}°" if p.arc_degrees is not None else "?°"
+            pitch_txt = f", r_pitch={p.r_pitch:.3f} mm" if p.r_pitch else ""
+            center_txt = f", r_centre={p.r_center:.3f} mm" if p.r_center else ""
+            desc = (
+                f"{idx:02d}. {p.sign}{p.name} (arc {arc_txt}, {face}): "
+                f"{teeth_txt}, {length_txt}{pitch_txt}{center_txt}"
+            )
+        else:
+            desc = f"{idx:02d}. {p.sign}{p.name} (barre): {teeth_txt}, {length_txt}"
+
+        descriptions.append(desc)
+
+    return descriptions
+
+
+def describe_notation(
+    notation: str,
+    inner_teeth: int = 96,
+    outer_teeth: int = 144,
+    pitch_mm_per_tooth: float = 0.65,
+) -> List[str]:
+    """
+    Construit la piste puis retourne la liste des pièces décrites texte.
+
+    Utile pour déboguer un tracé sans passer par l'interface graphique.
+    """
+
+    track = build_track_from_notation(
+        notation,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+        steps_per_tooth=1,
+    )
+    return describe_track_pieces(track)
 
 
 @dataclass
@@ -500,7 +611,12 @@ def _build_polyline_for_parsed_track(
           globale de +90° pour positionner le départ à π/2.
     """
 
-    segments, total_length, total_teeth_equiv = build_segments_for_parsed_track(
+    (
+        segments,
+        pieces,
+        total_length,
+        total_teeth_equiv,
+    ) = build_segments_for_parsed_track(
         parsed,
         inner_teeth=inner_teeth,
         outer_teeth=outer_teeth,
@@ -530,6 +646,7 @@ def _build_polyline_for_parsed_track(
         total_teeth=total_teeth_equiv,
         offset_teeth=parsed.offset_teeth,
         segments=segments,
+        pieces=pieces,
     )
 
 def build_track_from_notation(
@@ -542,7 +659,14 @@ def build_track_from_notation(
     """Helper direct : parse puis construit la polyline pour une piste."""
     parsed = parse_track_notation(notation)
     if not parsed.elements:
-        return TrackBuildResult(points=[(0.0, 0.0)], total_length=0.0, total_teeth=0.0, offset_teeth=parsed.offset_teeth, segments=[])
+        return TrackBuildResult(
+            points=[(0.0, 0.0)],
+            total_length=0.0,
+            total_teeth=0.0,
+            offset_teeth=parsed.offset_teeth,
+            segments=[],
+            pieces=[],
+        )
     return _build_polyline_for_parsed_track(
         parsed,
         inner_teeth=inner_teeth,
