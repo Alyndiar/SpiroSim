@@ -124,7 +124,7 @@ def build_segments_for_parsed_track(
       - 1ʳᵉ pièce courbe :
             * convexe  (signe '-') -> centre de l’arc (0, R)
             * concave  (signe '+') -> centre de l’arc (0, -r)
-        où R/r = rayon de la piste centrale (r_center_base).
+        où R/r = rayon de la piste centrale (r_pitch_base).
       - 1ʳᵉ pièce droite (barre E/F/Z) :
             * centrée sur (0, 0) : de -L/2 à +L/2 sur l’axe X.
 
@@ -141,7 +141,7 @@ def build_segments_for_parsed_track(
     s_cur = 0.0
     total_teeth_equiv = 0.0
 
-    # Rayons inner / outer, puis rayon de la piste centrale
+    # Rayons inner / outer, puis rayon de pas (commun à toutes les pièces)
     if inner_teeth > 0:
         r_inner = inner_teeth * pitch_mm_per_tooth / (2.0 * math.pi)
     else:
@@ -152,10 +152,10 @@ def build_segments_for_parsed_track(
         r_outer = r_inner
 
     if r_inner > 0 or r_outer > 0:
-        r_center_base = 0.5 * (r_inner + r_outer)
+        r_pitch_base = 0.5 * (r_inner + r_outer)
     else:
         # valeur arbitraire non nulle, au cas où
-        r_center_base = 10.0
+        r_pitch_base = 10.0
 
     # point et tangente courants (pour les pièces > 1)
     # Orientation canonique :
@@ -286,9 +286,6 @@ def build_segments_for_parsed_track(
         if angle == 0.0:
             continue
 
-        r_center = r_center_base
-        L_arc = abs(r_center * angle)
-
         # côté concave/convexe : signe +/-
         # + => concave (côté "intérieur")
         # - => convexe (côté "extérieur")
@@ -296,13 +293,26 @@ def build_segments_for_parsed_track(
         if elem.sign == "-":
             side = -1.0
 
-        # rayon de pas utilisé pour le comptage des dents (inner/outer)
-        r_pitch = r_inner if side > 0 else r_outer
+        # rayon de centre : dépend du côté actif (concave -> inner, convexe -> outer)
+        if side > 0 and r_inner > 0.0:
+            r_center = r_inner
+        elif side < 0 and r_outer > 0.0:
+            r_center = r_outer
+        else:
+            r_center = r_pitch_base
+
+        # rayon de pas commun (affichage/roulage) : constant pour toute la piste
+        r_pitch = r_pitch_base
         teeth_here = 0.0
         if r_pitch > 0.0:
             teeth_here = (abs(angle_deg) / 360.0) * (
                 inner_teeth if side > 0 else outer_teeth
             )
+
+        if teeth_here > 0.0:
+            L_arc = abs(teeth_here * pitch_mm_per_tooth)
+        else:
+            L_arc = abs(r_center * angle)
 
         if not first_piece_done:
             # 1ʳᵉ pièce courbe : point de départ au (0, 0)
