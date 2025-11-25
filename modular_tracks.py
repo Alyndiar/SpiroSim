@@ -650,6 +650,28 @@ def _build_polyline_for_parsed_track(
     sin_r = math.sin(rot)
     points = [(x * cos_r - y * sin_r, x * sin_r + y * cos_r) for (x, y) in points]
 
+    def _transform_point(x: float, y: float) -> Tuple[float, float]:
+        """Applique la translation barycentrique puis la rotation globale."""
+
+        x -= cx
+        y -= cy
+        xr = x * cos_r - y * sin_r
+        yr = x * sin_r + y * cos_r
+        return xr, yr
+
+    def _rotate_angle(a: float) -> float:
+        return a + rot
+
+    # Appliquer la même transform aux segments pour garder cohérence
+    for seg in segments:
+        if seg.kind == "line":
+            seg.x0, seg.y0 = _transform_point(seg.x0, seg.y0)
+            seg.x1, seg.y1 = _transform_point(seg.x1, seg.y1)
+        else:
+            seg.cx, seg.cy = _transform_point(seg.cx, seg.cy)
+            seg.angle_start = _rotate_angle(seg.angle_start)
+            seg.angle_end = _rotate_angle(seg.angle_end)
+
     return TrackBuildResult(
         points=points,
         total_length=total_length,
