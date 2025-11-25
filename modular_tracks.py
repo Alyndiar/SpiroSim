@@ -134,6 +134,10 @@ def build_segments_for_parsed_track(
         r_center_base = 10.0
 
     # point et tangente courants (pour les pièces > 1)
+    # Orientation canonique :
+    #   - on part du point (0, 0) à l'angle 0 (vers +X)
+    #   - une rotation globale de +90° sera appliquée plus tard pour placer
+    #     le départ en haut (π/2) pour l'affichage/usages externes.
     x0 = 0.0
     y0 = 0.0
     theta = 0.0  # direction initiale (vers +X)
@@ -158,7 +162,8 @@ def build_segments_for_parsed_track(
             L = teeth_here * pitch_mm_per_tooth
 
             if not first_piece_done:
-                # 1ʳᵉ pièce droite : centrée sur (0, 0)
+                # 1ʳᵉ pièce droite : centrée sur (0, 0) et VERTICALE
+                # (cohérent avec l'orientation à angle 0 avant rotation globale)
                 x_center = 0.0
                 y_center = 0.0
 
@@ -166,10 +171,10 @@ def build_segments_for_parsed_track(
                 x_center += remaining_offset_mm
                 remaining_offset_mm = 0.0
 
-                x0_local = x_center - L / 2.0
-                x1_local = x_center + L / 2.0
-                y0_local = y_center
-                y1_local = y_center
+                x0_local = x_center
+                x1_local = x_center
+                y0_local = y_center - L / 2.0
+                y1_local = y_center + L / 2.0
 
                 seg = TrackSegment(
                     kind="line",
@@ -186,10 +191,10 @@ def build_segments_for_parsed_track(
                 s_cur += L
                 total_teeth_equiv += teeth_here
 
-                # pour la pièce suivante, on continue à partir de l’extrémité droite
+                # pour la pièce suivante, on continue à partir de l’extrémité haute
                 x0 = x1_local
                 y0 = y1_local
-                theta = 0.0  # toujours vers +X ici
+                theta = math.pi / 2.0  # vers +Y pour rester cohérent avec angle 0
 
                 first_piece_done = True
             else:
@@ -239,14 +244,14 @@ def build_segments_for_parsed_track(
 
         if not first_piece_done:
             # 1ʳᵉ pièce courbe : point de départ au (0, 0)
-            # et centre à (0, R) pour convexe, (0, -r) pour concave.
-            cx = 0.0
-            cy = r_center if elem.sign == "-" else -r_center
-
-            # angle de départ pour que le point (0,0) soit sur l’arc
-            # concave (centre en (0, -r))  -> angle +π/2 donne (0,0)
-            # convexe (centre en (0,  r))  -> angle -π/2 donne (0,0)
-            alpha0 = math.pi / 2.0 if elem.sign == "+" else -math.pi / 2.0
+            # centre sur l'axe X pour se placer à angle 0 (droite)
+            if elem.sign == "+":
+                cx = -r_center
+                alpha0 = 0.0  # vecteur centre->point = (r, 0)
+            else:
+                cx = r_center
+                alpha0 = math.pi  # vecteur centre->point = (-r, 0)
+            cy = 0.0
 
             # --- appliquer l’offset sur cette 1ʳᵉ pièce courbe ---
             if remaining_offset_mm != 0.0:
@@ -359,7 +364,8 @@ PIECES = {
     "D": PieceDef("D", arc_degrees=120.0),
     "E": PieceDef("E", arc_degrees=None, straight_teeth=20.0),
     "F": PieceDef("F", arc_degrees=None, straight_teeth=56.0),
-    "Y": PieceDef("Y", arc_degrees=60.0, straight_teeth=0.0),  # jonction triple
+    # Pièce Y : jonction triple, arcs concaves de 120° (orientation gérée ailleurs)
+    "Y": PieceDef("Y", arc_degrees=120.0, straight_teeth=0.0),
     "Z": PieceDef("Z", arc_degrees=None, straight_teeth=14.0),  # end piece
 }
 
@@ -474,9 +480,8 @@ def _build_polyline_for_parsed_track(
     - Ici, on se contente de :
         * générer les segments,
         * les échantillonner en polyligne,
-        * recentrer sur le barycentre.
-
-    AUCUNE rotation globale, AUCUNE orientation canonique.
+        * recentrer sur le barycentre puis appliquer une rotation
+          globale de +90° pour positionner le départ à π/2.
     """
 
     segments, total_length, total_teeth_equiv = build_segments_for_parsed_track(
@@ -492,10 +497,16 @@ def _build_polyline_for_parsed_track(
     if not points:
         points = [(0.0, 0.0)]
 
-    # --- Recentrer sur le barycentre (UNIQUEMENT ce recentrage) ---
+    # --- Recentrer sur le barycentre ---
     cx = sum(p[0] for p in points) / len(points)
     cy = sum(p[1] for p in points) / len(points)
     points = [(x - cx, y - cy) for (x, y) in points]
+
+    # --- Rotation globale de +90° pour aligner le départ à π/2 ---
+    rot = math.pi / 2.0
+    cos_r = math.cos(rot)
+    sin_r = math.sin(rot)
+    points = [(x * cos_r - y * sin_r, x * sin_r + y * cos_r) for (x, y) in points]
 
     return TrackBuildResult(
         points=points,
