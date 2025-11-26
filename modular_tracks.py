@@ -929,12 +929,29 @@ def generate_track_base_points(
     if mode not in {"stylo", "contact", "centre"}:
         raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
 
-    def normal_multiplier(seg: Optional[TrackSegment]) -> float:
-        """Choisit le côté de la normale selon la relation et la concavité locale."""
-        if seg is None or seg.kind != "arc" or seg.side_sign == 0:
-            return -1.0 if relation == "dedans" else 1.0
-        # concave (+) : normale gauche pointe vers le centre ; convexe (-) : gauche pointe vers l'extérieur
-        return seg.side_sign if relation == "dedans" else -seg.side_sign
+    def relation_normal(x: float, y: float, theta: float) -> Tuple[float, float]:
+        """Normalisée vers (0, 0) pour "dedans", inversée pour "dehors"."""
+
+        # vecteur vers le barycentre (0, 0)
+        nx = -x
+        ny = -y
+        nlen = math.hypot(nx, ny)
+
+        # en cas de point trop proche du centre, on retombe sur la normale géométrique
+        if nlen < 1e-9:
+            nx = -math.sin(theta)
+            ny = math.cos(theta)
+            nlen = math.hypot(nx, ny)
+
+        if nlen > 0.0:
+            nx /= nlen
+            ny /= nlen
+
+        if relation == "dehors":
+            nx = -nx
+            ny = -ny
+
+        return nx, ny
 
     def rolling_mode(seg: Optional[TrackSegment]) -> str:
         if seg is None or seg.kind == "line":
@@ -970,10 +987,8 @@ def generate_track_base_points(
             teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
             phi = -2.0 * math.pi * (teeth_rolled / float(wt))
 
-            # normale selon la relation et la concavité (fallback gauche/droite par défaut)
-            n_mult = normal_multiplier(None)
-            nx = n_mult * -math.sin(theta)
-            ny = n_mult * math.cos(theta)
+            # normale orientée vers le barycentre (0, 0) ou à l'opposé selon la relation
+            nx, ny = relation_normal(x_track, y_track, theta)
 
             cx = x_track + nx * r_wheel
             cy = y_track + ny * r_wheel
@@ -1009,10 +1024,8 @@ def generate_track_base_points(
                 phi += rolling_factor(seg_piece) * remaining
                 break
 
-        # normale selon la relation et la concavité locale
-        n_mult = normal_multiplier(seg)
-        nx = n_mult * -math.sin(theta)
-        ny = n_mult * math.cos(theta)
+        # normale orientée vers le barycentre (0, 0) ou à l'opposé selon la relation
+        nx, ny = relation_normal(x_track, y_track, theta)
 
         # centre de la roue : dedans/dehors selon sign_side
         cx = x_track + nx * r_wheel
