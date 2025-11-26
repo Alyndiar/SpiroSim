@@ -26,7 +26,7 @@ Hypothèses / simplifications :
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
 Point = Tuple[float, float]
@@ -44,8 +44,6 @@ class TrackBuildResult:
     total_length: float      # longueur totale (mm)
     total_teeth: float       # nombre "équivalent" de dents total (somme des pièces)
     offset_teeth: int        # décalage initial (en dents)
-    segments: List["TrackSegment"]  # segments analytiques pour retrouver la courbure locale
-    pieces: List["PieceUsage"] = field(default_factory=list)
 
 
 @dataclass
@@ -65,33 +63,12 @@ class PieceDef:
     arc_degrees: Optional[float] = None
     straight_teeth: float = 0.0
 
-
-@dataclass
-class PieceUsage:
-    """Instance construite d'une pièce modulaire avec ses métriques utiles."""
-
-    name: str
-    sign: str
-    kind: str  # "arc" ou "line"
-    arc_degrees: Optional[float]
-    length_mm: float
-    teeth_equiv: float
-    s_start: float
-    s_end: float
-    r_pitch: Optional[float] = None
-    r_center: Optional[float] = None
-
 # Segments analytiques de la piste (centre)
 @dataclass
 class TrackSegment:
     kind: str              # "arc" ou "line"
     s_start: float
     s_end: float
-    side_sign: float = 0.0  # +1 = arc concave, -1 = arc convexe, 0 = segment droit
-    piece_name: Optional[str] = None
-
-    # rayon de pas utilisé pour l'engrènement (inner/outer selon le signe)
-    r_pitch: float = 0.0
 
     # arcs
     cx: float = 0.0
@@ -115,7 +92,7 @@ def build_segments_for_parsed_track(
     outer_teeth: float,
     pitch_mm_per_tooth: float,
     offset_teeth: float = 0.0,
-) -> Tuple[List[TrackSegment], List[PieceUsage], float, float]:
+) -> Tuple[List[TrackSegment], float, float]:
     """
     Construit des segments analytiques (arcs / lignes) pour la piste.
 
@@ -124,7 +101,7 @@ def build_segments_for_parsed_track(
       - 1ʳᵉ pièce courbe :
             * convexe  (signe '-') -> centre de l’arc (0, R)
             * concave  (signe '+') -> centre de l’arc (0, -r)
-        où R/r = rayon de la piste centrale (r_pitch_base).
+        où R/r = rayon de la piste centrale (r_center_base).
       - 1ʳᵉ pièce droite (barre E/F/Z) :
             * centrée sur (0, 0) : de -L/2 à +L/2 sur l’axe X.
 
@@ -137,11 +114,10 @@ def build_segments_for_parsed_track(
     """
 
     segments: List[TrackSegment] = []
-    pieces: List[PieceUsage] = []
     s_cur = 0.0
     total_teeth_equiv = 0.0
 
-    # Rayons inner / outer, puis rayon de pas (commun à toutes les pièces)
+    # Rayons inner / outer, puis rayon de la piste centrale
     if inner_teeth > 0:
         r_inner = inner_teeth * pitch_mm_per_tooth / (2.0 * math.pi)
     else:
@@ -152,10 +128,10 @@ def build_segments_for_parsed_track(
         r_outer = r_inner
 
     if r_inner > 0 or r_outer > 0:
-        r_pitch_base = 0.5 * (r_inner + r_outer)
+        r_center_base = 0.5 * (r_inner + r_outer)
     else:
         # valeur arbitraire non nulle, au cas où
-        r_pitch_base = 10.0
+        r_center_base = 10.0
 
     # point et tangente courants (pour les pièces > 1)
     # Orientation canonique :
@@ -175,7 +151,6 @@ def build_segments_for_parsed_track(
             continue
 
         pdef = PIECES[elem.piece_name]
-        sign_char = elem.sign or "+"
 
         # -------------------------
         # PIÈCES DROITES (E, F, Z…)
@@ -205,8 +180,6 @@ def build_segments_for_parsed_track(
                     kind="line",
                     s_start=s_cur,
                     s_end=s_cur + L,
-                    side_sign=0.0,
-                    piece_name=pdef.name,
                     x0=x0_local,
                     y0=y0_local,
                     x1=x1_local,
@@ -214,19 +187,6 @@ def build_segments_for_parsed_track(
                     teeth_equiv=teeth_here,
                 )
                 segments.append(seg)
-
-                pieces.append(
-                    PieceUsage(
-                        name=pdef.name,
-                        sign=sign_char,
-                        kind="line",
-                        arc_degrees=None,
-                        length_mm=L,
-                        teeth_equiv=teeth_here,
-                        s_start=s_cur,
-                        s_end=s_cur + L,
-                    )
-                )
 
                 s_cur += L
                 total_teeth_equiv += teeth_here
@@ -248,8 +208,6 @@ def build_segments_for_parsed_track(
                     kind="line",
                     s_start=s_cur,
                     s_end=s_cur + L,
-                    side_sign=0.0,
-                    piece_name=pdef.name,
                     x0=x0,
                     y0=y0,
                     x1=x1,
@@ -257,19 +215,6 @@ def build_segments_for_parsed_track(
                     teeth_equiv=teeth_here,
                 )
                 segments.append(seg)
-
-                pieces.append(
-                    PieceUsage(
-                        name=pdef.name,
-                        sign=sign_char,
-                        kind="line",
-                        arc_degrees=None,
-                        length_mm=L,
-                        teeth_equiv=teeth_here,
-                        s_start=s_cur,
-                        s_end=s_cur + L,
-                    )
-                )
 
                 s_cur += L
                 total_teeth_equiv += teeth_here
@@ -286,33 +231,16 @@ def build_segments_for_parsed_track(
         if angle == 0.0:
             continue
 
+        r_center = r_center_base
+        L_arc = abs(r_center * angle)
+        teeth_here = L_arc / pitch_mm_per_tooth
+
         # côté concave/convexe : signe +/-
         # + => concave (côté "intérieur")
         # - => convexe (côté "extérieur")
         side = 1.0
         if elem.sign == "-":
             side = -1.0
-
-        # rayon de centre : dépend du côté actif (concave -> inner, convexe -> outer)
-        if side > 0 and r_inner > 0.0:
-            r_center = r_inner
-        elif side < 0 and r_outer > 0.0:
-            r_center = r_outer
-        else:
-            r_center = r_pitch_base
-
-        # rayon de pas commun (affichage/roulage) : constant pour toute la piste
-        r_pitch = r_pitch_base
-        teeth_here = 0.0
-        if r_pitch > 0.0:
-            teeth_here = (abs(angle_deg) / 360.0) * (
-                inner_teeth if side > 0 else outer_teeth
-            )
-
-        if teeth_here > 0.0:
-            L_arc = abs(teeth_here * pitch_mm_per_tooth)
-        else:
-            L_arc = abs(r_center * angle)
 
         if not first_piece_done:
             # 1ʳᵉ pièce courbe : point de départ au (0, 0)
@@ -365,32 +293,14 @@ def build_segments_for_parsed_track(
             kind="arc",
             s_start=s_cur,
             s_end=s_cur + L_arc,
-            side_sign=side,
-            piece_name=pdef.name,
             cx=cx,
             cy=cy,
             r_center=r_center,
-            r_pitch=r_pitch if r_pitch > 0.0 else r_center,
             angle_start=alpha0,
             angle_end=alpha1,
             teeth_equiv=teeth_here,
         )
         segments.append(seg)
-
-        pieces.append(
-            PieceUsage(
-                name=pdef.name,
-                sign=sign_char,
-                kind="arc",
-                arc_degrees=angle_deg,
-                length_mm=L_arc,
-                teeth_equiv=teeth_here,
-                s_start=s_cur,
-                s_end=s_cur + L_arc,
-                r_pitch=r_pitch if r_pitch > 0.0 else None,
-                r_center=r_center,
-            )
-        )
 
         s_cur += L_arc
         total_teeth_equiv += teeth_here
@@ -408,7 +318,7 @@ def build_segments_for_parsed_track(
         first_piece_done = True
 
     total_length = s_cur
-    return segments, pieces, total_length, total_teeth_equiv
+    return segments, total_length, total_teeth_equiv
 
 def segments_to_polyline(segments: List[TrackSegment], steps_per_tooth: int) -> List[Point]:
     """
@@ -458,53 +368,6 @@ PIECES = {
     "Y": PieceDef("Y", arc_degrees=120.0, straight_teeth=0.0),
     "Z": PieceDef("Z", arc_degrees=None, straight_teeth=14.0),  # end piece
 }
-
-
-def describe_track_pieces(track: TrackBuildResult) -> List[str]:
-    """Renvoie une description textuelle des pièces utilisées pour une piste."""
-
-    descriptions: List[str] = []
-    for idx, p in enumerate(track.pieces, start=1):
-        face = "concave/intérieur" if p.sign == "+" else "convexe/extérieur"
-        teeth_txt = f"{p.teeth_equiv:.3f} dents équiv."
-        length_txt = f"{p.length_mm:.2f} mm"
-
-        if p.kind == "arc":
-            arc_txt = f"{p.arc_degrees:g}°" if p.arc_degrees is not None else "?°"
-            pitch_txt = f", r_pitch={p.r_pitch:.3f} mm" if p.r_pitch else ""
-            center_txt = f", r_centre={p.r_center:.3f} mm" if p.r_center else ""
-            desc = (
-                f"{idx:02d}. {p.sign}{p.name} (arc {arc_txt}, {face}): "
-                f"{teeth_txt}, {length_txt}{pitch_txt}{center_txt}"
-            )
-        else:
-            desc = f"{idx:02d}. {p.sign}{p.name} (barre): {teeth_txt}, {length_txt}"
-
-        descriptions.append(desc)
-
-    return descriptions
-
-
-def describe_notation(
-    notation: str,
-    inner_teeth: int = 96,
-    outer_teeth: int = 144,
-    pitch_mm_per_tooth: float = 0.65,
-) -> List[str]:
-    """
-    Construit la piste puis retourne la liste des pièces décrites texte.
-
-    Utile pour déboguer un tracé sans passer par l'interface graphique.
-    """
-
-    track = build_track_from_notation(
-        notation,
-        inner_teeth=inner_teeth,
-        outer_teeth=outer_teeth,
-        pitch_mm_per_tooth=pitch_mm_per_tooth,
-        steps_per_tooth=1,
-    )
-    return describe_track_pieces(track)
 
 
 @dataclass
@@ -621,12 +484,7 @@ def _build_polyline_for_parsed_track(
           globale de +90° pour positionner le départ à π/2.
     """
 
-    (
-        segments,
-        pieces,
-        total_length,
-        total_teeth_equiv,
-    ) = build_segments_for_parsed_track(
+    segments, total_length, total_teeth_equiv = build_segments_for_parsed_track(
         parsed,
         inner_teeth=inner_teeth,
         outer_teeth=outer_teeth,
@@ -650,35 +508,11 @@ def _build_polyline_for_parsed_track(
     sin_r = math.sin(rot)
     points = [(x * cos_r - y * sin_r, x * sin_r + y * cos_r) for (x, y) in points]
 
-    def _transform_point(x: float, y: float) -> Tuple[float, float]:
-        """Applique la translation barycentrique puis la rotation globale."""
-
-        x -= cx
-        y -= cy
-        xr = x * cos_r - y * sin_r
-        yr = x * sin_r + y * cos_r
-        return xr, yr
-
-    def _rotate_angle(a: float) -> float:
-        return a + rot
-
-    # Appliquer la même transform aux segments pour garder cohérence
-    for seg in segments:
-        if seg.kind == "line":
-            seg.x0, seg.y0 = _transform_point(seg.x0, seg.y0)
-            seg.x1, seg.y1 = _transform_point(seg.x1, seg.y1)
-        else:
-            seg.cx, seg.cy = _transform_point(seg.cx, seg.cy)
-            seg.angle_start = _rotate_angle(seg.angle_start)
-            seg.angle_end = _rotate_angle(seg.angle_end)
-
     return TrackBuildResult(
         points=points,
         total_length=total_length,
         total_teeth=total_teeth_equiv,
         offset_teeth=parsed.offset_teeth,
-        segments=segments,
-        pieces=pieces,
     )
 
 def build_track_from_notation(
@@ -691,14 +525,7 @@ def build_track_from_notation(
     """Helper direct : parse puis construit la polyline pour une piste."""
     parsed = parse_track_notation(notation)
     if not parsed.elements:
-        return TrackBuildResult(
-            points=[(0.0, 0.0)],
-            total_length=0.0,
-            total_teeth=0.0,
-            offset_teeth=parsed.offset_teeth,
-            segments=[],
-            pieces=[],
-        )
+        return TrackBuildResult(points=[(0.0, 0.0)], total_length=0.0, total_teeth=0.0, offset_teeth=parsed.offset_teeth)
     return _build_polyline_for_parsed_track(
         parsed,
         inner_teeth=inner_teeth,
@@ -778,64 +605,6 @@ def _interpolate_on_track(
     return x, y, theta
 
 
-def _interpolate_on_segments(
-    s: float, track: TrackBuildResult
-) -> Tuple[float, float, float, Optional[TrackSegment], float]:
-    """
-    Interpolation analytique basée sur les segments, avec récupération du segment local
-    et de la courbure (0 pour une barre, ±1/r pour un arc).
-    """
-    if not track.segments:
-        cum, tangents = _precompute_length_and_tangent(track.points)
-        x, y, theta = _interpolate_on_track(s, track.points, cum, tangents)
-        return x, y, theta, None, 0.0
-
-    L = track.total_length
-    if L <= 0:
-        seg = track.segments[0]
-        if seg.kind == "line":
-            theta = math.atan2(seg.y1 - seg.y0, seg.x1 - seg.x0)
-            return seg.x0, seg.y0, theta, seg, 0.0
-        angle = seg.angle_start
-        x = seg.cx + seg.r_center * math.cos(angle)
-        y = seg.cy + seg.r_center * math.sin(angle)
-        theta = angle + seg.side_sign * (math.pi / 2.0)
-        curvature = seg.side_sign / seg.r_center if seg.r_center else 0.0
-        return x, y, theta, seg, curvature
-
-    s_mod = s % L
-    seg = track.segments[-1]
-    for candidate in track.segments:
-        if s_mod <= candidate.s_end:
-            seg = candidate
-            break
-
-    if seg.s_end <= seg.s_start:
-        if seg.kind == "line":
-            theta = math.atan2(seg.y1 - seg.y0, seg.x1 - seg.x0)
-            return seg.x0, seg.y0, theta, seg, 0.0
-        angle = seg.angle_start
-        x = seg.cx + seg.r_center * math.cos(angle)
-        y = seg.cy + seg.r_center * math.sin(angle)
-        theta = angle + seg.side_sign * (math.pi / 2.0)
-        curvature = seg.side_sign / seg.r_center if seg.r_center else 0.0
-        return x, y, theta, seg, curvature
-
-    t = (s_mod - seg.s_start) / (seg.s_end - seg.s_start)
-    if seg.kind == "line":
-        x = seg.x0 + (seg.x1 - seg.x0) * t
-        y = seg.y0 + (seg.y1 - seg.y0) * t
-        theta = math.atan2(seg.y1 - seg.y0, seg.x1 - seg.x0)
-        return x, y, theta, seg, 0.0
-
-    angle = seg.angle_start + (seg.angle_end - seg.angle_start) * t
-    x = seg.cx + seg.r_center * math.cos(angle)
-    y = seg.cy + seg.r_center * math.sin(angle)
-    theta = angle + seg.side_sign * (math.pi / 2.0)
-    curvature = seg.side_sign / seg.r_center if seg.r_center else 0.0
-    return x, y, theta, seg, curvature
-
-
 # ---------------------------------------------------------------------------
 # 5) Génération de la courbe trochoïdale le long d'une piste
 # ---------------------------------------------------------------------------
@@ -900,17 +669,8 @@ def generate_track_base_points(
     if d < 0:
         d = 0.0
 
-    cum: List[float] = []
-    tangents: List[float] = []
-    x_start = y_start = theta_start = 0.0
-
-    if track.segments:
-        x_start, y_start, theta_start, _, _ = _interpolate_on_segments(0.0, track)
-    else:
-        cum, tangents = _precompute_length_and_tangent(track.points)
-        x_start, y_start, theta_start = _interpolate_on_track(0.0, track.points, cum, tangents)
-
-    L = track.total_length if track.total_length > 0 else (cum[-1] if cum else 0.0)
+    cum, tangents = _precompute_length_and_tangent(track.points)
+    L = cum[-1]
 
     # Nombre "équivalent" de dents pour la piste
     if track.total_teeth > 0:
@@ -934,129 +694,29 @@ def generate_track_base_points(
     if mode not in {"stylo", "contact", "centre"}:
         raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
 
-    def compute_base_side(theta0: float, x0: float, y0: float, rel: str) -> float:
-        """Choisit le côté initial en orientant la normale vers le barycentre."""
-
-        left_x = -math.sin(theta0)
-        left_y = math.cos(theta0)
-        to_center_x = -x0
-        to_center_y = -y0
-        dot_left_center = left_x * to_center_x + left_y * to_center_y
-
-        # Si le point de départ est très proche du barycentre, on garde le
-        # côté "gauche" par défaut et on n'inverse qu'en fonction de relation.
-        if abs(to_center_x) < 1e-6 and abs(to_center_y) < 1e-6:
-            side = 1.0
-        else:
-            side = 1.0 if dot_left_center >= 0.0 else -1.0
-
-        if rel == "dehors":
-            side *= -1.0
-        return side
-
-    base_side = compute_base_side(theta_start, x_start, y_start, relation)
-
-    def offset_side(seg: Optional[TrackSegment]) -> float:
-        """Choisit le côté d'offset en inversant pour les courbures opposées."""
-
-        sign = base_side
-        if seg is not None and seg.kind == "arc" and seg.side_sign < 0:
-            sign = -sign
-        return sign
-
-    def relation_normal(theta: float, seg: Optional[TrackSegment]) -> Tuple[float, float]:
-        """Normale dérivée de la tangente, orientée selon le côté choisi."""
-
-        sign = offset_side(seg)
-        nx = -math.sin(theta) * sign
-        ny = math.cos(theta) * sign
-        nlen = math.hypot(nx, ny)
-        if nlen > 0.0:
-            nx /= nlen
-            ny /= nlen
-        return nx, ny
-
-    def rolling_mode(seg: Optional[TrackSegment]) -> str:
-        if seg is None or seg.kind == "line":
-            return "cycloide"
-        if seg.side_sign >= 0:
-            return "hypotrochoide" if relation == "dedans" else "epitrochoide"
-        return "epitrochoide" if relation == "dedans" else "hypotrochoide"
-
-    def rolling_factor(seg: Optional[TrackSegment]) -> float:
-        """Retourne dphi/ds pour le segment courant."""
-        if seg is None:
-            return -1.0 / r_wheel
-        if seg.kind == "line":
-            return -1.0 / r_wheel
-        R = max(seg.r_pitch if seg.r_pitch > 0.0 else seg.r_center, 1e-9)
-        mode = rolling_mode(seg)
-        if mode == "hypotrochoide":
-            return -(R - r_wheel) / (r_wheel * R)
-        return -(R + r_wheel) / (r_wheel * R)
-
-    # Pré-calcul de la contribution d'une boucle complète pour rendre phi continu
-    phi_per_lap = 0.0
-    for seg in track.segments:
-        dphi_ds = rolling_factor(seg)
-        phi_per_lap += dphi_ds * max(0.0, seg.s_end - seg.s_start)
-
-    phase_rad = -2.0 * math.pi * (float(wheel_phase_teeth) / float(wt))
+    sign_side = -1.0 if relation == "dedans" else 1.0
 
     for i in range(steps):
         s = s_max * i / (steps - 1)
-        if not track.segments:
-            x_track, y_track, theta = _interpolate_on_track(s, track.points, cum, tangents)
-            teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
-            phi = -2.0 * math.pi * (teeth_rolled / float(wt))
+        x_track, y_track, theta = _interpolate_on_track(s, track.points, cum, tangents)
 
-            # normale orientée vers le barycentre (0, 0) ou à l'opposé selon la relation
-            nx, ny = relation_normal(theta, None)
-
-            cx = x_track + nx * r_wheel
-            cy = y_track + ny * r_wheel
-
-            if mode == "centre":
-                base_points.append((cx, cy))
-                continue
-
-            if mode == "contact":
-                base_points.append((x_track, y_track))
-                continue
-
-            px = cx + d * math.cos(phi)
-            py = cy + d * math.sin(phi)
-            base_points.append((px, py))
-            continue
-        laps = 0
-        if L > 0:
-            laps = int(s // L)
-        s_local = s - laps * L if L > 0 else 0.0
-
-        x_track, y_track, theta, seg, _ = _interpolate_on_segments(s_local, track)
-
-        # Calcul de phi en intégrant dphi/ds sur les segments
-        phi = phase_rad + phi_per_lap * laps
-        remaining = s_local
-        for seg_piece in track.segments:
-            seg_len = max(0.0, seg_piece.s_end - seg_piece.s_start)
-            if remaining > seg_len:
-                phi += rolling_factor(seg_piece) * seg_len
-                remaining -= seg_len
-            else:
-                phi += rolling_factor(seg_piece) * remaining
-                break
-
-        # normale orientée vers le barycentre (0, 0) ou à l'opposé selon la relation
-        nx, ny = relation_normal(theta, seg)
+        # normale vers la gauche
+        nx = -math.sin(theta)
+        ny = math.cos(theta)
 
         # centre de la roue : dedans/dehors selon sign_side
-        cx = x_track + nx * r_wheel
-        cy = y_track + ny * r_wheel
+        cx = x_track + sign_side * nx * r_wheel
+        cy = y_track + sign_side * ny * r_wheel
 
         if mode == "centre":
             base_points.append((cx, cy))
             continue
+
+        # approximation : on considère que la longueur parcourue sur la piste
+        # en dents est s / pitch_mm_per_tooth (s étant la distance curviligne),
+        # avec un décalage initial wheel_phase_teeth.
+        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
+        phi = -2.0 * math.pi * (teeth_rolled / float(wt))
 
         if mode == "contact":
             base_points.append((x_track, y_track))

@@ -47,7 +47,7 @@ from PySide6.QtGui import (
     QPen,   # <-- AJOUT ICI
 )
 from PySide6.QtCore import (
-    QByteArray,
+    QByteArray, 
     Qt,
     Signal,
     QPoint,
@@ -314,7 +314,6 @@ TRANSLATIONS = {
         "mod_editor_info_error": "Erreur : {error}",
         "mod_editor_info_empty": "Notation valide, mais piste vide.",
         "mod_editor_info_ok": "Longueur ~ {length:.1f} mm, équivalent ~ {teeth:.1f} dents",
-        "mod_editor_pieces_title": "Pièces utilisées :",
 
         "dlg_close": "Fermer",
     },
@@ -427,7 +426,6 @@ TRANSLATIONS = {
         "mod_editor_info_error": "Error: {error}",
         "mod_editor_info_empty": "Notation is valid, but track is empty.",
         "mod_editor_info_ok": "Length ~ {length:.1f} mm, equivalent ~ {teeth:.1f} teeth",
-        "mod_editor_pieces_title": "Used pieces:",
 
         "dlg_close": "Close",
     },
@@ -2485,14 +2483,6 @@ class ModularTrackEditorDialog(QDialog):
         self.info_label = QLabel()
         main_layout.addWidget(self.info_label)
 
-        # Détails des pièces utilisées
-        pieces_layout = QVBoxLayout()
-        self.pieces_title = QLabel(tr(self.lang, "mod_editor_pieces_title"))
-        self.pieces_list = QListWidget()
-        pieces_layout.addWidget(self.pieces_title)
-        pieces_layout.addWidget(self.pieces_list)
-        main_layout.addLayout(pieces_layout)
-
         # Boutons OK/Annuler
         btn_layout = QHBoxLayout()
         btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
@@ -2548,7 +2538,6 @@ class ModularTrackEditorDialog(QDialog):
         if not has_piece or not valid:
             self.track_view.clear_track()
             self.info_label.setText(tr(self.lang, "mod_editor_info_no_piece"))
-            self.pieces_list.clear()
             return
 
         try:
@@ -2565,20 +2554,17 @@ class ModularTrackEditorDialog(QDialog):
             self.info_label.setText(
                 tr(self.lang, "mod_editor_info_error").format(error=e)
             )
-            self.pieces_list.clear()
             return
         except Exception as e:
             self.track_view.clear_track()
             self.info_label.setText(
                 tr(self.lang, "mod_editor_info_error").format(error=e)
             )
-            self.pieces_list.clear()
             return
 
         if len(track.points) < 2 or track.total_length <= 0.0:
             self.track_view.clear_track()
             self.info_label.setText(tr(self.lang, "mod_editor_info_empty"))
-            self.pieces_list.clear()
             return
 
         self.track_view.set_track(track, inner_teeth, outer_teeth, pitch)
@@ -2588,9 +2574,6 @@ class ModularTrackEditorDialog(QDialog):
                 teeth=track.total_teeth,
             )
         )
-        self.pieces_list.clear()
-        for desc in modular_tracks.describe_track_pieces(track):
-            self.pieces_list.addItem(desc)
 
 # ---------- 7) Fenêtre principale ----------
 
@@ -2776,6 +2759,8 @@ class SpiroWindow(QWidget):
 
         self.setLayout(main_layout)
 
+        self._update_animation_controls()
+
         # Appliquer la langue et générer le premier SVG
         self.apply_language()
         self.update_svg()
@@ -2865,7 +2850,9 @@ class SpiroWindow(QWidget):
         self.anim_speed_spin.setSuffix(tr(self.language, "anim_speed_suffix"))
 
     def _update_animation_controls(self):
-        has_data = bool(self._animation_render_data and (self._animation_render_data.get("paths") or []))
+        has_data = bool(
+            self._animation_render_data and (self._animation_render_data.get("paths") or [])
+        )
         for w in (
             self.anim_start_btn,
             self.anim_reset_btn,
