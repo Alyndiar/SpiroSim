@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QSlider,          # <-- AJOUT
     QListWidget,      # <-- AJOUT
     QListWidgetItem,  # <-- AJOUT
+    QSizePolicy,
 )
 from PySide6.QtGui import (
     QAction,
@@ -2434,6 +2435,12 @@ class ModularTrackEditorDialog(QDialog):
         self.track_view = ModularTrackView(self)
 
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
 
         # --- Zone notation + paramètres ---
         top_layout = QHBoxLayout()
@@ -2599,9 +2606,12 @@ class SpiroWindow(QWidget):
         self.points_per_path: int = 6000
 
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
 
         # ----- Barre de menus -----
         menubar = QMenuBar()
+        self.menu_bar = menubar
 
         # Menu Fichier
         self.menu_file = QMenu(menubar)
@@ -2676,7 +2686,8 @@ class SpiroWindow(QWidget):
         main_layout.addWidget(menubar)
 
         self.svg_widget = QSvgWidget()
-        main_layout.addWidget(self.svg_widget)
+        self.svg_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        main_layout.addWidget(self.svg_widget, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # ----- Animation du tracé -----
         self._last_svg_data: Optional[str] = None
@@ -2689,6 +2700,8 @@ class SpiroWindow(QWidget):
         self._animation_speed = 1.0
 
         anim_layout = QHBoxLayout()
+        anim_layout.setContentsMargins(0, 0, 0, 0)
+        anim_layout.setSpacing(4)
         self.anim_start_btn = QPushButton(tr(self.language, "anim_start"))
         self.anim_reset_btn = QPushButton(tr(self.language, "anim_reset"))
         self.anim_speed_label = QLabel(tr(self.language, "anim_speed_label"))
@@ -2715,7 +2728,10 @@ class SpiroWindow(QWidget):
         anim_layout.addWidget(self.anim_btn_half)
         anim_layout.addWidget(self.anim_btn_double)
         anim_layout.addStretch(1)
-        main_layout.addLayout(anim_layout)
+        anim_container = QWidget()
+        anim_container.setLayout(anim_layout)
+        self.anim_container = anim_container
+        main_layout.addWidget(anim_container)
 
         # Layer par défaut : anneau 150/105 + roue 30 dedans
         g0 = GearConfig(
@@ -2760,6 +2776,7 @@ class SpiroWindow(QWidget):
         self.setLayout(main_layout)
 
         self._update_animation_controls()
+        self._update_svg_size()
 
         # Appliquer la langue et générer le premier SVG
         self.apply_language()
@@ -2803,6 +2820,38 @@ class SpiroWindow(QWidget):
         # Checkmarks langue
         self.act_lang_fr.setChecked(self.language == "fr")
         self.act_lang_en.setChecked(self.language == "en")
+
+    def _available_svg_space(self) -> Tuple[int, int]:
+        layout = self.layout()
+        if not layout:
+            return 0, 0
+        margins = layout.contentsMargins()
+        spacing = layout.spacing()
+        available_width = max(0, self.width() - margins.left() - margins.right())
+        available_height = max(0, self.height() - margins.top() - margins.bottom())
+
+        menu_height = max(self.menu_bar.height(), self.menu_bar.sizeHint().height())
+        available_height = max(0, available_height - menu_height)
+
+        anim_height = 0
+        if getattr(self, "anim_container", None) is not None:
+            anim_height = max(
+                self.anim_container.height(), self.anim_container.sizeHint().height()
+            )
+        available_height = max(0, available_height - anim_height)
+
+        # Two spacings separate menubar/SVG and SVG/controls
+        available_height = max(0, available_height - (spacing * 2))
+        return available_width, available_height
+
+    def _update_svg_size(self):
+        available_width, available_height = self._available_svg_space()
+        square_size = max(50, min(available_width, available_height))
+        self.svg_widget.setFixedSize(QSize(square_size, square_size))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_svg_size()
 
     # ----- SVG -----
 
