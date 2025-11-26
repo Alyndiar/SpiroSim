@@ -4,6 +4,7 @@ import copy
 import json
 import re
 import colorsys
+import time
 from html import escape  # <-- AJOUT ICI
 from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
@@ -46,12 +47,13 @@ from PySide6.QtGui import (
     QPen,   # <-- AJOUT ICI
 )
 from PySide6.QtCore import (
-    QByteArray, 
-    Qt, 
-    Signal, 
-    QPoint, 
-    QPointF, 
-    QSize
+    QByteArray,
+    Qt,
+    Signal,
+    QPoint,
+    QPointF,
+    QSize,
+    QTimer,
 )
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
@@ -217,6 +219,13 @@ TRANSLATIONS = {
         "menu_lang_en": "English",
         "menu_regen_draw": "Régénérer le dessin",
 
+        "anim_start": "Démarrer l'animation",
+        "anim_pause": "Mettre en pause",
+        "anim_reset": "Remettre à zéro",
+        "anim_speed_label": "Vitesse (points/s) :",
+        "anim_speed_infinite": "∞ (instantané)",
+        "anim_speed_suffix": " pts/s",
+
         "dlg_layers_title": "Gérer les couches et les tracés",
         "dlg_layers_col_name": "Nom",
         "dlg_layers_col_type": "Type",
@@ -322,6 +331,13 @@ TRANSLATIONS = {
         "menu_lang_fr": "Français",
         "menu_lang_en": "English",
         "menu_regen_draw": "Regenerate drawing",
+
+        "anim_start": "Start animation",
+        "anim_pause": "Pause",
+        "anim_reset": "Reset",
+        "anim_speed_label": "Speed (points/s):",
+        "anim_speed_infinite": "∞ (instant)",
+        "anim_speed_suffix": " pts/s",
 
         "dlg_layers_title": "Manage layers and paths",
         "dlg_layers_col_name": "Name",
@@ -1370,14 +1386,18 @@ def layers_to_svg(
     hole_spacing_mm: float = 0.65,
     points_per_path: int = 6000,
     pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+    return_render_data: bool = False,
 ) -> str:
     """
     Convertit une liste de LayerConfig -> SVG string.
     Chaque layer visible devient un <g>, chaque path un <path>.
     On applique le zoom de la couche et du tracé avant le centrage/scaling global.
+    Quand return_render_data=True, renvoie aussi une structure réutilisable pour
+    l'animation (points déjà transformés en pixels).
     """
     all_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
+    render_paths = []
 
     for layer in layers:
         if not layer.visible:
@@ -1406,6 +1426,8 @@ def layers_to_svg(
   <rect x="0" y="0" width="{width}" height="{height}" fill="{bg_color}"/>
 </svg>
 '''
+        if return_render_data:
+            return svg_empty, None
         return svg_empty
 
     xs = [p[0] for p in all_points]
@@ -1459,6 +1481,16 @@ def layers_to_svg(
                 stroke_color = normalize_color_string(path_cfg.color) or "#000000"
                 path_cfg.color_norm = stroke_color
 
+            render_paths.append(
+                {
+                    "layer_name": layer.name,
+                    "path_name": path_cfg.name,
+                    "points": t_points,
+                    "color": stroke_color,
+                    "stroke_width": path_cfg.stroke_width,
+                }
+            )
+
             svg_parts.append(
                 f'    <path d="{path_d}" fill="none" '
                 f'stroke="{stroke_color}" stroke-width="{path_cfg.stroke_width}" '
@@ -1467,7 +1499,16 @@ def layers_to_svg(
         svg_parts.append('  </g>')
 
     svg_parts.append('</svg>')
-    return "\n".join(svg_parts)
+    svg_result = "\n".join(svg_parts)
+    if return_render_data:
+        render_data = {
+            "width": width,
+            "height": height,
+            "bg_color": bg_color,
+            "paths": render_paths,
+        }
+        return svg_result, render_data
+    return svg_result
 
 
 # ---------- 5) Dialogues d’édition ----------
@@ -2595,6 +2636,45 @@ class SpiroWindow(QWidget):
         self.svg_widget = QSvgWidget()
         main_layout.addWidget(self.svg_widget)
 
+        # ----- Animation du tracé -----
+        self._last_svg_data: Optional[str] = None
+        self._animation_render_data = None
+        self._animation_timer = QTimer(self)
+        self._animation_timer.timeout.connect(self._on_animation_tick)
+        self._animation_running = False
+        self._animation_progress = 0.0
+        self._animation_last_time: Optional[float] = None
+        self._animation_speed = 1.0
+
+        anim_layout = QHBoxLayout()
+        self.anim_start_btn = QPushButton(tr(self.language, "anim_start"))
+        self.anim_reset_btn = QPushButton(tr(self.language, "anim_reset"))
+        self.anim_speed_label = QLabel(tr(self.language, "anim_speed_label"))
+        self.anim_speed_spin = QDoubleSpinBox()
+        self.anim_speed_spin.setRange(0.0, 1_000_000.0)
+        self.anim_speed_spin.setDecimals(2)
+        self.anim_speed_spin.setSingleStep(0.25)
+        self.anim_speed_spin.setValue(1.0)
+        self.anim_speed_spin.setSpecialValueText(tr(self.language, "anim_speed_infinite"))
+        self.anim_speed_spin.setSuffix(tr(self.language, "anim_speed_suffix"))
+        self.anim_btn_half = QPushButton("/2")
+        self.anim_btn_double = QPushButton("x2")
+
+        self.anim_start_btn.clicked.connect(self._toggle_animation)
+        self.anim_reset_btn.clicked.connect(self._reset_animation)
+        self.anim_speed_spin.valueChanged.connect(self._on_anim_speed_changed)
+        self.anim_btn_half.clicked.connect(lambda: self._apply_anim_speed_factor(0.5))
+        self.anim_btn_double.clicked.connect(lambda: self._apply_anim_speed_factor(2.0))
+
+        anim_layout.addWidget(self.anim_start_btn)
+        anim_layout.addWidget(self.anim_reset_btn)
+        anim_layout.addWidget(self.anim_speed_label)
+        anim_layout.addWidget(self.anim_speed_spin)
+        anim_layout.addWidget(self.anim_btn_half)
+        anim_layout.addWidget(self.anim_btn_double)
+        anim_layout.addStretch(1)
+        main_layout.addLayout(anim_layout)
+
         # Layer par défaut : anneau 150/105 + roue 30 dedans
         g0 = GearConfig(
             name=tr(self.language, "default_ring_name"),
@@ -2674,6 +2754,8 @@ class SpiroWindow(QWidget):
         self.act_lang_en.setText(tr(self.language, "menu_lang_en"))
         self.act_regen.setText(tr(self.language, "menu_regen_draw"))
 
+        self._refresh_animation_texts()
+
         # Checkmarks langue
         self.act_lang_fr.setChecked(self.language == "fr")
         self.act_lang_en.setChecked(self.language == "en")
@@ -2682,7 +2764,7 @@ class SpiroWindow(QWidget):
 
     def update_svg(self):
         bg_norm = normalize_color_string(self.bg_color) or "#ffffff"
-        svg_data = layers_to_svg(
+        result = layers_to_svg(
             self.layers,
             width=self.canvas_width,
             height=self.canvas_height,
@@ -2690,12 +2772,167 @@ class SpiroWindow(QWidget):
             hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
             pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            return_render_data=True,
         )
+        if isinstance(result, tuple):
+            svg_data, render_data = result
+        else:
+            svg_data, render_data = result, None
+        self._last_svg_data = svg_data
+        self._animation_render_data = render_data
+        self._reset_animation_state()
         self.load_svg(svg_data)
 
     def load_svg(self, svg_string: str):
         data = QByteArray(svg_string.encode("utf-8"))
         self.svg_widget.load(data)
+
+    # ----- Animation -----
+
+    def _max_animation_points(self) -> int:
+        if not self._animation_render_data:
+            return 0
+        paths = self._animation_render_data.get("paths") or []
+        if not paths:
+            return 0
+        return max(len(p.get("points", [])) for p in paths)
+
+    def _refresh_animation_texts(self):
+        start_key = "anim_pause" if self._animation_running else "anim_start"
+        self.anim_start_btn.setText(tr(self.language, start_key))
+        self.anim_reset_btn.setText(tr(self.language, "anim_reset"))
+        self.anim_speed_label.setText(tr(self.language, "anim_speed_label"))
+        self.anim_speed_spin.setSpecialValueText(tr(self.language, "anim_speed_infinite"))
+        self.anim_speed_spin.setSuffix(tr(self.language, "anim_speed_suffix"))
+
+    def _update_animation_controls(self):
+        has_data = bool(self._animation_render_data and (self._animation_render_data.get("paths") or []))
+        for w in (
+            self.anim_start_btn,
+            self.anim_reset_btn,
+            self.anim_speed_spin,
+            self.anim_btn_half,
+            self.anim_btn_double,
+        ):
+            w.setEnabled(has_data)
+        self._refresh_animation_texts()
+
+    def _on_anim_speed_changed(self, value: float):
+        if value <= 0.0:
+            self._animation_speed = math.inf
+        else:
+            self._animation_speed = value
+
+    def _apply_anim_speed_factor(self, factor: float):
+        if factor <= 0:
+            return
+        current = self.anim_speed_spin.value()
+        if current <= 0.0:
+            return
+        new_val = max(0.25, min(self.anim_speed_spin.maximum(), current * factor))
+        self.anim_speed_spin.setValue(new_val)
+
+    def _toggle_animation(self):
+        if not self._animation_render_data:
+            return
+        max_pts = self._max_animation_points()
+        if max_pts <= 1:
+            return
+        if not self._animation_running:
+            if self._animation_progress >= max_pts:
+                self._animation_progress = 0.0
+            self._animation_last_time = time.monotonic()
+            self._animation_running = True
+            self._animation_timer.start(16)
+            self._update_animation_controls()
+            self._render_animation_frame()
+        else:
+            self._stop_animation()
+
+    def _stop_animation(self):
+        self._animation_timer.stop()
+        self._animation_running = False
+        self._animation_last_time = None
+        self._update_animation_controls()
+
+    def _reset_animation_state(self):
+        self._stop_animation()
+        self._animation_progress = 0.0
+        self._update_animation_controls()
+
+    def _reset_animation(self):
+        if not self._animation_render_data:
+            return
+        self._stop_animation()
+        self._animation_progress = 0.0
+        self._render_animation_frame()
+
+    def _on_animation_tick(self):
+        if not self._animation_render_data:
+            self._stop_animation()
+            return
+        max_pts = self._max_animation_points()
+        if max_pts <= 1:
+            self._stop_animation()
+            return
+
+        now = time.monotonic()
+        if self._animation_last_time is None:
+            self._animation_last_time = now
+        dt = max(0.0, now - self._animation_last_time)
+        self._animation_last_time = now
+
+        if math.isinf(self._animation_speed):
+            self._animation_progress = max_pts
+        else:
+            self._animation_progress += self._animation_speed * dt
+
+        if self._animation_progress >= max_pts:
+            self._animation_progress = max_pts
+            self._render_animation_frame()
+            self._stop_animation()
+            return
+
+        self._render_animation_frame()
+
+    def _render_animation_frame(self):
+        data = self._animation_render_data
+        if not data:
+            return
+        paths = data.get("paths") or []
+        width = data.get("width", self.canvas_width)
+        height = data.get("height", self.canvas_height)
+        bg = data.get("bg_color", self.bg_color)
+        svg_parts = [
+            '<?xml version="1.0" standalone="no"?>',
+            f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}"',
+            '     xmlns="http://www.w3.org/2000/svg" version="1.1">',
+            f'  <rect x="0" y="0" width="{width}" height="{height}" fill="{bg}"/>',
+        ]
+
+        current = self._animation_progress
+        for entry in paths:
+            pts = entry.get("points") or []
+            if math.isinf(current):
+                count = len(pts)
+            else:
+                count = int(min(len(pts), math.floor(current)))
+            if count <= 0:
+                continue
+            t_points = pts[:count]
+            x0, y0 = t_points[0]
+            cmds = [f"M {x0:.3f} {y0:.3f}"]
+            for (x, y) in t_points[1:]:
+                cmds.append(f"L {x:.3f} {y:.3f}")
+            path_d = " ".join(cmds)
+            color = entry.get("color", "#000000")
+            width_stroke = entry.get("stroke_width", 1.0)
+            svg_parts.append(
+                f'  <path d="{path_d}" fill="none" stroke="{color}" stroke-width="{width_stroke}"/>'
+            )
+
+        svg_parts.append("</svg>")
+        self.load_svg("\n".join(svg_parts))
 
     # ----- Actions -----
 
