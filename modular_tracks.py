@@ -929,7 +929,12 @@ def generate_track_base_points(
     if mode not in {"stylo", "contact", "centre"}:
         raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
 
-    sign_side = -1.0 if relation == "dedans" else 1.0
+    def normal_multiplier(seg: Optional[TrackSegment]) -> float:
+        """Choisit le côté de la normale selon la relation et la concavité locale."""
+        if seg is None or seg.kind != "arc" or seg.side_sign == 0:
+            return -1.0 if relation == "dedans" else 1.0
+        # concave (+) : normale gauche pointe vers le centre ; convexe (-) : gauche pointe vers l'extérieur
+        return seg.side_sign if relation == "dedans" else -seg.side_sign
 
     def rolling_mode(seg: Optional[TrackSegment]) -> str:
         if seg is None or seg.kind == "line":
@@ -965,12 +970,13 @@ def generate_track_base_points(
             teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
             phi = -2.0 * math.pi * (teeth_rolled / float(wt))
 
-            # normale vers la gauche
-            nx = -math.sin(theta)
-            ny = math.cos(theta)
+            # normale selon la relation et la concavité (fallback gauche/droite par défaut)
+            n_mult = normal_multiplier(None)
+            nx = n_mult * -math.sin(theta)
+            ny = n_mult * math.cos(theta)
 
-            cx = x_track + sign_side * nx * r_wheel
-            cy = y_track + sign_side * ny * r_wheel
+            cx = x_track + nx * r_wheel
+            cy = y_track + ny * r_wheel
 
             if mode == "centre":
                 base_points.append((cx, cy))
@@ -1003,13 +1009,14 @@ def generate_track_base_points(
                 phi += rolling_factor(seg_piece) * remaining
                 break
 
-        # normale vers la gauche
-        nx = -math.sin(theta)
-        ny = math.cos(theta)
+        # normale selon la relation et la concavité locale
+        n_mult = normal_multiplier(seg)
+        nx = n_mult * -math.sin(theta)
+        ny = n_mult * math.cos(theta)
 
         # centre de la roue : dedans/dehors selon sign_side
-        cx = x_track + sign_side * nx * r_wheel
-        cy = y_track + sign_side * ny * r_wheel
+        cx = x_track + nx * r_wheel
+        cy = y_track + ny * r_wheel
 
         if mode == "centre":
             base_points.append((cx, cy))
