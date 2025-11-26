@@ -1398,11 +1398,38 @@ def layers_to_svg(
     all_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
     render_paths = []
+    render_tracks = []
 
     for layer in layers:
         if not layer.visible:
             continue
         layer_zoom = getattr(layer, "zoom", 1.0)
+
+        layer_track_points = None
+        layer_track_width_mm = None
+        if (
+            layer.gears
+            and layer.gears[0].gear_type == "modulaire"
+            and getattr(layer.gears[0], "modular_notation", "")
+        ):
+            g0 = layer.gears[0]
+            inner_teeth = max(1, int(g0.teeth))
+            outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
+            outer_teeth = max(outer_teeth, inner_teeth)
+
+            track = modular_tracks.build_track_from_notation(
+                g0.modular_notation,
+                inner_teeth=inner_teeth,
+                outer_teeth=outer_teeth,
+                pitch_mm_per_tooth=pitch_mm_per_tooth,
+                steps_per_tooth=3,
+            )
+            if track.points:
+                layer_track_points = track.points
+                r_inner = (pitch_mm_per_tooth * float(inner_teeth)) / (2.0 * math.pi)
+                r_outer = (pitch_mm_per_tooth * float(outer_teeth)) / (2.0 * math.pi)
+                width_mm = max(r_outer - r_inner, pitch_mm_per_tooth)
+                layer_track_width_mm = width_mm * layer_zoom
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
                 layer,
@@ -1418,6 +1445,19 @@ def layers_to_svg(
             pts_zoomed = [(x * zoom, y * zoom) for (x, y) in pts]
             rendered_paths.append((layer.name, layer_zoom, path, pts_zoomed, path_zoom))
             all_points.extend(pts_zoomed)
+
+        if layer_track_points:
+            track_zoomed = [
+                (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
+            ]
+            render_tracks.append(
+                {
+                    "layer_name": layer.name,
+                    "points": track_zoomed,
+                    "stroke_width_mm": layer_track_width_mm,
+                }
+            )
+            all_points.extend(track_zoomed)
 
     if not all_points:
         svg_empty = f'''<?xml version="1.0" standalone="no"?>
@@ -1459,14 +1499,32 @@ def layers_to_svg(
         f'  <rect x="0" y="0" width="{width}" height="{height}" fill="{bg_color}"/>',
     ]
 
+    tracks_out = []
+
     for layer in layers:
         if not layer.visible:
             continue
         layer_paths = [rp for rp in rendered_paths if rp[0] == layer.name]
-        if not layer_paths:
+        layer_tracks = [rt for rt in render_tracks if rt["layer_name"] == layer.name]
+        if not layer_paths and not layer_tracks:
             continue
 
         svg_parts.append(f'  <g id="layer-{layer.name}">')
+        for track_entry in layer_tracks:
+            t_points = [transform(p) for p in track_entry["points"]]
+            stroke_px = max(
+                1.0,
+                (track_entry.get("stroke_width_mm") or 0.0) * scale,
+            )
+            if len(t_points) >= 2:
+                x0, y0 = t_points[0]
+                t_cmds = [f"M {x0:.3f} {y0:.3f}"]
+                for (x, y) in t_points[1:]:
+                    t_cmds.append(f"L {x:.3f} {y:.3f}")
+                tracks_out.append(
+                    {"points": t_points, "stroke_width": stroke_px}
+                )
+
         for _, _, path_cfg, pts_zoomed, _ in layer_paths:
             t_points = [transform(p) for p in pts_zoomed]
             x0, y0 = t_points[0]
@@ -1506,6 +1564,7 @@ def layers_to_svg(
             "height": height,
             "bg_color": bg_color,
             "paths": render_paths,
+            "tracks": tracks_out,
         }
         return svg_result, render_data
     return svg_result
@@ -2899,6 +2958,7 @@ class SpiroWindow(QWidget):
         data = self._animation_render_data
         if not data:
             return
+        tracks = data.get("tracks") or []
         paths = data.get("paths") or []
         width = data.get("width", self.canvas_width)
         height = data.get("height", self.canvas_height)
@@ -2909,6 +2969,20 @@ class SpiroWindow(QWidget):
             '     xmlns="http://www.w3.org/2000/svg" version="1.1">',
             f'  <rect x="0" y="0" width="{width}" height="{height}" fill="{bg}"/>',
         ]
+
+        for track_entry in tracks:
+            pts = track_entry.get("points") or []
+            if len(pts) < 2:
+                continue
+            x0, y0 = pts[0]
+            cmds = [f"M {x0:.3f} {y0:.3f}"]
+            for (x, y) in pts[1:]:
+                cmds.append(f"L {x:.3f} {y:.3f}")
+            path_d = " ".join(cmds)
+            width_stroke = track_entry.get("stroke_width", 1.0)
+            svg_parts.append(
+                f'  <path d="{path_d}" fill="none" stroke="#808080" stroke-width="{width_stroke}"/>'
+            )
 
         current = self._animation_progress
         for entry in paths:
