@@ -5,6 +5,7 @@ import json
 import re
 import colorsys
 import time
+import os
 from html import escape  # <-- AJOUT ICI
 from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
@@ -55,6 +56,7 @@ from PySide6.QtCore import (
     QPointF,
     QSize,
     QTimer,
+    QStandardPaths,
 )
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
@@ -2591,6 +2593,9 @@ class SpiroWindow(QWidget):
         # Langue par défaut : français
         self.language = "fr"
 
+        # Indicateur de restauration de géométrie
+        self._geometry_restored = False
+
         # Espacement radial des trous en mm
         self.hole_spacing_mm: float = 0.65
 
@@ -2783,12 +2788,15 @@ class SpiroWindow(QWidget):
 
         self.setLayout(main_layout)
 
+        loaded_from_disk = self._load_persisted_state()
+
         self._update_animation_controls()
         self._update_svg_size()
 
-        # Appliquer la langue et générer le premier SVG
-        self.apply_language()
-        self.update_svg()
+        # Appliquer la langue et générer le premier SVG si rien n'a été chargé
+        if not loaded_from_disk:
+            self.apply_language()
+            self.update_svg()
 
     # ----- Langue -----
 
@@ -3257,6 +3265,111 @@ class SpiroWindow(QWidget):
             )
         return layers
 
+    def _config_file_path(self) -> str:
+        base_dir = QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation)
+        if not base_dir:
+            base_dir = os.path.expanduser("~")
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+        except Exception:
+            pass
+        return os.path.join(base_dir, "spirosim_config.json")
+
+    def _gather_state_dict(self, include_window: bool = False):
+        data = {
+            "version": 1,
+            "language": self.language,
+            "hole_spacing_mm": self.hole_spacing_mm,
+            "pitch_mm_per_tooth": self.pitch_mm_per_tooth,
+            "bg_color": self.bg_color,
+            "canvas_width": self.canvas_width,
+            "canvas_height": self.canvas_height,
+            "points_per_path": self.points_per_path,
+            "animation_speed": self.anim_speed_spin.value(),
+            "layers": self._layers_to_json_struct(),
+        }
+
+        if include_window:
+            try:
+                geom = self.saveGeometry()
+                if geom and not geom.isEmpty():
+                    data["window_geometry"] = bytes(geom.toBase64()).decode("ascii")
+            except Exception:
+                pass
+            try:
+                data["window_state"] = int(self.windowState())
+            except Exception:
+                pass
+
+        return data
+
+    def _apply_state_dict(self, data, *, apply_window: bool, refresh: bool):
+        self.language = data.get("language", self.language)
+        self.hole_spacing_mm = float(data.get("hole_spacing_mm", self.hole_spacing_mm))
+        self.pitch_mm_per_tooth = float(
+            data.get("pitch_mm_per_tooth", self.pitch_mm_per_tooth)
+        )
+        self.bg_color = data.get("bg_color", self.bg_color)
+        self.canvas_width = int(data.get("canvas_width", self.canvas_width))
+        self.canvas_height = int(data.get("canvas_height", self.canvas_height))
+        self.points_per_path = int(data.get("points_per_path", self.points_per_path))
+
+        saved_speed = data.get("animation_speed")
+        if saved_speed is not None:
+            try:
+                self.anim_speed_spin.setValue(float(saved_speed))
+            except Exception:
+                pass
+
+        if "layers" in data:
+            layers_struct = data.get("layers", [])
+            self.layers = self._layers_from_json_struct(layers_struct)
+
+        if apply_window:
+            geom_b64 = data.get("window_geometry")
+            if geom_b64:
+                try:
+                    geom_bytes = QByteArray.fromBase64(geom_b64.encode("ascii"))
+                    if geom_bytes and not geom_bytes.isEmpty():
+                        self.restoreGeometry(geom_bytes)
+                        self._geometry_restored = True
+                except Exception:
+                    pass
+            state_val = data.get("window_state")
+            if state_val is not None:
+                try:
+                    self.setWindowState(Qt.WindowState(int(state_val)))
+                except Exception:
+                    pass
+
+        if refresh:
+            self.apply_language()
+            self._update_svg_size()
+            self.update_svg()
+
+    def _load_persisted_state(self) -> bool:
+        cfg_path = self._config_file_path()
+        if not os.path.exists(cfg_path):
+            return False
+
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return False
+
+        self._apply_state_dict(data, apply_window=True, refresh=True)
+        return True
+
+    def _save_persisted_state(self):
+        cfg_path = self._config_file_path()
+        data = self._gather_state_dict(include_window=True)
+        try:
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
     def save_to_json(self):
         filename, _ = QFileDialog.getSaveFileName(
             self,
@@ -3267,17 +3380,7 @@ class SpiroWindow(QWidget):
         if not filename:
             return
 
-        data = {
-            "version": 1,
-            "language": self.language,
-            "hole_spacing_mm": self.hole_spacing_mm,
-            "pitch_mm_per_tooth": self.pitch_mm_per_tooth,
-            "bg_color": self.bg_color,
-            "canvas_width": self.canvas_width,
-            "canvas_height": self.canvas_height,
-            "points_per_path": self.points_per_path,
-            "layers": self._layers_to_json_struct(),
-        }
+        data = self._gather_state_dict(include_window=False)
 
         try:
             with open(filename, "w", encoding="utf-8") as f:
@@ -3302,22 +3405,7 @@ class SpiroWindow(QWidget):
             QMessageBox.critical(self, "Error", str(e))
             return
 
-        self.language = data.get("language", self.language)
-        self.hole_spacing_mm = float(data.get("hole_spacing_mm", self.hole_spacing_mm))
-        self.pitch_mm_per_tooth = float(
-            data.get("pitch_mm_per_tooth", self.pitch_mm_per_tooth)
-        )
-        self.bg_color = data.get("bg_color", self.bg_color)
-        self.canvas_width = int(data.get("canvas_width", self.canvas_width))
-        self.canvas_height = int(data.get("canvas_height", self.canvas_height))
-        self.points_per_path = int(data.get("points_per_path", self.points_per_path))
-
-        layers_struct = data.get("layers", [])
-        self.layers = self._layers_from_json_struct(layers_struct)
-
-        # Réappliquer la langue et régénérer
-        self.apply_language()
-        self.update_svg()
+        self._apply_state_dict(data, apply_window=False, refresh=True)
 
     # ----- Export SVG / PNG -----
 
@@ -3414,10 +3502,18 @@ class SpiroWindow(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
+    def closeEvent(self, event):
+        try:
+            self._save_persisted_state()
+            self._stop_animation()
+        finally:
+            super().closeEvent(event)
+
 def main():
     app = QApplication(sys.argv)
     window = SpiroWindow()
-    window.resize(1000, 1000)
+    if not getattr(window, "_geometry_restored", False):
+        window.resize(1000, 1000)
     window.show()
     sys.exit(app.exec())
 
