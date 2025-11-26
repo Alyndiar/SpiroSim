@@ -4,6 +4,8 @@ import copy
 import json
 import re
 import colorsys
+import time
+import os
 from html import escape  # <-- AJOUT ICI
 from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
@@ -34,6 +36,7 @@ from PySide6.QtWidgets import (
     QSlider,          # <-- AJOUT
     QListWidget,      # <-- AJOUT
     QListWidgetItem,  # <-- AJOUT
+    QSizePolicy,
 )
 from PySide6.QtGui import (
     QAction,
@@ -47,11 +50,13 @@ from PySide6.QtGui import (
 )
 from PySide6.QtCore import (
     QByteArray, 
-    Qt, 
-    Signal, 
-    QPoint, 
-    QPointF, 
-    QSize
+    Qt,
+    Signal,
+    QPoint,
+    QPointF,
+    QSize,
+    QTimer,
+    QStandardPaths,
 )
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
@@ -215,7 +220,16 @@ TRANSLATIONS = {
         "menu_options_language": "Langue",
         "menu_lang_fr": "Français",
         "menu_lang_en": "English",
+        "menu_regen_animation": "Animation",
+        "menu_regen_show_track": "Afficher la piste",
         "menu_regen_draw": "Régénérer le dessin",
+
+        "anim_start": "Démarrer l'animation",
+        "anim_pause": "Mettre en pause",
+        "anim_reset": "Remettre à zéro",
+        "anim_speed_label": "Vitesse (points/s) :",
+        "anim_speed_infinite": "∞ (instantané)",
+        "anim_speed_suffix": " pts/s",
 
         "dlg_layers_title": "Gérer les couches et les tracés",
         "dlg_layers_col_name": "Nom",
@@ -320,7 +334,16 @@ TRANSLATIONS = {
         "menu_options_language": "Language",
         "menu_lang_fr": "Français",
         "menu_lang_en": "English",
+        "menu_regen_animation": "Animation",
+        "menu_regen_show_track": "Show track",
         "menu_regen_draw": "Regenerate drawing",
+
+        "anim_start": "Start animation",
+        "anim_pause": "Pause",
+        "anim_reset": "Reset",
+        "anim_speed_label": "Speed (points/s):",
+        "anim_speed_infinite": "∞ (instant)",
+        "anim_speed_suffix": " pts/s",
 
         "dlg_layers_title": "Manage layers and paths",
         "dlg_layers_col_name": "Name",
@@ -1368,19 +1391,52 @@ def layers_to_svg(
     hole_spacing_mm: float = 0.65,
     points_per_path: int = 6000,
     pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+    show_tracks: bool = True,
+    return_render_data: bool = False,
 ) -> str:
     """
     Convertit une liste de LayerConfig -> SVG string.
     Chaque layer visible devient un <g>, chaque path un <path>.
     On applique le zoom de la couche et du tracé avant le centrage/scaling global.
+    Quand return_render_data=True, renvoie aussi une structure réutilisable pour
+    l'animation (points déjà transformés en pixels).
     """
     all_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
+    render_paths = []
+    render_tracks = []
 
     for layer in layers:
         if not layer.visible:
             continue
         layer_zoom = getattr(layer, "zoom", 1.0)
+
+        layer_track_points = None
+        layer_track_width_mm = None
+        if show_tracks:
+            if (
+                layer.gears
+                and layer.gears[0].gear_type == "modulaire"
+                and getattr(layer.gears[0], "modular_notation", "")
+            ):
+                g0 = layer.gears[0]
+                inner_teeth = max(1, int(g0.teeth))
+                outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
+                outer_teeth = max(outer_teeth, inner_teeth)
+
+                track = modular_tracks.build_track_from_notation(
+                    g0.modular_notation,
+                    inner_teeth=inner_teeth,
+                    outer_teeth=outer_teeth,
+                    pitch_mm_per_tooth=pitch_mm_per_tooth,
+                    steps_per_tooth=3,
+                )
+                if track.points:
+                    layer_track_points = track.points
+                    r_inner = (pitch_mm_per_tooth * float(inner_teeth)) / (2.0 * math.pi)
+                    r_outer = (pitch_mm_per_tooth * float(outer_teeth)) / (2.0 * math.pi)
+                    width_mm = max(r_outer - r_inner, pitch_mm_per_tooth)
+                    layer_track_width_mm = width_mm * layer_zoom
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
                 layer,
@@ -1397,6 +1453,19 @@ def layers_to_svg(
             rendered_paths.append((layer.name, layer_zoom, path, pts_zoomed, path_zoom))
             all_points.extend(pts_zoomed)
 
+        if show_tracks and layer_track_points:
+            track_zoomed = [
+                (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
+            ]
+            render_tracks.append(
+                {
+                    "layer_name": layer.name,
+                    "points": track_zoomed,
+                    "stroke_width_mm": layer_track_width_mm,
+                }
+            )
+            all_points.extend(track_zoomed)
+
     if not all_points:
         svg_empty = f'''<?xml version="1.0" standalone="no"?>
 <svg width="{width}" height="{height}" viewBox="0 0 {width} {height}"
@@ -1404,6 +1473,8 @@ def layers_to_svg(
   <rect x="0" y="0" width="{width}" height="{height}" fill="{bg_color}"/>
 </svg>
 '''
+        if return_render_data:
+            return svg_empty, None
         return svg_empty
 
     xs = [p[0] for p in all_points]
@@ -1435,14 +1506,32 @@ def layers_to_svg(
         f'  <rect x="0" y="0" width="{width}" height="{height}" fill="{bg_color}"/>',
     ]
 
+    tracks_out = []
+
     for layer in layers:
         if not layer.visible:
             continue
         layer_paths = [rp for rp in rendered_paths if rp[0] == layer.name]
-        if not layer_paths:
+        layer_tracks = [rt for rt in render_tracks if rt["layer_name"] == layer.name]
+        if not layer_paths and not layer_tracks:
             continue
 
         svg_parts.append(f'  <g id="layer-{layer.name}">')
+        for track_entry in layer_tracks:
+            t_points = [transform(p) for p in track_entry["points"]]
+            stroke_px = max(
+                1.0,
+                (track_entry.get("stroke_width_mm") or 0.0) * scale,
+            )
+            if len(t_points) >= 2:
+                x0, y0 = t_points[0]
+                t_cmds = [f"M {x0:.3f} {y0:.3f}"]
+                for (x, y) in t_points[1:]:
+                    t_cmds.append(f"L {x:.3f} {y:.3f}")
+                tracks_out.append(
+                    {"points": t_points, "stroke_width": stroke_px}
+                )
+
         for _, _, path_cfg, pts_zoomed, _ in layer_paths:
             t_points = [transform(p) for p in pts_zoomed]
             x0, y0 = t_points[0]
@@ -1457,6 +1546,16 @@ def layers_to_svg(
                 stroke_color = normalize_color_string(path_cfg.color) or "#000000"
                 path_cfg.color_norm = stroke_color
 
+            render_paths.append(
+                {
+                    "layer_name": layer.name,
+                    "path_name": path_cfg.name,
+                    "points": t_points,
+                    "color": stroke_color,
+                    "stroke_width": path_cfg.stroke_width,
+                }
+            )
+
             svg_parts.append(
                 f'    <path d="{path_d}" fill="none" '
                 f'stroke="{stroke_color}" stroke-width="{path_cfg.stroke_width}" '
@@ -1465,7 +1564,17 @@ def layers_to_svg(
         svg_parts.append('  </g>')
 
     svg_parts.append('</svg>')
-    return "\n".join(svg_parts)
+    svg_result = "\n".join(svg_parts)
+    if return_render_data:
+        render_data = {
+            "width": width,
+            "height": height,
+            "bg_color": bg_color,
+            "paths": render_paths,
+            "tracks": tracks_out,
+        }
+        return svg_result, render_data
+    return svg_result
 
 
 # ---------- 5) Dialogues d’édition ----------
@@ -1788,7 +1897,7 @@ class PathEditDialog(QDialog):
         layout.addRow(tr(self.lang, "dlg_path_name"), self.name_edit)
         layout.addRow(tr(self.lang, "dlg_path_hole_index"), self.hole_spin)
         layout.addRow(tr(self.lang, "dlg_path_phase"), self.phase_spin)
-        layout.addRow(tr(self.lang, "dlg_path_color"), self.color_edit)
+        layout.addRow(tr(self.lang, "dlg_path_color"), color_row)
         layout.addRow(tr(self.lang, "dlg_path_width"), self.stroke_spin)
         layout.addRow(tr(self.lang, "dlg_path_zoom"), self.zoom_spin)
 
@@ -2334,6 +2443,12 @@ class ModularTrackEditorDialog(QDialog):
         self.track_view = ModularTrackView(self)
 
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
 
         # --- Zone notation + paramètres ---
         top_layout = QHBoxLayout()
@@ -2484,6 +2599,9 @@ class SpiroWindow(QWidget):
         # Langue par défaut : français
         self.language = "fr"
 
+        # Indicateur de restauration de géométrie
+        self._geometry_restored = False
+
         # Espacement radial des trous en mm
         self.hole_spacing_mm: float = 0.65
 
@@ -2498,10 +2616,17 @@ class SpiroWindow(QWidget):
         self.canvas_height: int = 1000
         self.points_per_path: int = 6000
 
+        # Affichage optionnel
+        self.animation_enabled: bool = True
+        self.show_track: bool = True
+
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
         # ----- Barre de menus -----
         menubar = QMenuBar()
+        self.menu_bar = menubar
 
         # Menu Fichier
         self.menu_file = QMenu(menubar)
@@ -2569,6 +2694,19 @@ class SpiroWindow(QWidget):
         # Menu Régénérer
         self.menu_regen = QMenu(menubar)
         menubar.addMenu(self.menu_regen)
+        self.act_animation_enabled = QAction(menubar)
+        self.act_animation_enabled.setCheckable(True)
+        self.act_animation_enabled.setChecked(True)
+        self.act_animation_enabled.triggered.connect(self._set_animation_enabled)
+        self.menu_regen.addAction(self.act_animation_enabled)
+
+        self.act_show_track = QAction(menubar)
+        self.act_show_track.setCheckable(True)
+        self.act_show_track.setChecked(True)
+        self.act_show_track.triggered.connect(self._set_show_track)
+        self.menu_regen.addAction(self.act_show_track)
+
+        self.menu_regen.addSeparator()
         self.act_regen = QAction(menubar)
         self.act_regen.triggered.connect(self.update_svg)
         self.menu_regen.addAction(self.act_regen)
@@ -2576,7 +2714,61 @@ class SpiroWindow(QWidget):
         main_layout.addWidget(menubar)
 
         self.svg_widget = QSvgWidget()
-        main_layout.addWidget(self.svg_widget)
+        self.svg_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        svg_container = QWidget()
+        svg_container_layout = QHBoxLayout(svg_container)
+        svg_container_layout.setContentsMargins(0, 0, 0, 0)
+        svg_container_layout.setSpacing(0)
+        svg_container_layout.addWidget(
+            self.svg_widget, alignment=Qt.AlignmentFlag.AlignCenter
+        )
+        self.svg_container = svg_container
+        main_layout.addWidget(svg_container, stretch=1)
+
+        # ----- Animation du tracé -----
+        self._last_svg_data: Optional[str] = None
+        self._animation_render_data = None
+        self._animation_timer = QTimer(self)
+        self._animation_timer.timeout.connect(self._on_animation_tick)
+        self._animation_running = False
+        self._animation_progress = 0.0
+        self._animation_last_time: Optional[float] = None
+        self._animation_speed = 1.0
+
+        anim_layout = QHBoxLayout()
+        anim_layout.setContentsMargins(0, 0, 0, 0)
+        anim_layout.setSpacing(4)
+        self.anim_start_btn = QPushButton(tr(self.language, "anim_start"))
+        self.anim_reset_btn = QPushButton(tr(self.language, "anim_reset"))
+        self.anim_speed_label = QLabel(tr(self.language, "anim_speed_label"))
+        self.anim_speed_spin = QDoubleSpinBox()
+        self.anim_speed_spin.setRange(0.0, 1_000_000.0)
+        self.anim_speed_spin.setDecimals(2)
+        self.anim_speed_spin.setSingleStep(0.25)
+        self.anim_speed_spin.setValue(1.0)
+        self.anim_speed_spin.setSpecialValueText(tr(self.language, "anim_speed_infinite"))
+        self.anim_speed_spin.setSuffix(tr(self.language, "anim_speed_suffix"))
+        self.anim_btn_half = QPushButton("/2")
+        self.anim_btn_double = QPushButton("x2")
+
+        self.anim_start_btn.clicked.connect(self._toggle_animation)
+        self.anim_reset_btn.clicked.connect(self._reset_animation)
+        self.anim_speed_spin.valueChanged.connect(self._on_anim_speed_changed)
+        self.anim_btn_half.clicked.connect(lambda: self._apply_anim_speed_factor(0.5))
+        self.anim_btn_double.clicked.connect(lambda: self._apply_anim_speed_factor(2.0))
+
+        anim_layout.addWidget(self.anim_start_btn)
+        anim_layout.addWidget(self.anim_reset_btn)
+        anim_layout.addWidget(self.anim_speed_label)
+        anim_layout.addWidget(self.anim_speed_spin)
+        anim_layout.addWidget(self.anim_btn_half)
+        anim_layout.addWidget(self.anim_btn_double)
+        anim_layout.addStretch(1)
+        anim_container = QWidget()
+        anim_container.setLayout(anim_layout)
+        self.anim_container = anim_container
+        self.anim_container.setVisible(self.animation_enabled)
+        main_layout.addWidget(anim_container)
 
         # Layer par défaut : anneau 150/105 + roue 30 dedans
         g0 = GearConfig(
@@ -2620,9 +2812,15 @@ class SpiroWindow(QWidget):
 
         self.setLayout(main_layout)
 
-        # Appliquer la langue et générer le premier SVG
-        self.apply_language()
-        self.update_svg()
+        loaded_from_disk = self._load_persisted_state()
+
+        self._update_animation_controls()
+        self._update_svg_size()
+
+        # Appliquer la langue et générer le premier SVG si rien n'a été chargé
+        if not loaded_from_disk:
+            self.apply_language()
+            self.update_svg()
 
     # ----- Langue -----
 
@@ -2655,17 +2853,64 @@ class SpiroWindow(QWidget):
         self.menu_lang.setTitle(tr(self.language, "menu_options_language"))
         self.act_lang_fr.setText(tr(self.language, "menu_lang_fr"))
         self.act_lang_en.setText(tr(self.language, "menu_lang_en"))
+        self.act_animation_enabled.setText(tr(self.language, "menu_regen_animation"))
+        self.act_show_track.setText(tr(self.language, "menu_regen_show_track"))
         self.act_regen.setText(tr(self.language, "menu_regen_draw"))
+
+        self._refresh_animation_texts()
 
         # Checkmarks langue
         self.act_lang_fr.setChecked(self.language == "fr")
         self.act_lang_en.setChecked(self.language == "en")
 
+    def _available_svg_space(self) -> Tuple[int, int]:
+        layout = self.layout()
+        if not layout:
+            return 0, 0
+        margins = layout.contentsMargins()
+        spacing = layout.spacing()
+        available_width = max(0, self.width() - margins.left() - margins.right())
+        available_height = max(0, self.height() - margins.top() - margins.bottom())
+
+        menu_height = max(self.menu_bar.height(), self.menu_bar.sizeHint().height())
+        available_height = max(0, available_height - menu_height)
+
+        anim_height = 0
+        if getattr(self, "anim_container", None) is not None:
+            anim_height = max(
+                self.anim_container.height(), self.anim_container.sizeHint().height()
+            )
+        available_height = max(0, available_height - anim_height)
+
+        # Two spacings separate menubar/SVG and SVG/controls
+        available_height = max(0, available_height - (spacing * 2))
+
+        # Account for the SVG container margins, which stay at 0 but keep logic consistent
+        if getattr(self, "svg_container", None) is not None:
+            svg_margins = self.svg_container.layout().contentsMargins()
+            available_width = max(
+                0, available_width - svg_margins.left() - svg_margins.right()
+            )
+            available_height = max(
+                0, available_height - svg_margins.top() - svg_margins.bottom()
+            )
+
+        return available_width, available_height
+
+    def _update_svg_size(self):
+        available_width, available_height = self._available_svg_space()
+        square_size = max(50, min(available_width, available_height))
+        self.svg_widget.setFixedSize(QSize(square_size, square_size))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_svg_size()
+
     # ----- SVG -----
 
     def update_svg(self):
         bg_norm = normalize_color_string(self.bg_color) or "#ffffff"
-        svg_data = layers_to_svg(
+        result = layers_to_svg(
             self.layers,
             width=self.canvas_width,
             height=self.canvas_height,
@@ -2673,12 +2918,205 @@ class SpiroWindow(QWidget):
             hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
             pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            show_tracks=self.show_track,
+            return_render_data=True,
         )
+        if isinstance(result, tuple):
+            svg_data, render_data = result
+        else:
+            svg_data, render_data = result, None
+        self._last_svg_data = svg_data
+        self._animation_render_data = render_data
+        self._reset_animation_state()
         self.load_svg(svg_data)
 
     def load_svg(self, svg_string: str):
         data = QByteArray(svg_string.encode("utf-8"))
         self.svg_widget.load(data)
+
+    # ----- Animation -----
+
+    def _set_animation_enabled(self, enabled: bool):
+        self.animation_enabled = bool(enabled)
+        if self.act_animation_enabled.isChecked() != self.animation_enabled:
+            self.act_animation_enabled.setChecked(self.animation_enabled)
+        if not self.animation_enabled:
+            self._stop_animation()
+        self.anim_container.setVisible(self.animation_enabled)
+        self._update_animation_controls()
+
+    def _set_show_track(self, checked: bool, trigger_update: bool = True):
+        self.show_track = bool(checked)
+        if self.act_show_track.isChecked() != self.show_track:
+            self.act_show_track.setChecked(self.show_track)
+        if trigger_update:
+            self.update_svg()
+
+    def _max_animation_points(self) -> int:
+        if not self._animation_render_data:
+            return 0
+        paths = self._animation_render_data.get("paths") or []
+        if not paths:
+            return 0
+        return max(len(p.get("points", [])) for p in paths)
+
+    def _refresh_animation_texts(self):
+        start_key = "anim_pause" if self._animation_running else "anim_start"
+        self.anim_start_btn.setText(tr(self.language, start_key))
+        self.anim_reset_btn.setText(tr(self.language, "anim_reset"))
+        self.anim_speed_label.setText(tr(self.language, "anim_speed_label"))
+        self.anim_speed_spin.setSpecialValueText(tr(self.language, "anim_speed_infinite"))
+        self.anim_speed_spin.setSuffix(tr(self.language, "anim_speed_suffix"))
+
+    def _update_animation_controls(self):
+        has_data = bool(
+            self._animation_render_data and (self._animation_render_data.get("paths") or [])
+        )
+        controls_enabled = has_data and self.animation_enabled
+        for w in (
+            self.anim_start_btn,
+            self.anim_reset_btn,
+            self.anim_speed_spin,
+            self.anim_btn_half,
+            self.anim_btn_double,
+        ):
+            w.setEnabled(controls_enabled)
+        self.anim_container.setVisible(self.animation_enabled)
+        self._refresh_animation_texts()
+
+    def _on_anim_speed_changed(self, value: float):
+        if value <= 0.0:
+            self._animation_speed = math.inf
+        else:
+            self._animation_speed = value
+
+    def _apply_anim_speed_factor(self, factor: float):
+        if factor <= 0:
+            return
+        current = self.anim_speed_spin.value()
+        if current <= 0.0:
+            return
+        new_val = max(0.25, min(self.anim_speed_spin.maximum(), current * factor))
+        self.anim_speed_spin.setValue(new_val)
+
+    def _toggle_animation(self):
+        if not self.animation_enabled:
+            return
+        if not self._animation_render_data:
+            return
+        max_pts = self._max_animation_points()
+        if max_pts <= 1:
+            return
+        if not self._animation_running:
+            if self._animation_progress >= max_pts:
+                self._animation_progress = 0.0
+            self._animation_last_time = time.monotonic()
+            self._animation_running = True
+            self._animation_timer.start(16)
+            self._update_animation_controls()
+            self._render_animation_frame()
+        else:
+            self._stop_animation()
+
+    def _stop_animation(self):
+        self._animation_timer.stop()
+        self._animation_running = False
+        self._animation_last_time = None
+        self._update_animation_controls()
+
+    def _reset_animation_state(self):
+        self._stop_animation()
+        self._animation_progress = 0.0
+        self._update_animation_controls()
+
+    def _reset_animation(self):
+        if not self.animation_enabled or not self._animation_render_data:
+            return
+        self._stop_animation()
+        self._animation_progress = 0.0
+        self._render_animation_frame()
+
+    def _on_animation_tick(self):
+        if not self._animation_render_data:
+            self._stop_animation()
+            return
+        max_pts = self._max_animation_points()
+        if max_pts <= 1:
+            self._stop_animation()
+            return
+
+        now = time.monotonic()
+        if self._animation_last_time is None:
+            self._animation_last_time = now
+        dt = max(0.0, now - self._animation_last_time)
+        self._animation_last_time = now
+
+        if math.isinf(self._animation_speed):
+            self._animation_progress = max_pts
+        else:
+            self._animation_progress += self._animation_speed * dt
+
+        if self._animation_progress >= max_pts:
+            self._animation_progress = max_pts
+            self._render_animation_frame()
+            self._stop_animation()
+            return
+
+        self._render_animation_frame()
+
+    def _render_animation_frame(self):
+        data = self._animation_render_data
+        if not data:
+            return
+        tracks = data.get("tracks") or []
+        paths = data.get("paths") or []
+        width = data.get("width", self.canvas_width)
+        height = data.get("height", self.canvas_height)
+        bg = data.get("bg_color", self.bg_color)
+        svg_parts = [
+            '<?xml version="1.0" standalone="no"?>',
+            f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}"',
+            '     xmlns="http://www.w3.org/2000/svg" version="1.1">',
+            f'  <rect x="0" y="0" width="{width}" height="{height}" fill="{bg}"/>',
+        ]
+
+        for track_entry in tracks:
+            pts = track_entry.get("points") or []
+            if len(pts) < 2:
+                continue
+            x0, y0 = pts[0]
+            cmds = [f"M {x0:.3f} {y0:.3f}"]
+            for (x, y) in pts[1:]:
+                cmds.append(f"L {x:.3f} {y:.3f}")
+            path_d = " ".join(cmds)
+            width_stroke = track_entry.get("stroke_width", 1.0)
+            svg_parts.append(
+                f'  <path d="{path_d}" fill="none" stroke="#808080" stroke-width="{width_stroke}"/>'
+            )
+
+        current = self._animation_progress
+        for entry in paths:
+            pts = entry.get("points") or []
+            if math.isinf(current):
+                count = len(pts)
+            else:
+                count = int(min(len(pts), math.floor(current)))
+            if count <= 0:
+                continue
+            t_points = pts[:count]
+            x0, y0 = t_points[0]
+            cmds = [f"M {x0:.3f} {y0:.3f}"]
+            for (x, y) in t_points[1:]:
+                cmds.append(f"L {x:.3f} {y:.3f}")
+            path_d = " ".join(cmds)
+            color = entry.get("color", "#000000")
+            width_stroke = entry.get("stroke_width", 1.0)
+            svg_parts.append(
+                f'  <path d="{path_d}" fill="none" stroke="{color}" stroke-width="{width_stroke}"/>'
+            )
+
+        svg_parts.append("</svg>")
+        self.load_svg("\n".join(svg_parts))
 
     # ----- Actions -----
 
@@ -2874,6 +3312,126 @@ class SpiroWindow(QWidget):
             )
         return layers
 
+    def _config_file_path(self) -> str:
+        base_dir = QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation)
+        if not base_dir:
+            base_dir = os.path.expanduser("~")
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+        except Exception:
+            pass
+        return os.path.join(base_dir, "spirosim_config.json")
+
+    def _gather_state_dict(self, include_window: bool = False):
+        data = {
+            "version": 1,
+            "language": self.language,
+            "hole_spacing_mm": self.hole_spacing_mm,
+            "pitch_mm_per_tooth": self.pitch_mm_per_tooth,
+            "bg_color": self.bg_color,
+            "canvas_width": self.canvas_width,
+            "canvas_height": self.canvas_height,
+            "points_per_path": self.points_per_path,
+            "animation_enabled": self.animation_enabled,
+            "animation_speed": self.anim_speed_spin.value(),
+            "show_track": self.show_track,
+            "layers": self._layers_to_json_struct(),
+        }
+
+        if include_window:
+            try:
+                geom = self.saveGeometry()
+                if geom and not geom.isEmpty():
+                    data["window_geometry"] = bytes(geom.toBase64()).decode("ascii")
+            except Exception:
+                pass
+            try:
+                data["window_state"] = int(self.windowState())
+            except Exception:
+                pass
+
+        return data
+
+    def _apply_state_dict(self, data, *, apply_window: bool, refresh: bool):
+        self.language = data.get("language", self.language)
+        self.hole_spacing_mm = float(data.get("hole_spacing_mm", self.hole_spacing_mm))
+        self.pitch_mm_per_tooth = float(
+            data.get("pitch_mm_per_tooth", self.pitch_mm_per_tooth)
+        )
+        self.bg_color = data.get("bg_color", self.bg_color)
+        self.canvas_width = int(data.get("canvas_width", self.canvas_width))
+        self.canvas_height = int(data.get("canvas_height", self.canvas_height))
+        self.points_per_path = int(data.get("points_per_path", self.points_per_path))
+
+        anim_enabled_val = data.get("animation_enabled")
+        if anim_enabled_val is not None:
+            self.animation_enabled = bool(anim_enabled_val)
+        self._set_animation_enabled(self.animation_enabled)
+
+        saved_speed = data.get("animation_speed")
+        if saved_speed is not None:
+            try:
+                self.anim_speed_spin.setValue(float(saved_speed))
+            except Exception:
+                pass
+
+        show_track_val = data.get("show_track")
+        if show_track_val is not None:
+            self.show_track = bool(show_track_val)
+            try:
+                self.act_show_track.setChecked(self.show_track)
+            except Exception:
+                pass
+
+        if "layers" in data:
+            layers_struct = data.get("layers", [])
+            self.layers = self._layers_from_json_struct(layers_struct)
+
+        if apply_window:
+            geom_b64 = data.get("window_geometry")
+            if geom_b64:
+                try:
+                    geom_bytes = QByteArray.fromBase64(geom_b64.encode("ascii"))
+                    if geom_bytes and not geom_bytes.isEmpty():
+                        self.restoreGeometry(geom_bytes)
+                        self._geometry_restored = True
+                except Exception:
+                    pass
+            state_val = data.get("window_state")
+            if state_val is not None:
+                try:
+                    self.setWindowState(Qt.WindowState(int(state_val)))
+                except Exception:
+                    pass
+
+        if refresh:
+            self.apply_language()
+            self._update_svg_size()
+            self.update_svg()
+
+    def _load_persisted_state(self) -> bool:
+        cfg_path = self._config_file_path()
+        if not os.path.exists(cfg_path):
+            return False
+
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return False
+
+        self._apply_state_dict(data, apply_window=True, refresh=True)
+        return True
+
+    def _save_persisted_state(self):
+        cfg_path = self._config_file_path()
+        data = self._gather_state_dict(include_window=True)
+        try:
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
     def save_to_json(self):
         filename, _ = QFileDialog.getSaveFileName(
             self,
@@ -2884,17 +3442,7 @@ class SpiroWindow(QWidget):
         if not filename:
             return
 
-        data = {
-            "version": 1,
-            "language": self.language,
-            "hole_spacing_mm": self.hole_spacing_mm,
-            "pitch_mm_per_tooth": self.pitch_mm_per_tooth,
-            "bg_color": self.bg_color,
-            "canvas_width": self.canvas_width,
-            "canvas_height": self.canvas_height,
-            "points_per_path": self.points_per_path,
-            "layers": self._layers_to_json_struct(),
-        }
+        data = self._gather_state_dict(include_window=False)
 
         try:
             with open(filename, "w", encoding="utf-8") as f:
@@ -2919,22 +3467,7 @@ class SpiroWindow(QWidget):
             QMessageBox.critical(self, "Error", str(e))
             return
 
-        self.language = data.get("language", self.language)
-        self.hole_spacing_mm = float(data.get("hole_spacing_mm", self.hole_spacing_mm))
-        self.pitch_mm_per_tooth = float(
-            data.get("pitch_mm_per_tooth", self.pitch_mm_per_tooth)
-        )
-        self.bg_color = data.get("bg_color", self.bg_color)
-        self.canvas_width = int(data.get("canvas_width", self.canvas_width))
-        self.canvas_height = int(data.get("canvas_height", self.canvas_height))
-        self.points_per_path = int(data.get("points_per_path", self.points_per_path))
-
-        layers_struct = data.get("layers", [])
-        self.layers = self._layers_from_json_struct(layers_struct)
-
-        # Réappliquer la langue et régénérer
-        self.apply_language()
-        self.update_svg()
+        self._apply_state_dict(data, apply_window=False, refresh=True)
 
     # ----- Export SVG / PNG -----
 
@@ -3031,10 +3564,18 @@ class SpiroWindow(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
+    def closeEvent(self, event):
+        try:
+            self._save_persisted_state()
+            self._stop_animation()
+        finally:
+            super().closeEvent(event)
+
 def main():
     app = QApplication(sys.argv)
     window = SpiroWindow()
-    window.resize(1000, 1000)
+    if not getattr(window, "_geometry_restored", False):
+        window.resize(1000, 1000)
     window.show()
     sys.exit(app.exec())
 
