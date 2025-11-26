@@ -2436,7 +2436,7 @@ class ModularTrackEditorDialog(QDialog):
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(4)
+        main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(4)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -2607,7 +2607,7 @@ class SpiroWindow(QWidget):
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(4)
+        main_layout.setSpacing(0)
 
         # ----- Barre de menus -----
         menubar = QMenuBar()
@@ -2686,8 +2686,16 @@ class SpiroWindow(QWidget):
         main_layout.addWidget(menubar)
 
         self.svg_widget = QSvgWidget()
-        self.svg_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        main_layout.addWidget(self.svg_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.svg_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        svg_container = QWidget()
+        svg_container_layout = QHBoxLayout(svg_container)
+        svg_container_layout.setContentsMargins(0, 0, 0, 0)
+        svg_container_layout.setSpacing(0)
+        svg_container_layout.addWidget(
+            self.svg_widget, alignment=Qt.AlignmentFlag.AlignCenter
+        )
+        self.svg_container = svg_container
+        main_layout.addWidget(svg_container, stretch=1)
 
         # ----- Animation du tracé -----
         self._last_svg_data: Optional[str] = None
@@ -2842,6 +2850,17 @@ class SpiroWindow(QWidget):
 
         # Two spacings separate menubar/SVG and SVG/controls
         available_height = max(0, available_height - (spacing * 2))
+
+        # Account for the SVG container margins, which stay at 0 but keep logic consistent
+        if getattr(self, "svg_container", None) is not None:
+            svg_margins = self.svg_container.layout().contentsMargins()
+            available_width = max(
+                0, available_width - svg_margins.left() - svg_margins.right()
+            )
+            available_height = max(
+                0, available_height - svg_margins.top() - svg_margins.bottom()
+            )
+
         return available_width, available_height
 
     def _update_svg_size(self):
