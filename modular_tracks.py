@@ -9,6 +9,26 @@ Ce module est indépendant de Qt. Il fournit :
   - la génération d'un tracé de stylo pour une roue donnée qui roule
     le long de cette piste, côté "dedans" ou "dehors".
 
+Repère et géométrie de base (anneau 144/96 dents) :
+  - Centre commun : origine (0, 0) partagée par les deux cercles de référence.
+  - Orientation : repère mathématique direct, angle 0° aligné avec +X, sens
+    positif antihoraire (CCW). La rotation globale +90° appliquée plus loin
+    place simplement le départ en haut pour l'affichage, sans changer ces
+    conventions de calcul.
+  - Pas : 0,65 mm/dent. Rayons de référence :
+        R144 = 144 * pas / (2π) ≈ 14,897 mm
+        R96  =  96 * pas / (2π) ≈  9,931 mm
+    Largeur annulaire : w = R144 – R96 ≈ 4,966 mm.
+  - Arcs élémentaires :
+        * convexe (côté 144 dents)   : angle = (nb_dents × 360 / 144)°, centré
+          sur l'origine.
+        * concave (côté 96 dents)    : angle = (nb_dents × 360 / 96)°, même
+          centre. Les deux familles partagent ainsi la même origine et la même
+          convention d'angle.
+  - Terminators Z : demi-cercles de diamètre w, tangents aux deux cercles de
+    référence (rayons R144 et R96) et centrés sur le même axe radial que le
+    segment qu'ils ferment.
+
 Hypothèses / simplifications :
   - Toutes les pièces courbes (A, B, C, D, Y, ...) sont définies par
     un angle en degrés (45, 60, 90, 120, ...).
