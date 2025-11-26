@@ -934,15 +934,27 @@ def generate_track_base_points(
     if mode not in {"stylo", "contact", "centre"}:
         raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
 
-    # Détermination du côté initial (vers le barycentre avant offset)
-    left_x = -math.sin(theta_start)
-    left_y = math.cos(theta_start)
-    to_center_x = -x_start
-    to_center_y = -y_start
-    dot_left_center = left_x * to_center_x + left_y * to_center_y
-    base_side = 1.0 if dot_left_center >= 0.0 else -1.0
-    if relation == "dehors":
-        base_side *= -1.0
+    def compute_base_side(theta0: float, x0: float, y0: float, rel: str) -> float:
+        """Choisit le côté initial en orientant la normale vers le barycentre."""
+
+        left_x = -math.sin(theta0)
+        left_y = math.cos(theta0)
+        to_center_x = -x0
+        to_center_y = -y0
+        dot_left_center = left_x * to_center_x + left_y * to_center_y
+
+        # Si le point de départ est très proche du barycentre, on garde le
+        # côté "gauche" par défaut et on n'inverse qu'en fonction de relation.
+        if abs(to_center_x) < 1e-6 and abs(to_center_y) < 1e-6:
+            side = 1.0
+        else:
+            side = 1.0 if dot_left_center >= 0.0 else -1.0
+
+        if rel == "dehors":
+            side *= -1.0
+        return side
+
+    base_side = compute_base_side(theta_start, x_start, y_start, relation)
 
     def offset_side(seg: Optional[TrackSegment]) -> float:
         """Choisit le côté d'offset en inversant pour les courbures opposées."""
