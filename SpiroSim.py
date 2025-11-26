@@ -1889,7 +1889,7 @@ class PathEditDialog(QDialog):
         layout.addRow(tr(self.lang, "dlg_path_name"), self.name_edit)
         layout.addRow(tr(self.lang, "dlg_path_hole_index"), self.hole_spin)
         layout.addRow(tr(self.lang, "dlg_path_phase"), self.phase_spin)
-        layout.addRow(tr(self.lang, "dlg_path_color"), self.color_edit)
+        layout.addRow(tr(self.lang, "dlg_path_color"), color_row)
         layout.addRow(tr(self.lang, "dlg_path_width"), self.stroke_spin)
         layout.addRow(tr(self.lang, "dlg_path_zoom"), self.zoom_spin)
 
