@@ -902,8 +902,13 @@ def generate_track_base_points(
 
     cum: List[float] = []
     tangents: List[float] = []
-    if not track.segments:
+    x_start = y_start = theta_start = 0.0
+
+    if track.segments:
+        x_start, y_start, theta_start, _, _ = _interpolate_on_segments(0.0, track)
+    else:
         cum, tangents = _precompute_length_and_tangent(track.points)
+        x_start, y_start, theta_start = _interpolate_on_track(0.0, track.points, cum, tangents)
 
     L = track.total_length if track.total_length > 0 else (cum[-1] if cum else 0.0)
 
@@ -929,28 +934,34 @@ def generate_track_base_points(
     if mode not in {"stylo", "contact", "centre"}:
         raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
 
-    def relation_normal(x: float, y: float, theta: float) -> Tuple[float, float]:
-        """Normalisée vers (0, 0) pour "dedans", inversée pour "dehors"."""
+    # Détermination du côté initial (vers le barycentre avant offset)
+    left_x = -math.sin(theta_start)
+    left_y = math.cos(theta_start)
+    to_center_x = -x_start
+    to_center_y = -y_start
+    dot_left_center = left_x * to_center_x + left_y * to_center_y
+    base_side = 1.0 if dot_left_center >= 0.0 else -1.0
+    if relation == "dehors":
+        base_side *= -1.0
 
-        # vecteur vers le barycentre (0, 0)
-        nx = -x
-        ny = -y
+    def offset_side(seg: Optional[TrackSegment]) -> float:
+        """Choisit le côté d'offset en inversant pour les courbures opposées."""
+
+        sign = base_side
+        if seg is not None and seg.kind == "arc" and seg.side_sign < 0:
+            sign = -sign
+        return sign
+
+    def relation_normal(theta: float, seg: Optional[TrackSegment]) -> Tuple[float, float]:
+        """Normale dérivée de la tangente, orientée selon le côté choisi."""
+
+        sign = offset_side(seg)
+        nx = -math.sin(theta) * sign
+        ny = math.cos(theta) * sign
         nlen = math.hypot(nx, ny)
-
-        # en cas de point trop proche du centre, on retombe sur la normale géométrique
-        if nlen < 1e-9:
-            nx = -math.sin(theta)
-            ny = math.cos(theta)
-            nlen = math.hypot(nx, ny)
-
         if nlen > 0.0:
             nx /= nlen
             ny /= nlen
-
-        if relation == "dehors":
-            nx = -nx
-            ny = -ny
-
         return nx, ny
 
     def rolling_mode(seg: Optional[TrackSegment]) -> str:
@@ -988,7 +999,7 @@ def generate_track_base_points(
             phi = -2.0 * math.pi * (teeth_rolled / float(wt))
 
             # normale orientée vers le barycentre (0, 0) ou à l'opposé selon la relation
-            nx, ny = relation_normal(x_track, y_track, theta)
+            nx, ny = relation_normal(theta, None)
 
             cx = x_track + nx * r_wheel
             cy = y_track + ny * r_wheel
@@ -1025,7 +1036,7 @@ def generate_track_base_points(
                 break
 
         # normale orientée vers le barycentre (0, 0) ou à l'opposé selon la relation
-        nx, ny = relation_normal(x_track, y_track, theta)
+        nx, ny = relation_normal(theta, seg)
 
         # centre de la roue : dedans/dehors selon sign_side
         cx = x_track + nx * r_wheel
