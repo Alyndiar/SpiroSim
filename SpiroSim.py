@@ -220,6 +220,8 @@ TRANSLATIONS = {
         "menu_options_language": "Langue",
         "menu_lang_fr": "Français",
         "menu_lang_en": "English",
+        "menu_regen_animation": "Animation",
+        "menu_regen_show_track": "Afficher la piste",
         "menu_regen_draw": "Régénérer le dessin",
 
         "anim_start": "Démarrer l'animation",
@@ -332,6 +334,8 @@ TRANSLATIONS = {
         "menu_options_language": "Language",
         "menu_lang_fr": "Français",
         "menu_lang_en": "English",
+        "menu_regen_animation": "Animation",
+        "menu_regen_show_track": "Show track",
         "menu_regen_draw": "Regenerate drawing",
 
         "anim_start": "Start animation",
@@ -1387,6 +1391,7 @@ def layers_to_svg(
     hole_spacing_mm: float = 0.65,
     points_per_path: int = 6000,
     pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+    show_tracks: bool = True,
     return_render_data: bool = False,
 ) -> str:
     """
@@ -1408,29 +1413,30 @@ def layers_to_svg(
 
         layer_track_points = None
         layer_track_width_mm = None
-        if (
-            layer.gears
-            and layer.gears[0].gear_type == "modulaire"
-            and getattr(layer.gears[0], "modular_notation", "")
-        ):
-            g0 = layer.gears[0]
-            inner_teeth = max(1, int(g0.teeth))
-            outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
-            outer_teeth = max(outer_teeth, inner_teeth)
+        if show_tracks:
+            if (
+                layer.gears
+                and layer.gears[0].gear_type == "modulaire"
+                and getattr(layer.gears[0], "modular_notation", "")
+            ):
+                g0 = layer.gears[0]
+                inner_teeth = max(1, int(g0.teeth))
+                outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
+                outer_teeth = max(outer_teeth, inner_teeth)
 
-            track = modular_tracks.build_track_from_notation(
-                g0.modular_notation,
-                inner_teeth=inner_teeth,
-                outer_teeth=outer_teeth,
-                pitch_mm_per_tooth=pitch_mm_per_tooth,
-                steps_per_tooth=3,
-            )
-            if track.points:
-                layer_track_points = track.points
-                r_inner = (pitch_mm_per_tooth * float(inner_teeth)) / (2.0 * math.pi)
-                r_outer = (pitch_mm_per_tooth * float(outer_teeth)) / (2.0 * math.pi)
-                width_mm = max(r_outer - r_inner, pitch_mm_per_tooth)
-                layer_track_width_mm = width_mm * layer_zoom
+                track = modular_tracks.build_track_from_notation(
+                    g0.modular_notation,
+                    inner_teeth=inner_teeth,
+                    outer_teeth=outer_teeth,
+                    pitch_mm_per_tooth=pitch_mm_per_tooth,
+                    steps_per_tooth=3,
+                )
+                if track.points:
+                    layer_track_points = track.points
+                    r_inner = (pitch_mm_per_tooth * float(inner_teeth)) / (2.0 * math.pi)
+                    r_outer = (pitch_mm_per_tooth * float(outer_teeth)) / (2.0 * math.pi)
+                    width_mm = max(r_outer - r_inner, pitch_mm_per_tooth)
+                    layer_track_width_mm = width_mm * layer_zoom
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
                 layer,
@@ -1447,7 +1453,7 @@ def layers_to_svg(
             rendered_paths.append((layer.name, layer_zoom, path, pts_zoomed, path_zoom))
             all_points.extend(pts_zoomed)
 
-        if layer_track_points:
+        if show_tracks and layer_track_points:
             track_zoomed = [
                 (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
             ]
@@ -2610,6 +2616,10 @@ class SpiroWindow(QWidget):
         self.canvas_height: int = 1000
         self.points_per_path: int = 6000
 
+        # Affichage optionnel
+        self.animation_enabled: bool = True
+        self.show_track: bool = True
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -2684,6 +2694,19 @@ class SpiroWindow(QWidget):
         # Menu Régénérer
         self.menu_regen = QMenu(menubar)
         menubar.addMenu(self.menu_regen)
+        self.act_animation_enabled = QAction(menubar)
+        self.act_animation_enabled.setCheckable(True)
+        self.act_animation_enabled.setChecked(True)
+        self.act_animation_enabled.triggered.connect(self._set_animation_enabled)
+        self.menu_regen.addAction(self.act_animation_enabled)
+
+        self.act_show_track = QAction(menubar)
+        self.act_show_track.setCheckable(True)
+        self.act_show_track.setChecked(True)
+        self.act_show_track.triggered.connect(self._set_show_track)
+        self.menu_regen.addAction(self.act_show_track)
+
+        self.menu_regen.addSeparator()
         self.act_regen = QAction(menubar)
         self.act_regen.triggered.connect(self.update_svg)
         self.menu_regen.addAction(self.act_regen)
@@ -2744,6 +2767,7 @@ class SpiroWindow(QWidget):
         anim_container = QWidget()
         anim_container.setLayout(anim_layout)
         self.anim_container = anim_container
+        self.anim_container.setVisible(self.animation_enabled)
         main_layout.addWidget(anim_container)
 
         # Layer par défaut : anneau 150/105 + roue 30 dedans
@@ -2829,6 +2853,8 @@ class SpiroWindow(QWidget):
         self.menu_lang.setTitle(tr(self.language, "menu_options_language"))
         self.act_lang_fr.setText(tr(self.language, "menu_lang_fr"))
         self.act_lang_en.setText(tr(self.language, "menu_lang_en"))
+        self.act_animation_enabled.setText(tr(self.language, "menu_regen_animation"))
+        self.act_show_track.setText(tr(self.language, "menu_regen_show_track"))
         self.act_regen.setText(tr(self.language, "menu_regen_draw"))
 
         self._refresh_animation_texts()
@@ -2892,6 +2918,7 @@ class SpiroWindow(QWidget):
             hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
             pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            show_tracks=self.show_track,
             return_render_data=True,
         )
         if isinstance(result, tuple):
@@ -2908,6 +2935,22 @@ class SpiroWindow(QWidget):
         self.svg_widget.load(data)
 
     # ----- Animation -----
+
+    def _set_animation_enabled(self, enabled: bool):
+        self.animation_enabled = bool(enabled)
+        if self.act_animation_enabled.isChecked() != self.animation_enabled:
+            self.act_animation_enabled.setChecked(self.animation_enabled)
+        if not self.animation_enabled:
+            self._stop_animation()
+        self.anim_container.setVisible(self.animation_enabled)
+        self._update_animation_controls()
+
+    def _set_show_track(self, checked: bool, trigger_update: bool = True):
+        self.show_track = bool(checked)
+        if self.act_show_track.isChecked() != self.show_track:
+            self.act_show_track.setChecked(self.show_track)
+        if trigger_update:
+            self.update_svg()
 
     def _max_animation_points(self) -> int:
         if not self._animation_render_data:
@@ -2929,6 +2972,7 @@ class SpiroWindow(QWidget):
         has_data = bool(
             self._animation_render_data and (self._animation_render_data.get("paths") or [])
         )
+        controls_enabled = has_data and self.animation_enabled
         for w in (
             self.anim_start_btn,
             self.anim_reset_btn,
@@ -2936,7 +2980,8 @@ class SpiroWindow(QWidget):
             self.anim_btn_half,
             self.anim_btn_double,
         ):
-            w.setEnabled(has_data)
+            w.setEnabled(controls_enabled)
+        self.anim_container.setVisible(self.animation_enabled)
         self._refresh_animation_texts()
 
     def _on_anim_speed_changed(self, value: float):
@@ -2955,6 +3000,8 @@ class SpiroWindow(QWidget):
         self.anim_speed_spin.setValue(new_val)
 
     def _toggle_animation(self):
+        if not self.animation_enabled:
+            return
         if not self._animation_render_data:
             return
         max_pts = self._max_animation_points()
@@ -2983,7 +3030,7 @@ class SpiroWindow(QWidget):
         self._update_animation_controls()
 
     def _reset_animation(self):
-        if not self._animation_render_data:
+        if not self.animation_enabled or not self._animation_render_data:
             return
         self._stop_animation()
         self._animation_progress = 0.0
@@ -3285,7 +3332,9 @@ class SpiroWindow(QWidget):
             "canvas_width": self.canvas_width,
             "canvas_height": self.canvas_height,
             "points_per_path": self.points_per_path,
+            "animation_enabled": self.animation_enabled,
             "animation_speed": self.anim_speed_spin.value(),
+            "show_track": self.show_track,
             "layers": self._layers_to_json_struct(),
         }
 
@@ -3314,10 +3363,23 @@ class SpiroWindow(QWidget):
         self.canvas_height = int(data.get("canvas_height", self.canvas_height))
         self.points_per_path = int(data.get("points_per_path", self.points_per_path))
 
+        anim_enabled_val = data.get("animation_enabled")
+        if anim_enabled_val is not None:
+            self.animation_enabled = bool(anim_enabled_val)
+        self._set_animation_enabled(self.animation_enabled)
+
         saved_speed = data.get("animation_speed")
         if saved_speed is not None:
             try:
                 self.anim_speed_spin.setValue(float(saved_speed))
+            except Exception:
+                pass
+
+        show_track_val = data.get("show_track")
+        if show_track_val is not None:
+            self.show_track = bool(show_track_val)
+            try:
+                self.act_show_track.setChecked(self.show_track)
             except Exception:
                 pass
 
