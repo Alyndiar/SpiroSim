@@ -1,5 +1,5 @@
 """
-modular_tracks.py (nouvelle version)
+modular_tracks_2.py (nouvelle version)
 
 Génération de pistes modulaires de type SuperSpirograph + courbes associées,
 basée sur un modèle géométrique par segments (arcs / barres) et non plus
