@@ -167,8 +167,9 @@ def _compute_animation_sequences(
         contact_offset = sign_side * half_width
         contact_points.append((x_track + contact_offset * nx, y_track + contact_offset * ny))
 
-        cx = (x_track + contact_offset * nx) - sign_side * nx * r_wheel
-        cy = (y_track + contact_offset * ny) - sign_side * ny * r_wheel
+        center_offset = contact_offset + sign_side * r_wheel
+        cx = x_track + center_offset * nx
+        cy = y_track + center_offset * ny
         wheel_centers.append((cx, cy))
 
         teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
