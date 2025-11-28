@@ -455,8 +455,8 @@ def _build_segments_from_parsed(
 
     # Recentrer et orienter la piste :
     #  - barycentre -> (0,0)
-    #  - puis on tourne pour que le point s=0 soit sur l'axe vertical au-dessus de l'origine.
-    #    (cela correspond aux conventions Spirograph : point 0 "en haut".)
+    #  - puis rotation globale fixe de +pi/2 pour avoir l'angle 0 vers +Y
+    #    (convention Spirograph : point 0 "en haut".)
     # Calcul barycentre
     bx = sum(x for (x, _) in pts) / len(pts)
     by = sum(y for (_, y) in pts) / len(pts)
@@ -464,11 +464,8 @@ def _build_segments_from_parsed(
     for (x, y) in pts:
         pts_centered.append((x - bx, y - by))
 
-    # Rotation globale pour placer le premier point au dessus de l'origine
-    x0, y0 = pts_centered[0]
-    alpha = math.atan2(y0, x0)
-    target = math.pi / 2.0  # on veut le premier point sur l'axe +Y
-    rot = target - alpha
+    # Rotation globale fixée : angle 0 vers +Y (pi/2 par rapport à +X)
+    rot = math.pi / 2.0
     cos_r = math.cos(rot)
     sin_r = math.sin(rot)
 

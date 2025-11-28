@@ -198,7 +198,7 @@ class ModularTrackDemo(QWidget):
         self.timer.timeout.connect(self._on_tick)
 
         self.track = modular_tracks.TrackBuildResult(
-            points=[], segments=[], total_length=0.0, total_teeth=0.0
+            points=[], total_length=0.0, total_teeth=0.0, offset_teeth=0, segments=[]
         )
         self.stylo_points: List[Point] = []
         self.wheel_centers: List[Point] = []
