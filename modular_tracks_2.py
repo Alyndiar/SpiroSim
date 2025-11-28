@@ -729,11 +729,11 @@ def generate_track_base_points(
 
         # approximation : la longueur parcourue sur la piste en "dents" vaut
         # s / pitch_mm_per_tooth, avec un décalage initial optionnel.
-        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth) - track_offset_teeth
+        teeth_rolled = (s / pitch_mm_per_tooth) - float(wheel_phase_teeth) + track_offset_teeth
 
         # Phase de la roue (sens horaire Spirograph)
         angle_contact = math.atan2(contact_y - cy, contact_x - cx)
-        phi = angle_contact - 2.0 * math.pi * (teeth_rolled / float(N_w))
+        phi = angle_contact + 2.0 * math.pi * (teeth_rolled / float(N_w))
 
         if mode == "contact":
             base_points.append((contact_x, contact_y))

@@ -176,8 +176,8 @@ def _compute_animation_sequences(
         wheel_centers.append((cx, cy))
 
         angle_contact = math.atan2(contact_y - cy, contact_x - cx)
-        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth) - track_offset_teeth
-        phi = angle_contact - 2.0 * math.pi * (teeth_rolled / float(N_w))
+        teeth_rolled = (s / pitch_mm_per_tooth) - float(wheel_phase_teeth) + track_offset_teeth
+        phi = angle_contact + 2.0 * math.pi * (teeth_rolled / float(N_w))
         px = cx + d * math.cos(phi)
         py = cy + d * math.sin(phi)
         stylo_points.append((px, py))
