@@ -15,7 +15,7 @@ Exécution rapide :
 
 import math
 import sys
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
@@ -42,12 +42,18 @@ def _estimate_track_half_width(segments: List[modular_tracks.TrackSegment]) -> f
 
 
 def _compute_track_polylines(
-    track: modular_tracks.TrackBuildResult, samples: int = 400
+    track: modular_tracks.TrackBuildResult,
+    samples: int = 400,
+    *,
+    half_width: Optional[float] = None,
 ) -> Tuple[List[Point], List[Point], List[Point], float]:
     """Retourne (centre, côté intérieur, côté extérieur, demi-largeur)."""
 
     segments = track.segments
-    half_width = _estimate_track_half_width(segments)
+    effective_half_width = half_width if (half_width and half_width > 0.0) else None
+    if effective_half_width is None:
+        effective_half_width = _estimate_track_half_width(segments)
+
     L = track.total_length
     centerline: List[Point] = track.points if track.points else []
 
@@ -65,10 +71,10 @@ def _compute_track_polylines(
         C, _, N = modular_tracks._interpolate_on_segments(s, segments)
         x, y = C
         nx, ny = N
-        inner.append((x - nx * half_width, y - ny * half_width))
-        outer.append((x + nx * half_width, y + ny * half_width))
+        inner.append((x - nx * effective_half_width, y - ny * effective_half_width))
+        outer.append((x + nx * effective_half_width, y + ny * effective_half_width))
 
-    return centerline, inner, outer, half_width
+    return centerline, inner, outer, effective_half_width
 
 
 def _compute_animation_sequences(
@@ -109,7 +115,18 @@ def _compute_animation_sequences(
     if not segments:
         return track, [], [], [], 0.0, 0.0
 
-    centerline, _, _, half_width = _compute_track_polylines(track)
+    width_mm = (
+        (float(outer_teeth) - float(inner_teeth))
+        * pitch_mm_per_tooth
+        / (2.0 * math.pi)
+        if outer_teeth and inner_teeth and outer_teeth > inner_teeth
+        else 0.0
+    )
+    half_width = width_mm * 0.5 if width_mm > 0.0 else _estimate_track_half_width(segments)
+
+    centerline, _, _, half_width = _compute_track_polylines(
+        track, half_width=half_width
+    )
 
     # Rayon de la roue et distance du trou par rapport au centre
     r_wheel = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
@@ -147,12 +164,12 @@ def _compute_animation_sequences(
         x_track, y_track = C
         nx, ny = N_vec
 
-        cx = x_track + sign_side * nx * r_wheel
-        cy = y_track + sign_side * ny * r_wheel
-        wheel_centers.append((cx, cy))
-
-        contact_offset = -sign_side * half_width
+        contact_offset = sign_side * half_width
         contact_points.append((x_track + contact_offset * nx, y_track + contact_offset * ny))
+
+        cx = (x_track + contact_offset * nx) - sign_side * nx * r_wheel
+        cy = (y_track + contact_offset * ny) - sign_side * ny * r_wheel
+        wheel_centers.append((cx, cy))
 
         teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
         phi = -2.0 * math.pi * (teeth_rolled / float(N_w))

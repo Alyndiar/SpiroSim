@@ -1955,6 +1955,7 @@ class TrackTestDialog(QDialog):
         lang: str = "fr",
         hole_spacing_mm: float = 0.65,
         pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+        points_per_path: int = 6000,
         parent=None,
     ):
         super().__init__(parent)
@@ -1962,6 +1963,7 @@ class TrackTestDialog(QDialog):
         self.setWindowTitle(tr(self.lang, "track_test_title"))
 
         self.demo_widget = modular_track_demo.ModularTrackDemo(auto_start=False)
+        self.points_per_path = max(2, int(points_per_path))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -2048,11 +2050,11 @@ class TrackTestDialog(QDialog):
             hole_index=path.hole_index,
             hole_spacing=hole_spacing_mm,
             relation=relation,
-            steps=720,
             wheel_phase_teeth=getattr(path, "phase_offset_teeth", 0.0),
             inner_teeth=inner_teeth,
             outer_teeth=outer_teeth,
             pitch_mm_per_tooth=pitch_mm_per_tooth,
+            steps=self.points_per_path,
             scale=scale,
         )
         if not self.demo_widget.stylo_points:
@@ -2403,6 +2405,7 @@ class LayerManagerDialog(QDialog):
             parent=self,
             hole_spacing_mm=self.hole_spacing_mm,
             pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            points_per_path=self.points_per_path,
         )
         dlg.setWindowState(dlg.windowState() | Qt.WindowFullScreen)
         dlg.exec()
