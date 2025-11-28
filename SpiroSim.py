@@ -631,24 +631,13 @@ def generate_trochoid_points_for_layer_path(
             hole_spacing_mm=hole_spacing_mm,
             steps=steps,
             relation=relation,
+            wheel_phase_teeth=path.phase_offset_teeth,
             inner_teeth=inner_teeth,
             outer_teeth=outer_teeth,
             pitch_mm_per_tooth=pitch_mm_per_tooth,
         )
 
-        teeth_moving = T1
-        angle_from_teeth = 2.0 * math.pi * (path.phase_offset_teeth / teeth_moving)
-        total_angle = math.pi / 2.0 - angle_from_teeth
-
-        cos_a = math.cos(total_angle)
-        sin_a = math.sin(total_angle)
-
-        rotated_points = []
-        for (x, y) in base_points:
-            xr = x * cos_a - y * sin_a
-            yr = x * sin_a + y * cos_a
-            rotated_points.append((xr, yr))
-        return rotated_points
+        return base_points
 
     # --- Cas 2 : comportement standard (anneau / roue ... ) ---
 
