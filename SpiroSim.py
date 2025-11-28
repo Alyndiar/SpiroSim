@@ -11,7 +11,7 @@ from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-import modular_tracks
+import modular_tracks_2 as modular_tracks
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -923,13 +923,10 @@ def paintEvent(self, event):
             painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
 
         # 3) dents (petits ticks côté "outer")
-        try:
-            cum, tangents = modular_tracks._precompute_length_and_tangent(self.points)
-            L = cum[-1]
-        except Exception:
-            cum, tangents, L = [0.0], [0.0], 0.0
+        L = self.total_length if self.have_track else 0.0
+        segments = getattr(self, "segments", [])
 
-        if L > 0.0 and self.pitch_mm > 0:
+        if L > 0.0 and segments and self.pitch_mm > 0:
             pen_teeth = QPen(QColor("#404040"))
             pen_teeth.setWidthF(0)
             painter.setPen(pen_teeth)
@@ -937,8 +934,8 @@ def paintEvent(self, event):
             num_teeth = max(1, int(L / self.pitch_mm))
             for k in range(num_teeth):
                 s = (k + 0.5) * self.pitch_mm
-                x, y, theta = modular_tracks._interpolate_on_track(
-                    s, self.points, cum, tangents
+                (x, y), theta, _ = modular_tracks._interpolate_on_segments(
+                    s % L, segments
                 )
                 nx = -math.sin(theta)
                 ny = math.cos(theta)
@@ -2264,6 +2261,7 @@ class ModularTrackView(QWidget):
         self.outer_teeth = 144
         self.pitch_mm = 0.65
         self.total_length = 0.0
+        self.segments = []
         self.last_tangent = 0.0  # angle de la tangente au dernier point (rad)
 
     def sizeHint(self):
@@ -2271,6 +2269,7 @@ class ModularTrackView(QWidget):
 
     def clear_track(self):
         self.points = []
+        self.segments = []
         self.have_track = False
         self.total_length = 0.0
         self.last_tangent = 0.0
@@ -2284,15 +2283,17 @@ class ModularTrackView(QWidget):
         pitch_mm: float,
     ):
         self.points = track.points or []
+        self.segments = track.segments or []
         self.total_length = track.total_length
         self.inner_teeth = max(1, inner_teeth)
         self.outer_teeth = max(self.inner_teeth + 1, outer_teeth)
         self.pitch_mm = pitch_mm
         self.have_track = len(self.points) > 1 and self.total_length > 0.0
-        if self.have_track and len(self.points) >= 2:
-            x0, y0 = self.points[-2]
-            x1, y1 = self.points[-1]
-            self.last_tangent = math.atan2(y1 - y0, x1 - x0)
+        if self.have_track and self.segments:
+            _, theta, _ = modular_tracks._interpolate_on_segments(
+                self.total_length, self.segments
+            )
+            self.last_tangent = theta
         else:
             self.last_tangent = 0.0
         self.update()
@@ -2371,13 +2372,8 @@ class ModularTrackView(QWidget):
             painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
 
         # 3) dents (petits ticks côté "outer")
-        try:
-            cum, tangents = modular_tracks._precompute_length_and_tangent(self.points)
-            L = cum[-1]
-        except Exception:
-            cum, tangents, L = [0.0], [0.0], 0.0
-
-        if L > 0.0 and self.pitch_mm > 0:
+        L = self.total_length if self.have_track else 0.0
+        if L > 0.0 and self.segments and self.pitch_mm > 0:
             pen_teeth = QPen(QColor("#404040"))
             pen_teeth.setWidthF(0)
             painter.setPen(pen_teeth)
@@ -2385,8 +2381,8 @@ class ModularTrackView(QWidget):
             num_teeth = max(1, int(L / self.pitch_mm))
             for k in range(num_teeth):
                 s = (k + 0.5) * self.pitch_mm
-                x, y, theta = modular_tracks._interpolate_on_track(
-                    s, self.points, cum, tangents
+                (x, y), theta, _ = modular_tracks._interpolate_on_segments(
+                    s % L, self.segments
                 )
                 nx = -math.sin(theta)
                 ny = math.cos(theta)

@@ -276,11 +276,8 @@ def _build_segments_from_parsed(
 
     for elem in parsed.elements:
         if elem.kind == "branch":
-            # Pas encore géré : il faudra un graphe de branches.
-            raise NotImplementedError(
-                "Les branches (*) et les pièces 'Y'/'Z' ne sont pas encore "
-                "implémentées géométriquement."
-            )
+            # Les branches (*) ne sont pas encore gérées : on les ignore simplement.
+            continue
 
         if elem.kind != "piece" or elem.piece_name is None or elem.sign is None:
             continue
@@ -291,10 +288,8 @@ def _build_segments_from_parsed(
             continue
 
         if pdef.special_type in ("Y", "Z"):
-            raise NotImplementedError(
-                "Les pièces spéciales 'Y' et 'Z' ne sont pas encore "
-                "implémentées géométriquement."
-            )
+            # Pièces spéciales non implémentées pour l'instant : on ignore.
+            continue
 
         sign_char = elem.sign  # "+" (concave) ou "-" (convexe)
 
@@ -657,6 +652,8 @@ def generate_track_base_points(
     hole_spacing_mm: float,
     steps: int,
     relation: str = "dedans",
+    output_mode: str = "stylo",
+    wheel_phase_teeth: float = 0.0,
     inner_teeth: int = 96,
     outer_teeth: int = 144,
     pitch_mm_per_tooth: float = 0.65,
@@ -731,6 +728,10 @@ def generate_track_base_points(
 
     base_points: List[Point] = []
 
+    mode = output_mode.lower()
+    if mode not in {"stylo", "contact", "centre"}:
+        raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
+
     # roue dedans => centre de roue du côté opposé à la normale de la piste
     sign_side = -1.0 if relation == "dedans" else 1.0
 
@@ -744,12 +745,20 @@ def generate_track_base_points(
         cx = x_track + sign_side * nx * r_wheel
         cy = y_track + sign_side * ny * r_wheel
 
+        if mode == "centre":
+            base_points.append((cx, cy))
+            continue
+
         # approximation : la longueur parcourue sur la piste en "dents" vaut
-        # s / pitch_mm_per_tooth.
-        teeth_rolled = s / pitch_mm_per_tooth
+        # s / pitch_mm_per_tooth, avec un décalage initial optionnel.
+        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
 
         # Phase de la roue (sens horaire Spirograph)
         phi = -2.0 * math.pi * (teeth_rolled / float(N_w))
+
+        if mode == "contact":
+            base_points.append((x_track, y_track))
+            continue
 
         px = cx + d * math.cos(phi)
         py = cy + d * math.sin(phi)
