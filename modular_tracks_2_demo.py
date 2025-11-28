@@ -1,0 +1,325 @@
+"""
+Démonstration simple pour `modular_tracks_2.py`.
+
+Ce module construit une piste modulaire uniquement avec les fonctions de
+`modular_tracks_2` puis anime une roue qui la parcourt. Sont dessinés :
+  - les deux côtés de la piste et sa médiane,
+  - un indicateur de départ pour la roue,
+  - la roue, le point de contact courant, le trou utilisé et le tracé final
+    animés pas-à-pas (la roue/contact/trou sont redessinés à chaque étape
+    pour apparaître mobiles).
+
+Exécution rapide :
+    python modular_tracks_2_demo.py
+"""
+
+import math
+import sys
+from typing import List, Tuple
+
+from PySide6.QtCore import QPointF, QTimer
+from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtWidgets import QApplication, QWidget
+
+import modular_tracks_2 as modular_tracks
+
+Point = Tuple[float, float]
+
+
+def _estimate_track_half_width(segments: List[modular_tracks.TrackSegment]) -> float:
+    """Estime la demi-largeur de piste à partir des segments connus."""
+
+    for seg in segments:
+        if seg.kind == "arc":
+            width = abs(seg.rM - seg.R_track) * 2.0
+        elif seg.kind == "line":
+            width = abs(seg.R_track) * 2.0
+        else:
+            continue
+        if width > 0:
+            return width * 0.5
+    return 5.0  # valeur de repli (mm)
+
+
+def _compute_track_polylines(
+    track: modular_tracks.TrackBuildResult, samples: int = 400
+) -> Tuple[List[Point], List[Point], List[Point], float]:
+    """Retourne (centre, côté intérieur, côté extérieur, demi-largeur)."""
+
+    segments = track.segments
+    half_width = _estimate_track_half_width(segments)
+    L = track.total_length
+    centerline: List[Point] = track.points if track.points else []
+
+    if not centerline:
+        for i in range(samples + 1):
+            s = (L * i) / float(max(samples, 1))
+            C, _, _ = modular_tracks._interpolate_on_segments(s, segments)
+            centerline.append(C)
+
+    inner: List[Point] = []
+    outer: List[Point] = []
+
+    for i in range(samples + 1):
+        s = (L * i) / float(max(samples, 1))
+        C, _, N = modular_tracks._interpolate_on_segments(s, segments)
+        x, y = C
+        nx, ny = N
+        inner.append((x - nx * half_width, y - ny * half_width))
+        outer.append((x + nx * half_width, y + ny * half_width))
+
+    return centerline, inner, outer, half_width
+
+
+def _compute_animation_sequences(
+    notation: str,
+    wheel_teeth: int = 84,
+    hole_index: float = 9.5,
+    hole_spacing_mm: float = 1.0,
+    steps: int = 720,
+    relation: str = "dedans",
+    wheel_phase_teeth: float = 0.0,
+    inner_teeth: int = 96,
+    outer_teeth: int = 144,
+    pitch_mm_per_tooth: float = 0.65,
+) -> Tuple[
+    modular_tracks.TrackBuildResult,
+    List[Point],
+    List[Point],
+    List[Point],
+    float,
+    float,
+]:
+    """
+    Prépare la piste et les positions (stylo, centre de roue, contact).
+
+    Retourne (track, stylo_points, wheel_centers, contact_points, half_width, r_wheel).
+    """
+
+    if steps <= 1:
+        steps = 2
+
+    track = modular_tracks.build_track_from_notation(
+        notation,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+    )
+    segments = track.segments
+    if not segments:
+        return track, [], [], [], 0.0, 0.0
+
+    centerline, _, _, half_width = _compute_track_polylines(track)
+
+    # Rayon de la roue et distance du trou par rapport au centre
+    r_wheel = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
+    d = r_wheel - hole_index * hole_spacing_mm
+    if d < 0.0:
+        d = 0.0
+
+    # Longueur parcourue totale
+    L = track.total_length
+    if L <= 0:
+        return track, [], [], [], half_width, r_wheel
+
+    if track.total_teeth > 0:
+        N_track = max(1, int(round(track.total_teeth)))
+    else:
+        N_track = wheel_teeth
+    N_w = max(1, int(wheel_teeth))
+    g = math.gcd(N_track, N_w)
+    if g <= 0:
+        g = 1
+    nb_laps = N_w // g if N_w >= g else 1
+    if nb_laps < 1:
+        nb_laps = 1
+    s_max = L * float(nb_laps)
+
+    stylo_points: List[Point] = []
+    wheel_centers: List[Point] = []
+    contact_points: List[Point] = []
+
+    sign_side = -1.0 if relation == "dedans" else 1.0
+
+    for i in range(steps):
+        s = s_max * i / float(steps - 1)
+        C, _, N_vec = modular_tracks._interpolate_on_segments(s % L, segments)
+        x_track, y_track = C
+        nx, ny = N_vec
+
+        cx = x_track + sign_side * nx * r_wheel
+        cy = y_track + sign_side * ny * r_wheel
+        wheel_centers.append((cx, cy))
+
+        contact_offset = -sign_side * half_width
+        contact_points.append((x_track + contact_offset * nx, y_track + contact_offset * ny))
+
+        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
+        phi = -2.0 * math.pi * (teeth_rolled / float(N_w))
+        px = cx + d * math.cos(phi)
+        py = cy + d * math.sin(phi)
+        stylo_points.append((px, py))
+
+    # Remplacer track.points par la médiane recalculée pour l'affichage
+    track.points = centerline
+
+    return track, stylo_points, wheel_centers, contact_points, half_width, r_wheel
+
+
+class ModularTrackDemo(QWidget):
+    """Widget simple qui anime le tracé d'une piste modulaire."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Démo modular_tracks_2")
+
+        self.notation = "-18-C+D+B-C+D+"
+        self.wheel_teeth = 84
+        self.hole_index = 9.5
+        self.hole_spacing = 1.0
+        self.relation = "dedans"
+        self.steps = 720
+
+        (
+            self.track,
+            self.stylo_points,
+            self.wheel_centers,
+            self.contact_points,
+            self.half_width,
+            self.r_wheel,
+        ) = _compute_animation_sequences(
+            self.notation,
+            wheel_teeth=self.wheel_teeth,
+            hole_index=self.hole_index,
+            hole_spacing_mm=self.hole_spacing,
+            steps=self.steps,
+            relation=self.relation,
+        )
+
+        self.current_step = 0
+        self._update_viewport()
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.advance)
+        self.timer.start(20)
+
+    def _update_viewport(self):
+        all_points: List[Point] = []
+        all_points.extend(self.track.points)
+        all_points.extend(self.stylo_points)
+        all_points.extend(self.wheel_centers)
+        all_points.extend(self.contact_points)
+        if not all_points:
+            self._scale = 1.0
+            self._offset = (0.0, 0.0)
+            return
+
+        xs = [p[0] for p in all_points]
+        ys = [p[1] for p in all_points]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        width = max(max_x - min_x, 1e-6)
+        height = max(max_y - min_y, 1e-6)
+
+        margin = 10.0
+        min_x -= margin
+        max_x += margin
+        min_y -= margin
+        max_y += margin
+
+        self._offset = (-(min_x + max_x) * 0.5, -(min_y + max_y) * 0.5)
+        self._base_width = width + 2.0 * margin
+        self._base_height = height + 2.0 * margin
+
+    def resizeEvent(self, event):  # noqa: N802 - signature imposée par Qt
+        super().resizeEvent(event)
+        self._update_scale()
+
+    def _update_scale(self):
+        if getattr(self, "_base_width", 0) <= 0 or getattr(self, "_base_height", 0) <= 0:
+            self._scale = 1.0
+            return
+        sx = self.width() / float(self._base_width)
+        sy = self.height() / float(self._base_height)
+        self._scale = 0.9 * min(sx, sy)
+
+    def advance(self):
+        if not self.stylo_points:
+            return
+        self.current_step = (self.current_step + 1) % len(self.stylo_points)
+        self.update()
+
+    def _map_points(self, pts: List[Point]) -> List[QPointF]:
+        dx, dy = getattr(self, "_offset", (0.0, 0.0))
+        return [QPointF((x + dx), (y + dy)) for (x, y) in pts]
+
+    def _draw_polyline(self, painter: QPainter, pts: List[Point]):
+        if len(pts) < 2:
+            return
+        painter.drawPolyline(self._map_points(pts))
+
+    def paintEvent(self, event):  # noqa: N802 - signature imposée par Qt
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        self._update_scale()
+        painter.translate(self.width() * 0.5, self.height() * 0.5)
+        painter.scale(self._scale, -self._scale)
+
+        # Piste : côtés et médiane
+        painter.setPen(QPen(QColor("#888"), 0))
+        self._draw_polyline(painter, self.track.points)
+
+        painter.setPen(QPen(QColor("#555"), 0))
+        _, inner, outer, _ = _compute_track_polylines(self.track)
+        self._draw_polyline(painter, inner)
+        self._draw_polyline(painter, outer)
+
+        # Indicateur de départ (point de contact à s=0)
+        if self.contact_points:
+            start = self.contact_points[0]
+            painter.setPen(QPen(QColor("#00aa00"), 0))
+            painter.drawEllipse(QPointF(start[0] + self._offset[0], start[1] + self._offset[1]), 1.5, 1.5)
+
+        if not self.stylo_points:
+            painter.end()
+            return
+
+        # Tracé final déjà dessiné
+        painter.setPen(QPen(QColor("#cc3366"), 0))
+        self._draw_polyline(painter, self.stylo_points[: self.current_step + 1])
+
+        idx = self.current_step
+        wheel_center = self.wheel_centers[idx]
+        contact = self.contact_points[idx]
+        hole = self.stylo_points[idx]
+
+        # Roue
+        painter.setPen(QPen(QColor("#1f77b4"), 0))
+        painter.drawEllipse(
+            QPointF(wheel_center[0] + self._offset[0], wheel_center[1] + self._offset[1]),
+            self.r_wheel,
+            self.r_wheel,
+        )
+
+        # Point de contact
+        painter.setPen(QPen(QColor("#ff9900"), 0))
+        painter.drawEllipse(QPointF(contact[0] + self._offset[0], contact[1] + self._offset[1]), 1.3, 1.3)
+
+        # Trou / stylo courant
+        painter.setPen(QPen(QColor("#e62739"), 0))
+        painter.drawEllipse(QPointF(hole[0] + self._offset[0], hole[1] + self._offset[1]), 1.5, 1.5)
+
+        painter.end()
+
+
+def main():
+    app = QApplication(sys.argv)
+    demo = ModularTrackDemo()
+    demo.resize(800, 600)
+    demo.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
