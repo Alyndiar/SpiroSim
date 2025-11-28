@@ -239,6 +239,8 @@ TRANSLATIONS = {
         "dlg_layers_add_layer": "Ajouter une couche",
         "dlg_layers_add_path": "Ajouter un tracé",
         "dlg_layers_edit": "Éditer",
+        "dlg_layers_move_up": "↑ Monter",
+        "dlg_layers_move_down": "↓ Descendre",
         "dlg_layers_test_track": "Test du tracé",
         "dlg_layers_remove": "Supprimer",
         "dlg_layers_ok": "OK",
@@ -356,6 +358,8 @@ TRANSLATIONS = {
         "dlg_layers_add_layer": "Add layer",
         "dlg_layers_add_path": "Add path",
         "dlg_layers_edit": "Edit",
+        "dlg_layers_move_up": "↑ Move up",
+        "dlg_layers_move_down": "↓ Move down",
         "dlg_layers_test_track": "Test path",
         "dlg_layers_remove": "Remove",
         "dlg_layers_ok": "OK",
@@ -2130,11 +2134,15 @@ class LayerManagerDialog(QDialog):
         self.btn_add_layer = QPushButton(tr(self.lang, "dlg_layers_add_layer"))
         self.btn_add_path = QPushButton(tr(self.lang, "dlg_layers_add_path"))
         self.btn_edit = QPushButton(tr(self.lang, "dlg_layers_edit"))
+        self.btn_move_up = QPushButton(tr(self.lang, "dlg_layers_move_up"))
+        self.btn_move_down = QPushButton(tr(self.lang, "dlg_layers_move_down"))
         self.btn_test_track = QPushButton(tr(self.lang, "dlg_layers_test_track"))
         self.btn_remove = QPushButton(tr(self.lang, "dlg_layers_remove"))
         btn_layout.addWidget(self.btn_add_layer)
         btn_layout.addWidget(self.btn_add_path)
         btn_layout.addWidget(self.btn_edit)
+        btn_layout.addWidget(self.btn_move_up)
+        btn_layout.addWidget(self.btn_move_down)
         btn_layout.addWidget(self.btn_test_track)
         btn_layout.addWidget(self.btn_remove)
         main_layout.addLayout(btn_layout)
@@ -2149,6 +2157,8 @@ class LayerManagerDialog(QDialog):
         self.btn_add_layer.clicked.connect(self.on_add_layer)
         self.btn_add_path.clicked.connect(self.on_add_path)
         self.btn_edit.clicked.connect(self.on_edit)
+        self.btn_move_up.clicked.connect(self.on_move_up)
+        self.btn_move_down.clicked.connect(self.on_move_down)
         self.btn_test_track.clicked.connect(self.on_test_track)
         self.btn_remove.clicked.connect(self.on_remove)
         self.btn_ok.clicked.connect(self.accept)
@@ -2208,6 +2218,25 @@ class LayerManagerDialog(QDialog):
             enabled = self._layer_allows_test(layer)
         self.btn_test_track.setEnabled(enabled)
 
+    def _update_move_buttons_state(self):
+        obj, kind = self.get_selected_object()
+        can_move_up = False
+        can_move_down = False
+
+        if kind == "layer":
+            li = self.layers.index(obj)
+            can_move_up = li > 0
+            can_move_down = li < len(self.layers) - 1
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if layer:
+                pi = layer.paths.index(obj)
+                can_move_up = pi > 0
+                can_move_down = pi < len(layer.paths) - 1
+
+        self.btn_move_up.setEnabled(can_move_up)
+        self.btn_move_down.setEnabled(can_move_down)
+
     def refresh_tree(self):
         self.tree.clear()
         current_item_to_select = None
@@ -2248,6 +2277,7 @@ class LayerManagerDialog(QDialog):
         if current_item_to_select:
             self.tree.setCurrentItem(current_item_to_select)
         self._update_test_button_state()
+        self._update_move_buttons_state()
 
     def get_selected_object(self):
         item = self.tree.currentItem()
@@ -2275,6 +2305,8 @@ class LayerManagerDialog(QDialog):
     ):
         if current is None:
             self.btn_test_track.setEnabled(False)
+            self.btn_move_up.setEnabled(False)
+            self.btn_move_down.setEnabled(False)
             return
 
         obj = current.data(0, Qt.UserRole)
@@ -2294,6 +2326,7 @@ class LayerManagerDialog(QDialog):
             self.selected_layer_idx = li
             self.selected_path_idx = pi
         self._update_test_button_state()
+        self._update_move_buttons_state()
 
     def on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
         self.on_edit()
@@ -2369,6 +2402,44 @@ class LayerManagerDialog(QDialog):
             dlg = PathEditDialog(obj, lang=self.lang, parent=self)
         if dlg.exec() == QDialog.Accepted:
             self.refresh_tree()
+
+    def on_move_up(self):
+        obj, kind = self.get_selected_object()
+        if kind == "layer":
+            li = self.layers.index(obj)
+            if li > 0:
+                self.layers[li - 1], self.layers[li] = self.layers[li], self.layers[li - 1]
+                self.selected_layer_idx = li - 1
+                self.selected_path_idx = None
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if layer:
+                pi = layer.paths.index(obj)
+                if pi > 0:
+                    layer.paths[pi - 1], layer.paths[pi] = layer.paths[pi], layer.paths[pi - 1]
+                    self.selected_layer_idx = self.layers.index(layer)
+                    self.selected_path_idx = pi - 1
+
+        self.refresh_tree()
+
+    def on_move_down(self):
+        obj, kind = self.get_selected_object()
+        if kind == "layer":
+            li = self.layers.index(obj)
+            if li < len(self.layers) - 1:
+                self.layers[li], self.layers[li + 1] = self.layers[li + 1], self.layers[li]
+                self.selected_layer_idx = li + 1
+                self.selected_path_idx = None
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if layer:
+                pi = layer.paths.index(obj)
+                if pi < len(layer.paths) - 1:
+                    layer.paths[pi], layer.paths[pi + 1] = layer.paths[pi + 1], layer.paths[pi]
+                    self.selected_layer_idx = self.layers.index(layer)
+                    self.selected_path_idx = pi + 1
+
+        self.refresh_tree()
 
     def on_test_track(self):
         obj, kind = self.get_selected_object()
