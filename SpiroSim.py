@@ -2112,6 +2112,7 @@ class LayerManagerDialog(QDialog):
         parent=None,
         pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
         hole_spacing_mm: float = 0.65,
+        points_per_path: int = 6000,
     ):
         super().__init__(parent)
         self.lang = lang
@@ -2121,6 +2122,7 @@ class LayerManagerDialog(QDialog):
         self.layers: List[LayerConfig] = copy.deepcopy(layers)
         self.pitch_mm_per_tooth: float = pitch_mm_per_tooth
         self.hole_spacing_mm: float = hole_spacing_mm
+        self.points_per_path: int = max(2, int(points_per_path))
 
         self.selected_layer_idx: int = 0
         self.selected_path_idx: Optional[int] = 0  # None = layer seul
@@ -3337,6 +3339,7 @@ class SpiroWindow(QWidget):
             parent=self,
             pitch_mm_per_tooth=self.pitch_mm_per_tooth,
             hole_spacing_mm=self.hole_spacing_mm,
+            points_per_path=self.points_per_path,
         )
         if dlg.exec() == QDialog.Accepted:
             self.layers = dlg.get_layers()
