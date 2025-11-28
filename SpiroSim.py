@@ -11,7 +11,8 @@ from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-import modular_tracks
+import modular_tracks_2 as modular_tracks
+import modular_tracks_2_demo as modular_track_demo
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -238,6 +239,7 @@ TRANSLATIONS = {
         "dlg_layers_add_layer": "Ajouter une couche",
         "dlg_layers_add_path": "Ajouter un tracé",
         "dlg_layers_edit": "Éditer",
+        "dlg_layers_test_track": "Test du tracé",
         "dlg_layers_remove": "Supprimer",
         "dlg_layers_ok": "OK",
         "dlg_layers_cancel": "Annuler",
@@ -321,6 +323,8 @@ TRANSLATIONS = {
         "mod_editor_info_ok": "Longueur ~ {length:.1f} mm, équivalent ~ {teeth:.1f} dents",
 
         "dlg_close": "Fermer",
+        "track_test_title": "Test du tracé modulaire",
+        "track_test_unavailable": "Sélectionne un tracé associé à une piste modulaire complète.",
     },
     "en": {
         "app_title": "Spiro / Wild Gears - Viewer",
@@ -352,6 +356,7 @@ TRANSLATIONS = {
         "dlg_layers_add_layer": "Add layer",
         "dlg_layers_add_path": "Add path",
         "dlg_layers_edit": "Edit",
+        "dlg_layers_test_track": "Test path",
         "dlg_layers_remove": "Remove",
         "dlg_layers_ok": "OK",
         "dlg_layers_cancel": "Cancel",
@@ -435,6 +440,8 @@ TRANSLATIONS = {
         "mod_editor_info_ok": "Length ~ {length:.1f} mm, equivalent ~ {teeth:.1f} teeth",
 
         "dlg_close": "Close",
+        "track_test_title": "Modular track test",
+        "track_test_unavailable": "Select a path linked to a complete modular track.",
     },
 }
 
@@ -624,24 +631,13 @@ def generate_trochoid_points_for_layer_path(
             hole_spacing_mm=hole_spacing_mm,
             steps=steps,
             relation=relation,
+            wheel_phase_teeth=path.phase_offset_teeth,
             inner_teeth=inner_teeth,
             outer_teeth=outer_teeth,
             pitch_mm_per_tooth=pitch_mm_per_tooth,
         )
 
-        teeth_moving = T1
-        angle_from_teeth = 2.0 * math.pi * (path.phase_offset_teeth / teeth_moving)
-        total_angle = math.pi / 2.0 - angle_from_teeth
-
-        cos_a = math.cos(total_angle)
-        sin_a = math.sin(total_angle)
-
-        rotated_points = []
-        for (x, y) in base_points:
-            xr = x * cos_a - y * sin_a
-            yr = x * sin_a + y * cos_a
-            rotated_points.append((xr, yr))
-        return rotated_points
+        return base_points
 
     # --- Cas 2 : comportement standard (anneau / roue ... ) ---
 
@@ -923,13 +919,10 @@ def paintEvent(self, event):
             painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
 
         # 3) dents (petits ticks côté "outer")
-        try:
-            cum, tangents = modular_tracks._precompute_length_and_tangent(self.points)
-            L = cum[-1]
-        except Exception:
-            cum, tangents, L = [0.0], [0.0], 0.0
+        L = self.total_length if self.have_track else 0.0
+        segments = getattr(self, "segments", [])
 
-        if L > 0.0 and self.pitch_mm > 0:
+        if L > 0.0 and segments and self.pitch_mm > 0:
             pen_teeth = QPen(QColor("#404040"))
             pen_teeth.setWidthF(0)
             painter.setPen(pen_teeth)
@@ -937,8 +930,8 @@ def paintEvent(self, event):
             num_teeth = max(1, int(L / self.pitch_mm))
             for k in range(num_teeth):
                 s = (k + 0.5) * self.pitch_mm
-                x, y, theta = modular_tracks._interpolate_on_track(
-                    s, self.points, cum, tangents
+                (x, y), theta, _ = modular_tracks._interpolate_on_segments(
+                    s % L, segments
                 )
                 nx = -math.sin(theta)
                 ny = math.cos(theta)
@@ -1940,6 +1933,158 @@ class PathEditDialog(QDialog):
         super().accept()
 
 
+class TrackTestDialog(QDialog):
+    """Fenêtre plein écran pour tester un tracé sur piste modulaire."""
+
+    def __init__(
+        self,
+        layer: LayerConfig,
+        path: PathConfig,
+        *,
+        lang: str = "fr",
+        hole_spacing_mm: float = 0.65,
+        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+        points_per_path: int = 6000,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.lang = lang
+        self.setWindowTitle(tr(self.lang, "track_test_title"))
+
+        self.demo_widget = modular_track_demo.ModularTrackDemo(auto_start=False)
+        self.points_per_path = max(2, int(points_per_path))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        layout.addWidget(self.demo_widget, stretch=1)
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(4)
+
+        self.btn_start = QPushButton(tr(self.lang, "anim_start"))
+        self.btn_reset = QPushButton(tr(self.lang, "anim_reset"))
+        self.lbl_speed = QLabel(tr(self.lang, "anim_speed_label"))
+        self.speed_spin = QDoubleSpinBox()
+        self.speed_spin.setRange(0.0, 1_000_000.0)
+        self.speed_spin.setDecimals(2)
+        self.speed_spin.setSingleStep(0.25)
+        self.speed_spin.setValue(1.0)
+        self.speed_spin.setSpecialValueText(tr(self.lang, "anim_speed_infinite"))
+        self.speed_spin.setSuffix(tr(self.lang, "anim_speed_suffix"))
+        self.btn_half = QPushButton("/2")
+        self.btn_double = QPushButton("x2")
+        self.btn_close = QPushButton(tr(self.lang, "dlg_close"))
+
+        controls.addWidget(self.btn_start)
+        controls.addWidget(self.btn_reset)
+        controls.addWidget(self.lbl_speed)
+        controls.addWidget(self.speed_spin)
+        controls.addWidget(self.btn_half)
+        controls.addWidget(self.btn_double)
+        controls.addStretch(1)
+        controls.addWidget(self.btn_close)
+        layout.addLayout(controls)
+
+        self.btn_start.clicked.connect(self._toggle_animation)
+        self.btn_reset.clicked.connect(self._reset_animation)
+        self.speed_spin.valueChanged.connect(self._on_speed_changed)
+        self.btn_half.clicked.connect(lambda: self._apply_speed_factor(0.5))
+        self.btn_double.clicked.connect(lambda: self._apply_speed_factor(2.0))
+        self.btn_close.clicked.connect(self.accept)
+
+        self._apply_configuration(
+            layer,
+            path,
+            hole_spacing_mm=hole_spacing_mm,
+            pitch_mm_per_tooth=pitch_mm_per_tooth,
+        )
+
+    def _apply_configuration(
+        self,
+        layer: LayerConfig,
+        path: PathConfig,
+        *,
+        hole_spacing_mm: float,
+        pitch_mm_per_tooth: float,
+    ):
+        if len(layer.gears) < 2:
+            QMessageBox.information(
+                self,
+                tr(self.lang, "track_test_title"),
+                tr(self.lang, "track_test_unavailable"),
+            )
+            return
+
+        g0 = layer.gears[0]
+        g1 = layer.gears[1]
+        if g0.gear_type != "modulaire" or not getattr(g0, "modular_notation", ""):
+            QMessageBox.information(
+                self,
+                tr(self.lang, "track_test_title"),
+                tr(self.lang, "track_test_unavailable"),
+            )
+            return
+
+        relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
+        wheel_teeth = max(1, contact_teeth_for_relation(g1, relation))
+        inner_teeth = g0.teeth if g0.teeth > 0 else 1
+        outer_teeth = g0.outer_teeth if g0.outer_teeth > 0 else inner_teeth
+        scale = getattr(layer, "zoom", 1.0) * getattr(path, "zoom", 1.0)
+
+        self.demo_widget.set_configuration(
+            notation=g0.modular_notation,
+            wheel_teeth=wheel_teeth,
+            hole_index=path.hole_index,
+            hole_spacing=hole_spacing_mm,
+            relation=relation,
+            wheel_phase_teeth=getattr(path, "phase_offset_teeth", 0.0),
+            inner_teeth=inner_teeth,
+            outer_teeth=outer_teeth,
+            pitch_mm_per_tooth=pitch_mm_per_tooth,
+            steps=self.points_per_path,
+            scale=scale,
+        )
+        if not self.demo_widget.stylo_points:
+            QMessageBox.information(
+                self,
+                tr(self.lang, "track_test_title"),
+                tr(self.lang, "track_test_unavailable"),
+            )
+            self.btn_start.setEnabled(False)
+            self.btn_reset.setEnabled(False)
+            return
+        self._on_speed_changed(self.speed_spin.value())
+        self.demo_widget.start_animation()
+        self._update_start_button(self.demo_widget.timer.isActive())
+
+    def _update_start_button(self, running: bool):
+        self.btn_start.setText(
+            tr(self.lang, "anim_pause") if running else tr(self.lang, "anim_start")
+        )
+
+    def _toggle_animation(self):
+        if self.demo_widget.timer.isActive():
+            self.demo_widget.stop_animation()
+        else:
+            self.demo_widget.start_animation()
+        self._update_start_button(self.demo_widget.timer.isActive())
+
+    def _reset_animation(self):
+        self.demo_widget.reset_animation()
+        self.demo_widget.stop_animation()
+        self._update_start_button(False)
+
+    def _apply_speed_factor(self, factor: float):
+        val = self.speed_spin.value() * factor
+        self.speed_spin.setValue(val)
+
+    def _on_speed_changed(self, value: float):
+        self.demo_widget.set_speed(value)
+        is_running = value > 0.0 and self.demo_widget.timer.isActive()
+        self._update_start_button(is_running)
+
 # ---------- 6) Fenêtre superposée : gestion layers & paths ----------
 
 class LayerManagerDialog(QDialog):
@@ -1955,6 +2100,8 @@ class LayerManagerDialog(QDialog):
         lang: str = "fr",
         parent=None,
         pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+        hole_spacing_mm: float = 0.65,
+        points_per_path: int = 6000,
     ):
         super().__init__(parent)
         self.lang = lang
@@ -1963,6 +2110,8 @@ class LayerManagerDialog(QDialog):
 
         self.layers: List[LayerConfig] = copy.deepcopy(layers)
         self.pitch_mm_per_tooth: float = pitch_mm_per_tooth
+        self.hole_spacing_mm: float = hole_spacing_mm
+        self.points_per_path: int = max(2, int(points_per_path))
 
         self.selected_layer_idx: int = 0
         self.selected_path_idx: Optional[int] = 0  # None = layer seul
@@ -1981,10 +2130,12 @@ class LayerManagerDialog(QDialog):
         self.btn_add_layer = QPushButton(tr(self.lang, "dlg_layers_add_layer"))
         self.btn_add_path = QPushButton(tr(self.lang, "dlg_layers_add_path"))
         self.btn_edit = QPushButton(tr(self.lang, "dlg_layers_edit"))
+        self.btn_test_track = QPushButton(tr(self.lang, "dlg_layers_test_track"))
         self.btn_remove = QPushButton(tr(self.lang, "dlg_layers_remove"))
         btn_layout.addWidget(self.btn_add_layer)
         btn_layout.addWidget(self.btn_add_path)
         btn_layout.addWidget(self.btn_edit)
+        btn_layout.addWidget(self.btn_test_track)
         btn_layout.addWidget(self.btn_remove)
         main_layout.addLayout(btn_layout)
 
@@ -1998,6 +2149,7 @@ class LayerManagerDialog(QDialog):
         self.btn_add_layer.clicked.connect(self.on_add_layer)
         self.btn_add_path.clicked.connect(self.on_add_path)
         self.btn_edit.clicked.connect(self.on_edit)
+        self.btn_test_track.clicked.connect(self.on_test_track)
         self.btn_remove.clicked.connect(self.on_remove)
         self.btn_ok.clicked.connect(self.accept)
         self.btn_cancel.clicked.connect(self.reject)
@@ -2040,6 +2192,22 @@ class LayerManagerDialog(QDialog):
     def _path_summary(self, path: PathConfig) -> str:
         return f"{path.hole_index:g}, {path.phase_offset_teeth:g}, {path.color}, {path.stroke_width:g}, zoom {path.zoom:g}"
 
+    def _layer_allows_test(self, layer: Optional[LayerConfig]) -> bool:
+        if not layer or len(layer.gears) < 2:
+            return False
+        g0 = layer.gears[0]
+        return g0.gear_type == "modulaire" and bool(
+            getattr(g0, "modular_notation", "")
+        )
+
+    def _update_test_button_state(self):
+        obj, kind = self.get_selected_object()
+        enabled = False
+        if kind == "path":
+            layer = self.find_parent_layer(obj)
+            enabled = self._layer_allows_test(layer)
+        self.btn_test_track.setEnabled(enabled)
+
     def refresh_tree(self):
         self.tree.clear()
         current_item_to_select = None
@@ -2079,6 +2247,7 @@ class LayerManagerDialog(QDialog):
 
         if current_item_to_select:
             self.tree.setCurrentItem(current_item_to_select)
+        self._update_test_button_state()
 
     def get_selected_object(self):
         item = self.tree.currentItem()
@@ -2105,6 +2274,7 @@ class LayerManagerDialog(QDialog):
         previous: Optional[QTreeWidgetItem],
     ):
         if current is None:
+            self.btn_test_track.setEnabled(False)
             return
 
         obj = current.data(0, Qt.UserRole)
@@ -2123,6 +2293,7 @@ class LayerManagerDialog(QDialog):
             pi = layer.paths.index(obj)
             self.selected_layer_idx = li
             self.selected_path_idx = pi
+        self._update_test_button_state()
 
     def on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
         self.on_edit()
@@ -2199,6 +2370,37 @@ class LayerManagerDialog(QDialog):
         if dlg.exec() == QDialog.Accepted:
             self.refresh_tree()
 
+    def on_test_track(self):
+        obj, kind = self.get_selected_object()
+        if kind != "path":
+            QMessageBox.information(
+                self,
+                tr(self.lang, "track_test_title"),
+                tr(self.lang, "track_test_unavailable"),
+            )
+            return
+
+        layer = self.find_parent_layer(obj)
+        if not self._layer_allows_test(layer):
+            QMessageBox.information(
+                self,
+                tr(self.lang, "track_test_title"),
+                tr(self.lang, "track_test_unavailable"),
+            )
+            return
+
+        dlg = TrackTestDialog(
+            layer,
+            obj,
+            lang=self.lang,
+            parent=self,
+            hole_spacing_mm=self.hole_spacing_mm,
+            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            points_per_path=self.points_per_path,
+        )
+        dlg.setWindowState(dlg.windowState() | Qt.WindowFullScreen)
+        dlg.exec()
+
     def on_remove(self):
         obj, kind = self.get_selected_object()
         if not obj:
@@ -2264,6 +2466,7 @@ class ModularTrackView(QWidget):
         self.outer_teeth = 144
         self.pitch_mm = 0.65
         self.total_length = 0.0
+        self.segments = []
         self.last_tangent = 0.0  # angle de la tangente au dernier point (rad)
 
     def sizeHint(self):
@@ -2271,6 +2474,7 @@ class ModularTrackView(QWidget):
 
     def clear_track(self):
         self.points = []
+        self.segments = []
         self.have_track = False
         self.total_length = 0.0
         self.last_tangent = 0.0
@@ -2284,15 +2488,17 @@ class ModularTrackView(QWidget):
         pitch_mm: float,
     ):
         self.points = track.points or []
+        self.segments = track.segments or []
         self.total_length = track.total_length
         self.inner_teeth = max(1, inner_teeth)
         self.outer_teeth = max(self.inner_teeth + 1, outer_teeth)
         self.pitch_mm = pitch_mm
         self.have_track = len(self.points) > 1 and self.total_length > 0.0
-        if self.have_track and len(self.points) >= 2:
-            x0, y0 = self.points[-2]
-            x1, y1 = self.points[-1]
-            self.last_tangent = math.atan2(y1 - y0, x1 - x0)
+        if self.have_track and self.segments:
+            _, theta, _ = modular_tracks._interpolate_on_segments(
+                self.total_length, self.segments
+            )
+            self.last_tangent = theta
         else:
             self.last_tangent = 0.0
         self.update()
@@ -2371,13 +2577,8 @@ class ModularTrackView(QWidget):
             painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
 
         # 3) dents (petits ticks côté "outer")
-        try:
-            cum, tangents = modular_tracks._precompute_length_and_tangent(self.points)
-            L = cum[-1]
-        except Exception:
-            cum, tangents, L = [0.0], [0.0], 0.0
-
-        if L > 0.0 and self.pitch_mm > 0:
+        L = self.total_length if self.have_track else 0.0
+        if L > 0.0 and self.segments and self.pitch_mm > 0:
             pen_teeth = QPen(QColor("#404040"))
             pen_teeth.setWidthF(0)
             painter.setPen(pen_teeth)
@@ -2385,8 +2586,8 @@ class ModularTrackView(QWidget):
             num_teeth = max(1, int(L / self.pitch_mm))
             for k in range(num_teeth):
                 s = (k + 0.5) * self.pitch_mm
-                x, y, theta = modular_tracks._interpolate_on_track(
-                    s, self.points, cum, tangents
+                (x, y), theta, _ = modular_tracks._interpolate_on_segments(
+                    s % L, self.segments
                 )
                 nx = -math.sin(theta)
                 ny = math.cos(theta)
@@ -3126,6 +3327,8 @@ class SpiroWindow(QWidget):
             lang=self.language,
             parent=self,
             pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            hole_spacing_mm=self.hole_spacing_mm,
+            points_per_path=self.points_per_path,
         )
         if dlg.exec() == QDialog.Accepted:
             self.layers = dlg.get_layers()
