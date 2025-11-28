@@ -453,10 +453,7 @@ def _build_segments_from_parsed(
         C, _, _ = _interpolate_on_segments(s, segments)
         pts.append(C)
 
-    # Recentrer et orienter la piste :
-    #  - barycentre -> (0,0)
-    #  - puis rotation globale fixe de +pi/2 pour avoir l'angle 0 vers +Y
-    #    (convention Spirograph : point 0 "en haut".)
+    # Recentrer la piste : barycentre -> (0,0)
     # Calcul barycentre
     bx = sum(x for (x, _) in pts) / len(pts)
     by = sum(y for (_, y) in pts) / len(pts)
@@ -464,19 +461,8 @@ def _build_segments_from_parsed(
     for (x, y) in pts:
         pts_centered.append((x - bx, y - by))
 
-    # Rotation globale fixée : angle 0 vers +Y (pi/2 par rapport à +X)
-    rot = math.pi / 2.0
-    cos_r = math.cos(rot)
-    sin_r = math.sin(rot)
-
-    rotated: List[Point] = []
-    for (x, y) in pts_centered:
-        xr = x * cos_r - y * sin_r
-        yr = x * sin_r + y * cos_r
-        rotated.append((xr, yr))
-
-    # Appliquer la même translation+rotation aux segments
-    segments_rot: List[TrackSegment] = []
+    # Appliquer la même translation aux segments
+    segments_centered: List[TrackSegment] = []
     for seg in segments:
         s_start = seg.s_start
         s_end = seg.s_end
@@ -485,20 +471,14 @@ def _build_segments_from_parsed(
             # recentrage
             O_x -= bx
             O_y -= by
-            # rotation
-            Or_x = O_x * cos_r - O_y * sin_r
-            Or_y = O_x * sin_r + O_y * cos_r
-            # angles : on ajoute la rotation globale
-            phi_start = seg.phi_start + rot
-            phi_end = seg.phi_end + rot
             new_seg = TrackSegment(
                 kind="arc",
                 s_start=s_start,
                 s_end=s_end,
-                O=(Or_x, Or_y),
+                O=(O_x, O_y),
                 rM=seg.rM,
-                phi_start=phi_start,
-                phi_end=phi_end,
+                phi_start=seg.phi_start,
+                phi_end=seg.phi_end,
                 sigma_curve=seg.sigma_curve,
                 side=seg.side,
                 R_track=seg.R_track,
@@ -512,31 +492,26 @@ def _build_segments_from_parsed(
             y0 -= by
             x1 -= bx
             y1 -= by
-            # rotation
-            xr0 = x0 * cos_r - y0 * sin_r
-            yr0 = x0 * sin_r + y0 * cos_r
-            xr1 = x1 * cos_r - y1 * sin_r
-            yr1 = x1 * sin_r + y1 * cos_r
             new_seg = TrackSegment(
                 kind="line",
                 s_start=s_start,
                 s_end=s_end,
-                P0=(xr0, yr0),
-                P1=(xr1, yr1),
+                P0=(x0, y0),
+                P1=(x1, y1),
                 side=seg.side,
                 R_track=seg.R_track,
                 sigma_roll=seg.sigma_roll,
             )
         else:
             new_seg = seg
-        segments_rot.append(new_seg)
+        segments_centered.append(new_seg)
 
     return TrackBuildResult(
-        points=rotated,
+        points=pts_centered,
         total_length=total_length,
         total_teeth=total_teeth,
         offset_teeth=parsed.offset_teeth,
-        segments=segments_rot,
+        segments=segments_centered,
     )
 
 
@@ -691,6 +666,7 @@ def generate_track_base_points(
     r_in = (inner_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
     r_out = (outer_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
     dR = r_out - r_in
+    half_width = abs(dR) * 0.5 if abs(dR) > 0.0 else max(pitch_mm_per_tooth, 1.0)
 
     # Rayon de la roue mobile
     r_wheel = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
@@ -731,6 +707,7 @@ def generate_track_base_points(
 
     # roue dedans => centre de roue du côté opposé à la normale de la piste
     sign_side = -1.0 if relation == "dedans" else 1.0
+    track_offset_teeth = float(track.offset_teeth or 0.0)
 
     for i in range(steps):
         s = s_max * i / (steps - 1)
@@ -738,9 +715,13 @@ def generate_track_base_points(
         x_track, y_track = C
         nx, ny = N_vec
 
+        # point de contact sur le bord utilisé
+        contact_x = x_track + sign_side * nx * half_width
+        contact_y = y_track + sign_side * ny * half_width
+
         # centre de la roue
-        cx = x_track + sign_side * nx * r_wheel
-        cy = y_track + sign_side * ny * r_wheel
+        cx = contact_x + sign_side * nx * r_wheel
+        cy = contact_y + sign_side * ny * r_wheel
 
         if mode == "centre":
             base_points.append((cx, cy))
@@ -748,13 +729,14 @@ def generate_track_base_points(
 
         # approximation : la longueur parcourue sur la piste en "dents" vaut
         # s / pitch_mm_per_tooth, avec un décalage initial optionnel.
-        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
+        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth) - track_offset_teeth
 
         # Phase de la roue (sens horaire Spirograph)
-        phi = -2.0 * math.pi * (teeth_rolled / float(N_w))
+        angle_contact = math.atan2(contact_y - cy, contact_x - cx)
+        phi = angle_contact - 2.0 * math.pi * (teeth_rolled / float(N_w))
 
         if mode == "contact":
-            base_points.append((x_track, y_track))
+            base_points.append((contact_x, contact_y))
             continue
 
         px = cx + d * math.cos(phi)

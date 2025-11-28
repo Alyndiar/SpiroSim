@@ -123,6 +123,7 @@ def _compute_animation_sequences(
         else 0.0
     )
     half_width = width_mm * 0.5 if width_mm > 0.0 else _estimate_track_half_width(segments)
+    track_offset_teeth = float(track.offset_teeth or 0.0)
 
     centerline, _, _, half_width = _compute_track_polylines(
         track, half_width=half_width
@@ -165,15 +166,18 @@ def _compute_animation_sequences(
         nx, ny = N_vec
 
         contact_offset = sign_side * half_width
-        contact_points.append((x_track + contact_offset * nx, y_track + contact_offset * ny))
+        contact_x = x_track + contact_offset * nx
+        contact_y = y_track + contact_offset * ny
+        contact_points.append((contact_x, contact_y))
 
         center_offset = contact_offset + sign_side * r_wheel
         cx = x_track + center_offset * nx
         cy = y_track + center_offset * ny
         wheel_centers.append((cx, cy))
 
-        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
-        phi = -2.0 * math.pi * (teeth_rolled / float(N_w))
+        angle_contact = math.atan2(contact_y - cy, contact_x - cx)
+        teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth) - track_offset_teeth
+        phi = angle_contact - 2.0 * math.pi * (teeth_rolled / float(N_w))
         px = cx + d * math.cos(phi)
         py = cy + d * math.sin(phi)
         stylo_points.append((px, py))
