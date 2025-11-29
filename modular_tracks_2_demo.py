@@ -93,13 +93,15 @@ def _compute_animation_sequences(
     List[Point],
     List[Point],
     List[Point],
+    List[Point],
     float,
     float,
 ]:
     """
     Prépare la piste et les positions (stylo, centre de roue, contact).
 
-    Retourne (track, stylo_points, wheel_centers, contact_points, half_width, r_wheel).
+    Retourne (track, stylo_points, wheel_centers, contact_points, markers_angle0,
+    half_width, r_wheel).
     """
 
     if steps <= 1:
@@ -113,7 +115,7 @@ def _compute_animation_sequences(
     )
     segments = track.segments
     if not segments:
-        return track, [], [], [], 0.0, 0.0
+        return track, [], [], [], [], 0.0, 0.0
 
     r_in = (float(inner_teeth) * pitch_mm_per_tooth) / (2.0 * math.pi)
     r_out = (float(outer_teeth) * pitch_mm_per_tooth) / (2.0 * math.pi)
@@ -168,10 +170,33 @@ def _compute_animation_sequences(
         output_mode="contact",
     )
 
+    # Marqueur à l'angle 0 de la roue (sur le bord de la roue) pour suivre la rotation.
+    markers_angle0 = modular_tracks.generate_track_base_points(
+        notation=notation,
+        wheel_teeth=wheel_teeth,
+        hole_index=0.0,
+        hole_spacing_mm=hole_spacing_mm,
+        steps=steps,
+        relation=relation,
+        wheel_phase_teeth=wheel_phase_teeth,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+        output_mode="stylo",
+    )
+
     # Remplacer track.points par la médiane recalculée pour l'affichage
     track.points = centerline
 
-    return track, stylo_points, wheel_centers, contact_points, half_width, r_wheel
+    return (
+        track,
+        stylo_points,
+        wheel_centers,
+        contact_points,
+        markers_angle0,
+        half_width,
+        r_wheel,
+    )
 
 
 class ModularTrackDemo(QWidget):
@@ -211,6 +236,7 @@ class ModularTrackDemo(QWidget):
         self.stylo_points: List[Point] = []
         self.wheel_centers: List[Point] = []
         self.contact_points: List[Point] = []
+        self.markers_angle0: List[Point] = []
         self.inner_side: List[Point] = []
         self.outer_side: List[Point] = []
         self.half_width = 0.0
@@ -254,6 +280,7 @@ class ModularTrackDemo(QWidget):
             stylo_points,
             wheel_centers,
             contact_points,
+            markers_angle0,
             half_width,
             r_wheel,
         ) = _compute_animation_sequences(
@@ -275,6 +302,7 @@ class ModularTrackDemo(QWidget):
             self.stylo_points = []
             self.wheel_centers = []
             self.contact_points = []
+            self.markers_angle0 = []
             self.inner_side = []
             self.outer_side = []
             self.half_width = 0.0
@@ -296,6 +324,7 @@ class ModularTrackDemo(QWidget):
         self.stylo_points = _scale_pts(stylo_points)
         self.wheel_centers = _scale_pts(wheel_centers)
         self.contact_points = _scale_pts(contact_points)
+        self.markers_angle0 = _scale_pts(markers_angle0)
         self.half_width = half_width * scale
         self.r_wheel = r_wheel * scale
         self.current_step = 0
@@ -353,6 +382,7 @@ class ModularTrackDemo(QWidget):
         all_points.extend(self.stylo_points)
         all_points.extend(self.wheel_centers)
         all_points.extend(self.contact_points)
+        all_points.extend(self.markers_angle0)
         if not all_points:
             self._scale = 1.0
             self._offset = (0.0, 0.0)
@@ -430,6 +460,7 @@ class ModularTrackDemo(QWidget):
         wheel_center = self.wheel_centers[idx]
         contact = self.contact_points[idx]
         hole = self.stylo_points[idx]
+        marker0 = self.markers_angle0[idx]
 
         # Roue
         painter.setPen(QPen(QColor("#1f77b4"), 0))
@@ -437,6 +468,14 @@ class ModularTrackDemo(QWidget):
             QPointF(wheel_center[0] + self._offset[0], wheel_center[1] + self._offset[1]),
             self.r_wheel,
             self.r_wheel,
+        )
+
+        # Marqueur d'angle 0 sur le bord de la roue (permet de suivre la rotation).
+        painter.setPen(QPen(QColor("#000000"), 0))
+        painter.drawEllipse(
+            QPointF(marker0[0] + self._offset[0], marker0[1] + self._offset[1]),
+            1.2,
+            1.2,
         )
 
         # Point de contact
