@@ -66,6 +66,8 @@ class TrackBuildResult:
     total_teeth: float
     # Décalage initial (en dents) tel que parsé dans la notation
     offset_teeth: int
+    # Signe de la première pièce rencontrée ("+" concave, "-" convexe)
+    first_piece_sign: Optional[str] = None
     # Nouveau : segments géométriques détaillés
     segments: List["TrackSegment"] = field(default_factory=list)
 
@@ -269,6 +271,7 @@ def _build_segments_from_parsed(
 
     # Pose initiale : on part de (0,0), tangente vers la droite, normale vers le haut.
     pose = _PoseState(P=(0.0, 0.0), T=(1.0, 0.0), N=(0.0, 1.0), s=0.0)
+    first_piece_sign: Optional[str] = None
 
     # offset pour la première pièce uniquement
     remaining_offset = parsed.offset_teeth
@@ -304,12 +307,16 @@ def _build_segments_from_parsed(
             if sign_char == "+":
                 side = "concave"
                 R_track = r_in
+                if first_piece_sign is None:
+                    first_piece_sign = "+"
                 # On choisit : concave = piste tourne "vers la droite" globalement,
                 # ce qui correspond à sigma_curve = -1 (arc horaire).
                 sigma_curve = -1
             else:
                 side = "convexe"
                 R_track = r_out
+                if first_piece_sign is None:
+                    first_piece_sign = "-"
                 # convexe = piste tourne "vers la gauche", sigma_curve = +1 (anti-horaire)
                 sigma_curve = +1
 
@@ -392,6 +399,9 @@ def _build_segments_from_parsed(
             side = "bar"
             R_track = dR * 0.5  # on peut assimiler une barre à un "rack" de largeur dR
 
+            if first_piece_sign is None:
+                first_piece_sign = sign_char
+
             # longueur de la barre (mm)
             seg_length = pdef.straight_teeth * pitch_mm_per_tooth
 
@@ -438,7 +448,14 @@ def _build_segments_from_parsed(
 
     if not segments:
         # Piste vide -> renvoyer un résultat trivial
-        return TrackBuildResult(points=[], total_length=0.0, total_teeth=0.0, offset_teeth=parsed.offset_teeth, segments=[])
+        return TrackBuildResult(
+            points=[],
+            total_length=0.0,
+            total_teeth=0.0,
+            offset_teeth=parsed.offset_teeth,
+            first_piece_sign=first_piece_sign,
+            segments=[],
+        )
 
     total_length = segments[-1].s_end
 
@@ -511,6 +528,7 @@ def _build_segments_from_parsed(
         total_length=total_length,
         total_teeth=total_teeth,
         offset_teeth=parsed.offset_teeth,
+        first_piece_sign=first_piece_sign,
         segments=segments_centered,
     )
 
@@ -651,6 +669,8 @@ def generate_track_base_points(
     if steps <= 1:
         steps = 2
 
+    relation = relation.lower()
+
     # Construire la piste géométrique
     track = build_track_from_notation(
         notation,
@@ -661,6 +681,47 @@ def generate_track_base_points(
     segments = track.segments
     if not segments:
         return []
+
+    def _track_orientation_sign(pts: List[Point]) -> float:
+        """Retourne +1 pour une piste CCW, -1 pour CW (0 => +1 par défaut).
+
+        1. On privilégie la somme des angles tournés (théorème de Hopf)
+           pour les pistes fermées, car l'utilisateur a indiqué vouloir
+           inverser dedans/dehors quand le total vaut -360°.
+        2. On retombe sur l'aire signée (orientation polygonale) pour les
+           pistes non fermées ou en cas de somme d'angles trop faible.
+        """
+
+        def _turn_sum_rad(segments: List[TrackSegment]) -> float:
+            turn = 0.0
+            for seg in segments:
+                if seg.kind == "arc":
+                    # sigma_curve donne le sens de parcours (+1 gauche, -1 droite)
+                    turn += seg.sigma_curve * (seg.phi_end - seg.phi_start)
+            return turn
+
+        def _is_closed(polyline: List[Point]) -> bool:
+            if len(polyline) < 3:
+                return False
+            x0, y0 = polyline[0]
+            x1, y1 = polyline[-1]
+            return math.hypot(x1 - x0, y1 - y0) < 1e-6
+
+        # 1) Somme des angles tournés si la piste est fermée
+        if _is_closed(pts):
+            turn_rad = _turn_sum_rad(segments)
+            turn_deg = math.degrees(turn_rad)
+            if abs(turn_deg) > 180.0:
+                return 1.0 if turn_deg > 0.0 else -1.0
+
+        # 2) Aire signée comme fallback
+        if len(pts) < 3:
+            return 1.0
+        area = 0.0
+        for i, (x0, y0) in enumerate(pts):
+            x1, y1 = pts[(i + 1) % len(pts)]
+            area += x0 * y1 - x1 * y0
+        return 1.0 if area >= 0.0 else -1.0
 
     # Rayons de l'anneau de référence
     r_in = (inner_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
@@ -705,8 +766,18 @@ def generate_track_base_points(
     if mode not in {"stylo", "contact", "centre"}:
         raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
 
-    # roue dedans => centre de roue du côté opposé à la normale de la piste
-    sign_side = -1.0 if relation == "dedans" else 1.0
+    orientation_sign = _track_orientation_sign(track.points)
+    # relation dedans/dehors dépend du sens (CW/CCW) de la piste :
+    # - piste CCW  : normale à gauche = intérieur
+    # - piste CW   : normale à gauche = extérieur
+    relation_effective = relation
+    sign_side = orientation_sign if relation_effective == "dedans" else -orientation_sign
+
+    # Sens de rotation de la roue : pour roulement sans glissement,
+    # ω = -sign_side * v / R (v > 0 suit la tangente). Cela garantit que
+    # le point de contact est immobile et que le stylo "traîne" derrière
+    # le déplacement lorsque la roue avance sur le bord choisi.
+    roll_sign = -sign_side
     track_offset_teeth = float(track.offset_teeth or 0.0)
 
     for i in range(steps):
@@ -733,7 +804,7 @@ def generate_track_base_points(
 
         # Phase de la roue (sens horaire Spirograph)
         angle_contact = math.atan2(contact_y - cy, contact_x - cx)
-        phi = angle_contact + 2.0 * math.pi * (teeth_rolled / float(N_w))
+        phi = angle_contact + roll_sign * 2.0 * math.pi * (teeth_rolled / float(N_w))
 
         if mode == "contact":
             base_points.append((contact_x, contact_y))
