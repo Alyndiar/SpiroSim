@@ -733,7 +733,10 @@ def generate_track_base_points(
 
         # orientation du vecteur centre->contact, pour une phase cohérente
         angle_contact = math.atan2(y_track - cy, x_track - cx)
-        phi = angle_contact + orientation_sign * 2.0 * math.pi * (teeth_rolled / float(wt))
+        # le sens de rotation dépend du côté (dedans/dehors) où la roue roule :
+        #   - côté gauche de la tangente (sign_side = +1) => rotation horaire
+        #   - côté droit  de la tangente (sign_side = -1) => rotation antihoraire
+        phi = angle_contact - sign_side * 2.0 * math.pi * (teeth_rolled / float(wt))
 
         if mode == "contact":
             base_points.append((x_track, y_track))
