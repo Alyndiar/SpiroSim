@@ -1,134 +1,213 @@
-# AGENTS.md – How to work on this repository (SpiroSim)
+## SpiroSim – Rolling wheel on arbitrary track
 
-> 📝 **Note pour les humains (FR)**
->
-> Ce dépôt contient le simulateur de Spirograph **SpiroSim**.  
-> Nous utilisons Codex / ChatGPT pour nous aider à écrire et modifier le code.
-> - L’IA ne doit **jamais** travailler directement sur `main`, seulement sur une branche `feature/*`.
-> - Les changements doivent suivre la demande précise.
-> - Les commentaires doivent être **gardés à jour**.
-> - Pour les refactors importants, il faut s’assurer que toutes les fonctions et modules affectés sont bien mis à jour.
->
-> Le reste de ce fichier est écrit pour les agents (Codex / ChatGPT) en anglais.
+### Goal
 
----
+Implement the pen trajectory for a gear wheel rolling without slipping on an arbitrary track defined by line segments and circular arcs.  
+The pen position must be computed as a function of:
 
-## Project overview
+- the **distance traveled along the track** `s`
+- the **side of the track** on which the wheel center sits
+- the wheel radius and pen offset
 
-- This repository contains **SpiroSim**, a Spirograph simulation / drawing application.
-- Main language: **Python**.
-- The project focuses on:
-  - Simulating Spirograph wheels, rings and modular tracks.
-  - Providing a GUI for configuring layers, tracks and colors.
-  - Supporting modular Super Spirograph–style pieces.
-
-When you make changes, **preserve the existing behaviour** unless the user explicitly asks for a change.
+The implementation must follow the exact geometric model below.
 
 ---
 
-## How to run the project (SpiroSim-specific)
+### 1. Mathematical model
 
-There is currently **no automated test suite**. All validation is done via **manual testing** in the GUI.
+Let the **contact curve** (where the teeth touch) be a 2D curve parameterized by arc length:
 
-Typical way to run the application locally:
+- \(\gamma(s) = (x_b(s), y_b(s))\): position on the track at distance \(s\) from the start  
+- \(\mathbf T(s)\): **unit tangent** at \(\gamma(s)\), pointing in the direction of increasing \(s\)  
+- \(\mathbf N(s)\): **unit normal**, obtained from \(\mathbf T\) by a fixed convention
 
-- From the repository root:
-  - `python SpiroSim.py`  
-  (or any other entrypoint mentioned in the README, if it differs).
+**Convention for the normal (must be used consistently everywhere):**
 
-When you modify the code, you should propose simple **manual checks**, for example:
+If \(\mathbf T(s) = (T_x, T_y)\), then **define**:
+\[
+\mathbf N(s) = (-T_y,\, T_x)
+\]
 
-- Start the application.
-- Open the relevant menu (e.g. layer editor, modular track editor).
-- Change the parameters you affected (e.g. radial spacing, tooth spacing, modular notation).
-- Verify that:
-  - The UI updates as expected.
-  - The drawing behaves consistently with the parameters.
-  - No errors are raised in the console.
+This means \(\mathbf N\) points to the **left side** of the track when moving in the direction of increasing \(s\).
 
-Do **not** invent automated test commands or CI workflows unless the user requests them.
+Wheel and pen parameters:
 
----
+- `r`: wheel radius (distance from center to contact line)
+- `d`: pen offset from the wheel center
+- `side`: +1 or −1, indicates on which side of the track the wheel center lies
+  - `side = +1` → center on the side of \(\mathbf N(s)\)
+  - `side = -1` → center on the opposite side
+- `epsilon`: +1 or −1, controls the **rotation direction** of the wheel relative to the increasing `s`
+- `alpha0`: initial angle of the pen ray in the local `(N, T)` frame at `s = 0`
 
-## Coding conventions
+**No-slip condition:**
 
-- Follow the existing style and structure in this repository.
-- **Keep comments up to date**:
-  - If you change logic, update or remove any outdated comments.
-  - Add short clarifying comments where behaviour is non-obvious.
-- Prefer small, incremental changes instead of large, sweeping rewrites.
-- Avoid reformatting entire files unless explicitly requested.
+When the wheel rolls **without slipping**, its rotation angle is proportional to the distance traveled:
+\[
+\psi(s) = \epsilon \frac{s}{r}
+\]
 
-If you introduce new functions or classes:
+\(\epsilon = +1\) or \(-1\) depending on the rolling direction convention.
 
-- Use clear, descriptive names.
-- Add short docstrings or comments describing the purpose and parameters when helpful.
+**Wheel center position:**
 
----
+The center is offset from the contact point along the normal by distance `r`:
+\[
+C(s) = \gamma(s) + \text{side} \cdot r \cdot \mathbf N(s)
+\]
 
-## Branching and Git workflow
+**Pen angle in local frame:**
 
-- **Never work directly on `main`.**
-- Assume changes are developed on a **feature branch**:
-  - Use a branch name like: `feature/<short-description>`  
-    (e.g. `feature/modular-track-editor-button`).
+Define the local pen angle as:
+\[
+\alpha(s) = \alpha_0 + \psi(s)
+          = \alpha_0 + \epsilon \frac{s}{r}
+\]
 
-When describing Git steps, prefer:
+**Pen position (final formula):**
 
-1. Creating or checking out a `feature/*` branch.
-2. Making changes and committing them in small, logical steps.
-3. Opening or updating a Pull Request from the feature branch into `main`.
+\[
+P(s) =
+  \gamma(s)
+  + \text{side} \cdot r \cdot \mathbf N(s)
+  + d \bigl[\cos(\alpha(s))\,\mathbf N(s)
+           + \sin(\alpha(s))\,\mathbf T(s)\bigr]
+\]
 
-Do **not** suggest force pushes or rewriting history on `main`.
+In components (with `T = (Tx, Ty)`, `N = (Nx, Ny)`, `gamma = (xb, yb)`):
 
----
+```text
+Cx = xb + side * r * Nx
+Cy = yb + side * r * Ny
 
-## Change management and planning
+alpha = alpha0 + epsilon * s / r
 
-Before making non-trivial changes, you should:
+Px = Cx + d * (cos(alpha) * Nx + sin(alpha) * Tx)
+Py = Cy + d * (cos(alpha) * Ny + sin(alpha) * Ty)
+```
 
-1. **Create a short plan**:
-   - List the steps you intend to take.
-   - Identify which files and functions will be touched.
-2. Then implement the plan **step by step**, updating it if needed.
+**Important:**
 
-When a **major refactor** is requested:
-
-- Identify all affected modules, classes and functions.
-- Ensure changes are **fully propagated**:
-  - Update all callers and related code paths.
-  - Keep behaviour consistent unless the user asks for a change.
-- Clearly explain:
-  - What was refactored.
-  - Which parts of the codebase were updated.
-  - Any follow-up manual tests that should be run.
-
----
-
-## Areas to be careful with
-
-- Core drawing logic (gears, rings, modular track logic).
-- UI wiring between:
-  - Layer configuration,
-  - Track configuration,
-  - Modular track notation and modular track editor.
-
-When modifying these areas:
-
-- Keep changes minimal and well-motivated.
-- Preserve existing parameter semantics unless the user explicitly wants them changed.
-- Update any related comments so they remain accurate.
+- `T` and `N` must be **unit vectors** (`|T| = |N| = 1`) and orthogonal (`T·N = 0`).
+- The implementation must not re-derive an absolute angle from `(x, y)` to recompute cos/sin.  
+  All orientation is handled through `T`, `N` and `alpha(s)`.
 
 ---
 
-## How to help best in this repo
+### 2. Code structure requirements
 
-When the user asks for a feature or fix:
+#### 2.1. Base curve abstraction
 
-1. Restate the request in your own words.
-2. Propose a **short implementation plan**.
-3. Apply the changes in small steps, explaining each step.
-4. Keep comments accurate and up to date.
-5. Provide a concise list of manual checks the user can run to validate the change.
+Implement or use an abstraction like:
 
-Always adapt the scope of your changes to **exactly** what the user requested, unless they explicitly invite broader refactoring.
+```python
+class BaseCurve:
+    def eval(self, s: float) -> tuple[float, float, tuple[float, float], tuple[float, float]]:
+        """
+        Evaluate the rolling track at distance s.
+
+        Returns:
+            xb, yb: base point gamma(s)
+            T: (Tx, Ty) unit tangent (in direction of increasing s)
+            N: (Nx, Ny) unit normal, defined as N = (-Ty, Tx)
+        """
+        ...
+```
+
+`BaseCurve` is responsible for:
+
+- Handling piecewise segments (lines, circular arcs, etc.)
+- Keeping a cumulative arc-length parameterization
+- Returning **normalized** `T` and `N` vectors
+
+#### 2.2. Pen position function
+
+Implement a dedicated function that uses the math above *only*:
+
+```python
+def pen_position(
+    s: float,
+    base_curve: BaseCurve,
+    r: float,
+    d: float,
+    side: int,
+    alpha0: float,
+    epsilon: int = 1,
+) -> tuple[float, float]:
+    """
+    Compute the pen position for a wheel of radius r rolling without slipping
+    on 'base_curve', at arc-length position s.
+
+    Parameters:
+        s       : distance traveled along the track (arc length)
+        base_curve: curve object providing (xb, yb, T, N) for s
+        r       : wheel radius
+        d       : pen offset from wheel center
+        side    : +1 => center on N(s) side, -1 => center opposite to N(s)
+        alpha0  : initial local pen angle in (N, T) at s = 0
+        epsilon : +1 or -1, rotation direction of the wheel vs s
+
+    Returns:
+        (Px, Py): pen position in global coordinates
+    """
+    ...
+```
+
+Implementation must follow the formulas under **1. Mathematical model**, nothing else.
+
+#### 2.3. No hidden trigonometry with global angles
+
+- Do **not** recompute a global heading angle from `(Tx, Ty)` via `atan2`.
+- Always work in the local `(N, T)` basis and use `alpha = alpha0 + epsilon * s / r` directly.
+
+---
+
+### 3. Testing requirements
+
+Add tests to validate the implementation against known special cases.
+
+#### 3.1. Straight-line base → trochoid
+
+Implement `BaseCurve` as a straight line along the x-axis:
+
+- `gamma(s) = (s, 0)`
+- `T = (1, 0)`
+- `N = (0, 1)`
+
+Choose `side = +1`, set `alpha0` so that when `d = r` you recover a standard cycloid-type shape (up to translation).
+
+Check that:
+
+- The wheel center moves along `(s, r)` (or equivalent offset).
+- The pen trajectory looks like a cycloid/trochoid.
+
+#### 3.2. Circular base → classical hypo/epitrochoid
+
+Implement `BaseCurve` as a circle of radius `R`, parameterized by arc length `s`:
+
+- `theta = s / R`
+- `gamma(s) = (R * cos(theta), R * sin(theta))`
+- `T` and `N` built from `theta` as per the convention.
+
+Use different combinations of `side`, `epsilon`, `alpha0`, `d` to verify that:
+
+- You obtain shapes consistent with hypotrochoids/epitrochoids compared to reference implementations.
+
+#### 3.3. Sanity checks
+
+For several values of `s`, assert numerically that:
+
+- `|T| ≈ 1`
+- `|N| ≈ 1`
+- `abs(dot(T, N)) ≈ 0`
+
+This ensures the base curve implementation is consistent with the model.
+
+---
+
+### 4. Integration constraints
+
+- Do not change the existing public command-line interface unless explicitly required.
+- Keep comments and docstrings up to date with the math described here.
+- All new functionality must be implemented on a feature branch  
+  (e.g. `feature/rolling-pen-arbitrary-track`) and covered by tests before merging into `main`.
