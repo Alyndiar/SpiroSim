@@ -649,8 +649,15 @@ def generate_track_base_points(
     if steps < 2:
         steps = 2
 
-    track = build_track_from_notation(
-        notation,
+    parsed = parse_track_notation(notation)
+    first_piece_sign: Optional[str] = None
+    for elem in parsed.elements:
+        if elem.kind == "piece" and elem.sign in {"+", "-"}:
+            first_piece_sign = elem.sign
+            break
+
+    track = _build_polyline_for_parsed_track(
+        parsed,
         inner_teeth=inner_teeth,
         outer_teeth=outer_teeth,
         pitch_mm_per_tooth=pitch_mm_per_tooth,
@@ -709,6 +716,9 @@ def generate_track_base_points(
     # - piste CCW  : normale à gauche = intérieur
     # - piste CW   : normale à gauche = extérieur
     sign_side = orientation_sign if relation == "dedans" else -orientation_sign
+    # phase du stylo : pour une 1ʳᵉ pièce concave (+) en relation "dehors",
+    # le sens d'avancement doit être inversé par rapport aux autres cas.
+    phase_sign = -1.0 if relation == "dehors" and first_piece_sign == "+" else 1.0
 
     for i in range(steps):
         s = s_max * i / (steps - 1)
@@ -736,7 +746,9 @@ def generate_track_base_points(
         # le sens de rotation dépend du côté (dedans/dehors) où la roue roule :
         #   - côté gauche de la tangente (sign_side = +1) => rotation horaire
         #   - côté droit  de la tangente (sign_side = -1) => rotation antihoraire
-        phi = angle_contact - sign_side * 2.0 * math.pi * (teeth_rolled / float(wt))
+        # la progression de phase du stylo suit cette rotation, sauf pour un
+        # départ concave en relation "dehors" où elle doit être inversée.
+        phi = angle_contact - phase_sign * sign_side * 2.0 * math.pi * (teeth_rolled / float(wt))
 
         if mode == "contact":
             base_points.append((x_track, y_track))
