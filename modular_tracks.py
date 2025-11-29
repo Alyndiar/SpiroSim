@@ -715,10 +715,26 @@ def generate_track_base_points(
     # relation dedans/dehors dépend du sens (CW/CCW) de la piste :
     # - piste CCW  : normale à gauche = intérieur
     # - piste CW   : normale à gauche = extérieur
+    # Pour une 1ʳᵉ pièce concave (+), on inverse le côté pour rétablir
+    # l'association dedans/dehors par rapport à la piste.
     sign_side = orientation_sign if relation == "dedans" else -orientation_sign
-    # phase du stylo : pour une 1ʳᵉ pièce concave (+) en relation "dehors",
-    # le sens d'avancement doit être inversé par rapport aux autres cas.
-    phase_sign = -1.0 if relation == "dehors" and first_piece_sign == "+" else 1.0
+    if first_piece_sign == "+":
+        sign_side *= -1.0
+
+    # Phase du stylo : comportement explicite pour les 4 combinaisons
+    # (convexe/concave) x (dedans/dehors), d'après les retours utilisateur :
+    #   - convexe + dedans : sens actuel correct
+    #   - convexe + dehors : phase à inverser
+    #   - concave + dedans : phase à inverser
+    #   - concave + dehors : phase actuelle à conserver
+    phase_sign_table = {
+        ("-", "dedans"): 1.0,
+        ("-", "dehors"): -1.0,
+        ("+", "dedans"): -1.0,
+        ("+", "dehors"): 1.0,
+    }
+    key = (first_piece_sign or "-", relation)
+    phase_sign = phase_sign_table.get(key, 1.0)
 
     for i in range(steps):
         s = s_max * i / (steps - 1)
