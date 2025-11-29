@@ -685,11 +685,10 @@ def generate_track_base_points(
     def _track_orientation_sign(pts: List[Point]) -> float:
         """Retourne +1 pour une piste CCW, -1 pour CW (0 => +1 par défaut).
 
-        1. On privilégie la somme des angles tournés (théorème de Hopf)
-           pour les pistes fermées, car l'utilisateur a indiqué vouloir
-           inverser dedans/dehors quand le total vaut -360°.
-        2. On retombe sur l'aire signée (orientation polygonale) pour les
-           pistes non fermées ou en cas de somme d'angles trop faible.
+        Priorité à la somme signée des angles tournés (≈360° attendu sur une
+        piste fermée) pour suivre la règle de l'utilisateur : une somme -360°
+        doit inverser la relation dedans/dehors. En cas de somme trop faible
+        ou de piste ouverte, on retombe sur l'aire signée de la polyligne.
         """
 
         def _turn_sum_rad(segments: List[TrackSegment]) -> float:
@@ -700,19 +699,13 @@ def generate_track_base_points(
                     turn += seg.sigma_curve * (seg.phi_end - seg.phi_start)
             return turn
 
-        def _is_closed(polyline: List[Point]) -> bool:
-            if len(polyline) < 3:
-                return False
-            x0, y0 = polyline[0]
-            x1, y1 = polyline[-1]
-            return math.hypot(x1 - x0, y1 - y0) < 1e-6
-
-        # 1) Somme des angles tournés si la piste est fermée
-        if _is_closed(pts):
-            turn_rad = _turn_sum_rad(segments)
-            turn_deg = math.degrees(turn_rad)
-            if abs(turn_deg) > 180.0:
-                return 1.0 if turn_deg > 0.0 else -1.0
+        # 1) Somme des angles tournés : on considère la piste "fermée" si
+        # l'accumulation approche +/- 360°, même si les extrémités ne coïncident
+        # pas exactement après recentrage.
+        turn_rad = _turn_sum_rad(segments)
+        turn_deg = math.degrees(turn_rad)
+        if abs(turn_deg) >= 300.0:
+            return 1.0 if turn_deg > 0.0 else -1.0
 
         # 2) Aire signée comme fallback
         if len(pts) < 3:
@@ -774,10 +767,10 @@ def generate_track_base_points(
     sign_side = orientation_sign if relation_effective == "dedans" else -orientation_sign
 
     # Sens de rotation de la roue : pour roulement sans glissement,
-    # ω = -sign_side * v / R (v > 0 suit la tangente). Cela garantit que
-    # le point de contact est immobile et que le stylo "traîne" derrière
-    # le déplacement lorsque la roue avance sur le bord choisi.
-    roll_sign = -sign_side
+    # ω = sign_side * v / R (v > 0 suit la tangente). Le signe dépend
+    # uniquement du côté choisi (dedans/dehors corrigé par l'orientation)
+    # et garantit que le stylo reste en phase avec la rotation observée.
+    roll_sign = sign_side
     track_offset_teeth = float(track.offset_teeth or 0.0)
 
     for i in range(steps):
