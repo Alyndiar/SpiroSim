@@ -554,7 +554,56 @@ def build_track_from_notation(
 
 
 # ---------------------------------------------------------------------------
-# 4) Interpolation sur la piste et génération de trochoïdes
+# 4) Mesures de piste (longueurs par offset)
+# ---------------------------------------------------------------------------
+
+def compute_track_lengths(
+    track: TrackBuildResult,
+    inner_teeth: float,
+    outer_teeth: float,
+    pitch_mm_per_tooth: float,
+) -> Tuple[float, float, float]:
+    """Retourne les longueurs des pistes intérieure, médiane et extérieure.
+
+    Les longueurs sont calculées en suivant la même largeur de piste que celle
+    utilisée pour la génération trochoïdale : moitié de la différence de rayon
+    des anneaux, ou un minimum basé sur le pas si la différence est nulle.
+    """
+
+    if pitch_mm_per_tooth <= 0:
+        return 0.0, 0.0, 0.0
+
+    r_in = (inner_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
+    r_out = (outer_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
+    dR = r_out - r_in
+    half_width = abs(dR) * 0.5 if abs(dR) > 0.0 else max(pitch_mm_per_tooth, 1.0)
+
+    inner_len = 0.0
+    mid_len = 0.0
+    outer_len = 0.0
+
+    for seg in track.segments or []:
+        if seg.kind == "arc" and seg.rM:
+            angle = abs(seg.phi_end - seg.phi_start)
+            r_mid = seg.rM
+            r_inner = max(r_mid - half_width, 0.0)
+            r_outer = r_mid + half_width
+            inner_len += r_inner * angle
+            mid_len += r_mid * angle
+            outer_len += r_outer * angle
+        elif seg.kind == "line" and seg.P0 is not None and seg.P1 is not None:
+            dx = seg.P1[0] - seg.P0[0]
+            dy = seg.P1[1] - seg.P0[1]
+            length = math.hypot(dx, dy)
+            inner_len += length
+            mid_len += length
+            outer_len += length
+
+    return inner_len, mid_len, outer_len
+
+
+# ---------------------------------------------------------------------------
+# 5) Interpolation sur la piste et génération de trochoïdes
 # ---------------------------------------------------------------------------
 
 def _interpolate_on_segments(

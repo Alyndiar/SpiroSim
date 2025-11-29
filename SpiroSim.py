@@ -323,6 +323,9 @@ TRANSLATIONS = {
         "mod_editor_info_error": "Erreur : {error}",
         "mod_editor_info_empty": "Notation valide, mais piste vide.",
         "mod_editor_info_ok": "Longueur ~ {length:.1f} mm, équivalent ~ {teeth:.1f} dents",
+        "mod_editor_summary_inner": "Piste intérieure : {length:.1f} mm (~{teeth:.1f} dents)",
+        "mod_editor_summary_mid": "Piste médiane : {length:.1f} mm (~{teeth:.1f} dents)",
+        "mod_editor_summary_outer": "Piste extérieure : {length:.1f} mm (~{teeth:.1f} dents)",
 
         "dlg_close": "Fermer",
         "track_test_title": "Test du tracé modulaire",
@@ -442,6 +445,9 @@ TRANSLATIONS = {
         "mod_editor_info_error": "Error: {error}",
         "mod_editor_info_empty": "Notation is valid, but track is empty.",
         "mod_editor_info_ok": "Length ~ {length:.1f} mm, equivalent ~ {teeth:.1f} teeth",
+        "mod_editor_summary_inner": "Inner track: {length:.1f} mm (~{teeth:.1f} teeth)",
+        "mod_editor_summary_mid": "Center track: {length:.1f} mm (~{teeth:.1f} teeth)",
+        "mod_editor_summary_outer": "Outer track: {length:.1f} mm (~{teeth:.1f} teeth)",
 
         "dlg_close": "Close",
         "track_test_title": "Modular track test",
@@ -2855,12 +2861,22 @@ class ModularTrackEditorDialog(QDialog):
             return
 
         self.track_view.set_track(track, inner_teeth, outer_teeth, pitch)
-        self.info_label.setText(
-            tr(self.lang, "mod_editor_info_ok").format(
-                length=track.total_length,
-                teeth=track.total_teeth,
-            )
+        inner_len, mid_len, outer_len = modular_tracks.compute_track_lengths(
+            track, inner_teeth, outer_teeth, pitch
         )
+        pitch_safe = pitch if pitch > 0 else 1.0
+        summaries = [
+            tr(self.lang, "mod_editor_summary_inner").format(
+                length=inner_len, teeth=inner_len / pitch_safe
+            ),
+            tr(self.lang, "mod_editor_summary_mid").format(
+                length=mid_len, teeth=mid_len / pitch_safe
+            ),
+            tr(self.lang, "mod_editor_summary_outer").format(
+                length=outer_len, teeth=outer_len / pitch_safe
+            ),
+        ]
+        self.info_label.setText("\n".join(summaries))
 
 # ---------- 7) Fenêtre principale ----------
 
