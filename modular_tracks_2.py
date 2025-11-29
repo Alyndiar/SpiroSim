@@ -695,8 +695,8 @@ def generate_track_base_points(
             turn = 0.0
             for seg in segments:
                 if seg.kind == "arc":
-                    # sigma_curve donne le sens de parcours (+1 gauche, -1 droite)
-                    turn += seg.sigma_curve * (seg.phi_end - seg.phi_start)
+                    # phi_end inclut déjà le signe sigma_curve ; accumuler directement
+                    turn += seg.phi_end - seg.phi_start
             return turn
 
         # 1) Somme des angles tournés : on considère la piste "fermée" si
@@ -767,10 +767,10 @@ def generate_track_base_points(
     sign_side = orientation_sign if relation_effective == "dedans" else -orientation_sign
 
     # Sens de rotation de la roue : pour roulement sans glissement,
-    # ω = sign_side * v / R (v > 0 suit la tangente). Le signe dépend
-    # uniquement du côté choisi (dedans/dehors corrigé par l'orientation)
-    # et garantit que le stylo reste en phase avec la rotation observée.
-    roll_sign = sign_side
+    # V + ω × r = 0 au point de contact, soit ω = -(v/R) * sign_side
+    # (v > 0 suit la tangente). On prend donc le signe opposé au côté
+    # utilisé pour que la phase du trou suive toujours la rotation réelle.
+    roll_sign = -sign_side
     track_offset_teeth = float(track.offset_teeth or 0.0)
 
     for i in range(steps):
