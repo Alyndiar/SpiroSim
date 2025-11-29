@@ -659,6 +659,16 @@ def generate_track_base_points(
     if len(track.points) < 2 or track.total_length <= 0.0:
         return []
 
+    def _track_orientation_sign(pts: List[Point]) -> float:
+        """Retourne +1 pour une piste CCW, -1 pour CW (0 => +1 par défaut)."""
+        if len(pts) < 3:
+            return 1.0
+        area = 0.0
+        for i, (x0, y0) in enumerate(pts):
+            x1, y1 = pts[(i + 1) % len(pts)]
+            area += x0 * y1 - x1 * y0
+        return 1.0 if area >= 0.0 else -1.0
+
     # Rayon du cercle de pas de la roue mobile
     wt = max(1, int(wheel_teeth))
     r_wheel = (pitch_mm_per_tooth * float(wt)) / (2.0 * math.pi)
@@ -694,7 +704,11 @@ def generate_track_base_points(
     if mode not in {"stylo", "contact", "centre"}:
         raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
 
-    sign_side = -1.0 if relation == "dedans" else 1.0
+    orientation_sign = _track_orientation_sign(track.points)
+    # relation dedans/dehors dépend du sens (CW/CCW) de la piste :
+    # - piste CCW  : normale à gauche = intérieur
+    # - piste CW   : normale à gauche = extérieur
+    sign_side = orientation_sign if relation == "dedans" else -orientation_sign
 
     for i in range(steps):
         s = s_max * i / (steps - 1)
@@ -716,7 +730,10 @@ def generate_track_base_points(
         # en dents est s / pitch_mm_per_tooth (s étant la distance curviligne),
         # avec un décalage initial wheel_phase_teeth.
         teeth_rolled = (s / pitch_mm_per_tooth) + float(wheel_phase_teeth)
-        phi = -2.0 * math.pi * (teeth_rolled / float(wt))
+
+        # orientation du vecteur centre->contact, pour une phase cohérente
+        angle_contact = math.atan2(y_track - cy, x_track - cx)
+        phi = angle_contact + orientation_sign * 2.0 * math.pi * (teeth_rolled / float(wt))
 
         if mode == "contact":
             base_points.append((x_track, y_track))
