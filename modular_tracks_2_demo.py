@@ -115,72 +115,58 @@ def _compute_animation_sequences(
     if not segments:
         return track, [], [], [], 0.0, 0.0
 
-    width_mm = (
-        (float(outer_teeth) - float(inner_teeth))
-        * pitch_mm_per_tooth
-        / (2.0 * math.pi)
-        if outer_teeth and inner_teeth and outer_teeth > inner_teeth
-        else 0.0
-    )
-    half_width = width_mm * 0.5 if width_mm > 0.0 else _estimate_track_half_width(segments)
-    track_offset_teeth = float(track.offset_teeth or 0.0)
+    r_in = (float(inner_teeth) * pitch_mm_per_tooth) / (2.0 * math.pi)
+    r_out = (float(outer_teeth) * pitch_mm_per_tooth) / (2.0 * math.pi)
+    dR = r_out - r_in
+    half_width = abs(dR) * 0.5 if abs(dR) > 0.0 else max(pitch_mm_per_tooth, 1.0)
 
-    centerline, _, _, half_width = _compute_track_polylines(
-        track, half_width=half_width
-    )
+    centerline, _, _, half_width = _compute_track_polylines(track, half_width=half_width)
 
-    # Rayon de la roue et distance du trou par rapport au centre
+    # Rayon de la roue (aligné sur generate_track_base_points pour montrer
+    # exactement la même courbe que celle utilisée dans SpiroSim.py).
     r_wheel = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
-    d = r_wheel - hole_index * hole_spacing_mm
-    if d < 0.0:
-        d = 0.0
 
-    # Longueur parcourue totale
-    L = track.total_length
-    if L <= 0:
-        return track, [], [], [], half_width, r_wheel
+    stylo_points = modular_tracks.generate_track_base_points(
+        notation=notation,
+        wheel_teeth=wheel_teeth,
+        hole_index=hole_index,
+        hole_spacing_mm=hole_spacing_mm,
+        steps=steps,
+        relation=relation,
+        wheel_phase_teeth=wheel_phase_teeth,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+        output_mode="stylo",
+    )
 
-    if track.total_teeth > 0:
-        N_track = max(1, int(round(track.total_teeth)))
-    else:
-        N_track = wheel_teeth
-    N_w = max(1, int(wheel_teeth))
-    g = math.gcd(N_track, N_w)
-    if g <= 0:
-        g = 1
-    nb_laps = N_w // g if N_w >= g else 1
-    if nb_laps < 1:
-        nb_laps = 1
-    s_max = L * float(nb_laps)
+    wheel_centers = modular_tracks.generate_track_base_points(
+        notation=notation,
+        wheel_teeth=wheel_teeth,
+        hole_index=hole_index,
+        hole_spacing_mm=hole_spacing_mm,
+        steps=steps,
+        relation=relation,
+        wheel_phase_teeth=wheel_phase_teeth,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+        output_mode="centre",
+    )
 
-    stylo_points: List[Point] = []
-    wheel_centers: List[Point] = []
-    contact_points: List[Point] = []
-
-    sign_side = -1.0 if relation == "dedans" else 1.0
-
-    for i in range(steps):
-        s = s_max * i / float(steps - 1)
-        C, _, N_vec = modular_tracks._interpolate_on_segments(s % L, segments)
-        x_track, y_track = C
-        nx, ny = N_vec
-
-        contact_offset = sign_side * half_width
-        contact_x = x_track + contact_offset * nx
-        contact_y = y_track + contact_offset * ny
-        contact_points.append((contact_x, contact_y))
-
-        center_offset = contact_offset + sign_side * r_wheel
-        cx = x_track + center_offset * nx
-        cy = y_track + center_offset * ny
-        wheel_centers.append((cx, cy))
-
-        angle_contact = math.atan2(contact_y - cy, contact_x - cx)
-        teeth_rolled = (s / pitch_mm_per_tooth) - float(wheel_phase_teeth) + track_offset_teeth
-        phi = angle_contact + 2.0 * math.pi * (teeth_rolled / float(N_w))
-        px = cx + d * math.cos(phi)
-        py = cy + d * math.sin(phi)
-        stylo_points.append((px, py))
+    contact_points = modular_tracks.generate_track_base_points(
+        notation=notation,
+        wheel_teeth=wheel_teeth,
+        hole_index=hole_index,
+        hole_spacing_mm=hole_spacing_mm,
+        steps=steps,
+        relation=relation,
+        wheel_phase_teeth=wheel_phase_teeth,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+        output_mode="contact",
+    )
 
     # Remplacer track.points par la médiane recalculée pour l'affichage
     track.points = centerline
