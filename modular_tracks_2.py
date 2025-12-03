@@ -128,6 +128,7 @@ class TrackSegment:
     kind: str                   # "arc" ou "line"
     s_start: float              # longueur curviligne de début
     s_end: float                # longueur curviligne de fin
+    sign: Optional[str] = None  # signe de la pièce "+" ou "-" (pour les longueurs)
 
     # Pour les arcs :
     O: Optional[Point] = None   # centre du cercle médian
@@ -358,6 +359,7 @@ def _build_segments_from_parsed(
                 kind="arc",
                 s_start=s_start,
                 s_end=s_end,
+                sign=sign_char,
                 O=O,
                 rM=rM,
                 phi_start=phi_start,
@@ -430,6 +432,7 @@ def _build_segments_from_parsed(
                 kind="line",
                 s_start=s_start,
                 s_end=s_end,
+                sign=sign_char,
                 P0=P0,
                 P1=P1,
                 side=side,
@@ -492,6 +495,7 @@ def _build_segments_from_parsed(
                 kind="arc",
                 s_start=s_start,
                 s_end=s_end,
+                sign=seg.sign,
                 O=(O_x, O_y),
                 rM=seg.rM,
                 phi_start=seg.phi_start,
@@ -513,6 +517,7 @@ def _build_segments_from_parsed(
                 kind="line",
                 s_start=s_start,
                 s_end=s_end,
+                sign=seg.sign,
                 P0=(x0, y0),
                 P1=(x1, y1),
                 side=seg.side,
@@ -565,41 +570,57 @@ def compute_track_lengths(
 ) -> Tuple[float, float, float]:
     """Retourne les longueurs des pistes intérieure, médiane et extérieure.
 
-    Les longueurs sont calculées en suivant la même largeur de piste que celle
-    utilisée pour la génération trochoïdale : moitié de la différence de rayon
-    des anneaux, ou un minimum basé sur le pas si la différence est nulle.
+    Les longueurs sont calculées en additionnant le nombre de dents de chaque
+    segment selon le signe de la pièce :
+
+      * signe "+" : la piste intérieure suit le côté concave, l'extérieure le
+        côté convexe ;
+      * signe "-" : la piste intérieure suit le côté convexe, l'extérieure le
+        côté concave.
+
+    La piste intérieure finale est le chemin totalisant le **plus petit nombre
+    de dents** ; la piste extérieure est le chemin totalisant le plus grand
+    nombre de dents. La piste médiane est la moyenne arithmétique des deux.
     """
 
     if pitch_mm_per_tooth <= 0:
         return 0.0, 0.0, 0.0
 
-    r_in = (inner_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
-    r_out = (outer_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
-    dR = r_out - r_in
-    half_width = abs(dR) * 0.5 if abs(dR) > 0.0 else max(pitch_mm_per_tooth, 1.0)
-
-    inner_len = 0.0
-    mid_len = 0.0
-    outer_len = 0.0
+    track_inner_teeth = 0.0
+    track_outer_teeth = 0.0
 
     for seg in track.segments or []:
-        if seg.kind == "arc" and seg.rM:
-            angle = abs(seg.phi_end - seg.phi_start)
-            r_mid = seg.rM
-            r_inner = max(r_mid - half_width, 0.0)
-            r_outer = r_mid + half_width
-            inner_len += r_inner * angle
-            mid_len += r_mid * angle
-            outer_len += r_outer * angle
-        elif seg.kind == "line" and seg.P0 is not None and seg.P1 is not None:
-            dx = seg.P1[0] - seg.P0[0]
-            dy = seg.P1[1] - seg.P0[1]
-            length = math.hypot(dx, dy)
-            inner_len += length
-            mid_len += length
-            outer_len += length
+        if seg.kind == "arc" and seg.phi_end is not None:
+            angle_rad = abs(seg.phi_end - seg.phi_start)
+            angle_deg = math.degrees(angle_rad)
+            concave_teeth = inner_teeth * (angle_deg / 360.0)
+            convex_teeth = outer_teeth * (angle_deg / 360.0)
+            sign = seg.sign or (
+                "+" if seg.side == "concave" else "-" if seg.side == "convexe" else None
+            )
+            if sign == "-":
+                track_inner_teeth += convex_teeth
+                track_outer_teeth += concave_teeth
+            else:
+                track_inner_teeth += concave_teeth
+                track_outer_teeth += convex_teeth
+        elif seg.kind == "line":
+            length = max(seg.s_end - seg.s_start, 0.0)
+            teeth = length / pitch_mm_per_tooth
+            track_inner_teeth += teeth
+            track_outer_teeth += teeth
 
-    return inner_len, mid_len, outer_len
+    # Le plus petit total est considéré comme la piste intérieure
+    if track_inner_teeth > track_outer_teeth:
+        track_inner_teeth, track_outer_teeth = track_outer_teeth, track_inner_teeth
+
+    mid_teeth = 0.5 * (track_inner_teeth + track_outer_teeth)
+
+    return (
+        track_inner_teeth * pitch_mm_per_tooth,
+        mid_teeth * pitch_mm_per_tooth,
+        track_outer_teeth * pitch_mm_per_tooth,
+    )
 
 
 # ---------------------------------------------------------------------------
