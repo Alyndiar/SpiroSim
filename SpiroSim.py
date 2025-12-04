@@ -1423,6 +1423,15 @@ def layers_to_svg(
                 and getattr(layer.gears[0], "modular_notation", "")
             ):
                 g0 = layer.gears[0]
+                relation = "dedans"
+                wheel_teeth_rel = 1
+                if len(layer.gears) > 1:
+                    g1_tmp = layer.gears[1]
+                    relation = getattr(g1_tmp, "relation", "dedans") or "dedans"
+                    wheel_teeth_rel = max(
+                        1, contact_teeth_for_relation(g1_tmp, relation)
+                    )
+
                 inner_teeth = max(1, int(g0.teeth))
                 outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
                 outer_teeth = max(outer_teeth, inner_teeth)
@@ -1434,12 +1443,31 @@ def layers_to_svg(
                     pitch_mm_per_tooth=pitch_mm_per_tooth,
                     steps_per_tooth=3,
                 )
-                if track.points:
-                    layer_track_points = track.points
-                    r_inner = (pitch_mm_per_tooth * float(inner_teeth)) / (2.0 * math.pi)
-                    r_outer = (pitch_mm_per_tooth * float(outer_teeth)) / (2.0 * math.pi)
-                    width_mm = max(r_outer - r_inner, pitch_mm_per_tooth)
-                    layer_track_width_mm = width_mm * layer_zoom
+                if track.segments:
+                    _, track_len_rel, track_teeth_rel = modular_tracks._parameterize_segments_for_relation(
+                        track,
+                        relation,
+                        inner_teeth,
+                        outer_teeth,
+                        pitch_mm_per_tooth,
+                    )
+
+                    ctx = modular_tracks._build_roll_context(
+                        track,
+                        relation=relation,
+                        wheel_teeth=wheel_teeth_rel,
+                        inner_teeth=inner_teeth,
+                        outer_teeth=outer_teeth,
+                        pitch_mm_per_tooth=pitch_mm_per_tooth,
+                        track_length_override=track_len_rel,
+                        track_teeth_override=track_teeth_rel,
+                    )
+
+                    centerline, _, _, half_w = modular_tracks.compute_track_polylines(
+                        track, half_width=ctx.half_width
+                    )
+                    layer_track_points = centerline
+                    layer_track_width_mm = (half_w * 2.0) * layer_zoom
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
                 layer,

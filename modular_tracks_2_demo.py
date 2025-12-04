@@ -15,7 +15,7 @@ Exécution rapide :
 
 import math
 import sys
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from PySide6.QtCore import QPointF, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
@@ -24,57 +24,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 import modular_tracks_2 as modular_tracks
 
 Point = Tuple[float, float]
-
-
-def _estimate_track_half_width(segments: List[modular_tracks.TrackSegment]) -> float:
-    """Estime la demi-largeur de piste à partir des segments connus."""
-
-    for seg in segments:
-        if seg.kind == "arc":
-            width = abs(seg.rM - seg.R_track) * 2.0
-        elif seg.kind == "line":
-            width = abs(seg.R_track) * 2.0
-        else:
-            continue
-        if width > 0:
-            return width * 0.5
-    return 5.0  # valeur de repli (mm)
-
-
-def _compute_track_polylines(
-    track: modular_tracks.TrackBuildResult,
-    samples: int = 400,
-    *,
-    half_width: Optional[float] = None,
-) -> Tuple[List[Point], List[Point], List[Point], float]:
-    """Retourne (centre, côté intérieur, côté extérieur, demi-largeur)."""
-
-    segments = track.segments
-    effective_half_width = half_width if (half_width and half_width > 0.0) else None
-    if effective_half_width is None:
-        effective_half_width = _estimate_track_half_width(segments)
-
-    L = track.total_length
-    centerline: List[Point] = track.points if track.points else []
-
-    if not centerline:
-        for i in range(samples + 1):
-            s = (L * i) / float(max(samples, 1))
-            C, _, _ = modular_tracks._interpolate_on_segments(s, segments)
-            centerline.append(C)
-
-    inner: List[Point] = []
-    outer: List[Point] = []
-
-    for i in range(samples + 1):
-        s = (L * i) / float(max(samples, 1))
-        C, _, N = modular_tracks._interpolate_on_segments(s, segments)
-        x, y = C
-        nx, ny = N
-        inner.append((x - nx * effective_half_width, y - ny * effective_half_width))
-        outer.append((x + nx * effective_half_width, y + ny * effective_half_width))
-
-    return centerline, inner, outer, effective_half_width
 
 
 def _compute_animation_sequences(
@@ -131,7 +80,7 @@ def _compute_animation_sequences(
         pitch_mm_per_tooth=pitch_mm_per_tooth,
     )
 
-    centerline, _, _, half_width = _compute_track_polylines(
+    centerline, _, _, half_width = modular_tracks.compute_track_polylines(
         track, half_width=bundle.context.half_width
     )
 

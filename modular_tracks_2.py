@@ -723,6 +723,62 @@ def compute_track_lengths(
     )
 
 
+def _estimate_track_half_width(segments: List["TrackSegment"]) -> float:
+    """Estime une demi-largeur de piste à partir de segments connus."""
+
+    for seg in segments:
+        if seg.kind == "arc":
+            width = abs(seg.rM - seg.R_track) * 2.0
+        elif seg.kind == "line":
+            width = abs(seg.R_track) * 2.0
+        else:
+            continue
+        if width > 0:
+            return width * 0.5
+    return 5.0  # valeur de repli (mm)
+
+
+def compute_track_polylines(
+    track: TrackBuildResult,
+    samples: int = 400,
+    *,
+    half_width: Optional[float] = None,
+) -> Tuple[List[Point], List[Point], List[Point], float]:
+    """Retourne (centre, côté intérieur, côté extérieur, demi-largeur).
+
+    La demi-largeur est prise depuis l'argument fourni ou estimée depuis les
+    segments. Les polylignes sont dérivées directement des segments pour
+    rester cohérentes avec la géométrie utilisée par la génération du trochoïde.
+    """
+
+    segments = track.segments
+    effective_half_width = half_width if (half_width and half_width > 0.0) else None
+    if effective_half_width is None:
+        effective_half_width = _estimate_track_half_width(segments)
+
+    L = track.total_length
+    centerline: List[Point] = track.points if track.points else []
+
+    if not centerline:
+        for i in range(samples + 1):
+            s = (L * i) / float(max(samples, 1))
+            C, _, _ = _interpolate_on_segments(s, segments)
+            centerline.append(C)
+
+    inner: List[Point] = []
+    outer: List[Point] = []
+
+    for i in range(samples + 1):
+        s = (L * i) / float(max(samples, 1))
+        C, _, N = _interpolate_on_segments(s, segments)
+        x, y = C
+        nx, ny = N
+        inner.append((x - nx * effective_half_width, y - ny * effective_half_width))
+        outer.append((x + nx * effective_half_width, y + ny * effective_half_width))
+
+    return centerline, inner, outer, effective_half_width
+
+
 # ---------------------------------------------------------------------------
 # 4.bis) Re-paramétrisation des segments selon le côté utilisé
 # ---------------------------------------------------------------------------
