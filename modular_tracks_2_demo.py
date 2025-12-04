@@ -521,7 +521,10 @@ class ModularTrackDemo(QWidget):
         painter.drawEllipse(QPointF(hole[0] + self._offset[0], hole[1] + self._offset[1]), 1.5, 1.5)
 
         painter.resetTransform()
-        painter.setPen(QPen(QColor("#000000")))
+        bg_color = self.palette().color(self.backgroundRole())
+        avg_rgb = (bg_color.red() + bg_color.green() + bg_color.blue()) / 3.0
+        text_color = QColor("#000000" if avg_rgb > 128 else "#ffffff")
+        painter.setPen(QPen(text_color))
         painter.drawText(
             10,
             20,
