@@ -17,11 +17,12 @@ import math
 import sys
 from typing import List, Tuple
 
-from PySide6.QtCore import QPointF, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 import modular_tracks_2 as modular_tracks
+import drawing
 
 Point = Tuple[float, float]
 
@@ -84,24 +85,13 @@ def _compute_animation_sequences(
         track, half_width=bundle.context.half_width
     )
 
-    track_teeth_markers: List[Tuple[Point, Point]] = []
-    tooth_len = max(bundle.context.pitch_mm_per_tooth * 0.35, 0.8)
-    L = bundle.context.track_length
-    for t_idx in range(bundle.context.N_track):
-        s = (bundle.context.pitch_mm_per_tooth * t_idx) % max(L, 1e-9)
-        C, _, N_vec = modular_tracks._interpolate_on_segments(s, track.segments)
-        nx, ny = N_vec
-        x_edge = C[0] + bundle.context.sign_side * nx * bundle.context.half_width
-        y_edge = C[1] + bundle.context.sign_side * ny * bundle.context.half_width
-        track_teeth_markers.append(
-            (
-                (x_edge, y_edge),
-                (
-                    x_edge + bundle.context.sign_side * nx * tooth_len,
-                    y_edge + bundle.context.sign_side * ny * tooth_len,
-                ),
-            )
-        )
+    track_teeth_markers = drawing.build_track_teeth_markers_from_segments(
+        track.segments,
+        pitch_mm=bundle.context.pitch_mm_per_tooth,
+        half_width=bundle.context.half_width,
+        total_length=bundle.context.track_length,
+        sign_side=bundle.context.sign_side,
+    )
 
     track.points = centerline
 
@@ -371,15 +361,6 @@ class ModularTrackDemo(QWidget):
         sy = self.height() / float(self._base_height)
         self._scale = 0.9 * min(sx, sy)
 
-    def _map_points(self, pts: List[Point]) -> List[QPointF]:
-        dx, dy = getattr(self, "_offset", (0.0, 0.0))
-        return [QPointF((x + dx), (y + dy)) for (x, y) in pts]
-
-    def _draw_polyline(self, painter: QPainter, pts: List[Point]):
-        if len(pts) < 2:
-            return
-        painter.drawPolyline(self._map_points(pts))
-
     def paintEvent(self, event):  # noqa: N802 - signature imposée par Qt
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
@@ -388,34 +369,46 @@ class ModularTrackDemo(QWidget):
         painter.translate(self.width() * 0.5, self.height() * 0.5)
         painter.scale(self._scale, -self._scale)
 
-        # Piste : côtés et médiane
-        painter.setPen(QPen(QColor("#888"), 0))
-        self._draw_polyline(painter, self.track.points)
+        drawing.draw_track(
+            painter,
+            centerline=self.track.points,
+            inner=self.inner_side,
+            outer=self.outer_side,
+            offset=self._offset,
+            center_color="#888",
+            inner_color="#555",
+            outer_color="#555",
+        )
 
-        painter.setPen(QPen(QColor("#555"), 0))
-        self._draw_polyline(painter, self.inner_side)
-        self._draw_polyline(painter, self.outer_side)
-
-        painter.setPen(QPen(QColor("#444"), 0))
-        for a, b in self.track_teeth_markers:
-            painter.drawLine(
-                QPointF(a[0] + self._offset[0], a[1] + self._offset[1]),
-                QPointF(b[0] + self._offset[0], b[1] + self._offset[1]),
-            )
+        drawing.draw_teeth_markers(
+            painter,
+            self.track_teeth_markers,
+            color="#444",
+            offset=self._offset,
+        )
 
         # Indicateur de départ (point de contact à s=0)
         if self.contact_points:
             start = self.contact_points[0]
-            painter.setPen(QPen(QColor("#00aa00"), 0))
-            painter.drawEllipse(QPointF(start[0] + self._offset[0], start[1] + self._offset[1]), 1.5, 1.5)
+            drawing.draw_marker(
+                painter,
+                start,
+                radius=1.5,
+                color="#00aa00",
+                offset=self._offset,
+            )
 
         if not self.stylo_points:
             painter.end()
             return
 
         # Tracé final déjà dessiné
-        painter.setPen(QPen(QColor("#cc3366"), 0))
-        self._draw_polyline(painter, self.stylo_points[: self.current_step + 1])
+        drawing.draw_polyline(
+            painter,
+            self.stylo_points[: self.current_step + 1],
+            color="#cc3366",
+            offset=self._offset,
+        )
 
         idx = self.current_step
         wheel_center = self.wheel_centers[idx]
@@ -428,48 +421,43 @@ class ModularTrackDemo(QWidget):
         angle_contact = math.atan2(contact[1] - wheel_center[1], contact[0] - wheel_center[0])
 
         # Roue
-        painter.setPen(QPen(QColor("#1f77b4"), 0))
-        painter.drawEllipse(
-            QPointF(wheel_center[0] + self._offset[0], wheel_center[1] + self._offset[1]),
-            self.r_wheel,
-            self.r_wheel,
+        drawing.draw_wheel(
+            painter,
+            center=wheel_center,
+            radius=self.r_wheel,
+            tooth_count=self.wheel_teeth_count,
+            tooth_index=wheel_idx,
+            contact_angle=angle_contact,
+            roll_sign=self.roll_sign,
+            offset=self._offset,
         )
 
-        if self.wheel_teeth_count > 0:
-            tooth_len = max(self.r_wheel * 0.12, 0.8)
-            for k in range(self.wheel_teeth_count):
-                angle = angle_contact + self.roll_sign * 2.0 * math.pi * (
-                    (k - wheel_idx) / float(self.wheel_teeth_count)
-                )
-                cos_a, sin_a = math.cos(angle), math.sin(angle)
-                inner_r = self.r_wheel
-                outer_r = self.r_wheel + tooth_len
-                painter.drawLine(
-                    QPointF(
-                        wheel_center[0] + self._offset[0] + inner_r * cos_a,
-                        wheel_center[1] + self._offset[1] + inner_r * sin_a,
-                    ),
-                    QPointF(
-                        wheel_center[0] + self._offset[0] + outer_r * cos_a,
-                        wheel_center[1] + self._offset[1] + outer_r * sin_a,
-                    ),
-                )
-
         # Marqueur d'angle 0 sur le bord de la roue (permet de suivre la rotation).
-        painter.setPen(QPen(QColor("#000000"), 0))
-        painter.drawEllipse(
-            QPointF(marker0[0] + self._offset[0], marker0[1] + self._offset[1]),
-            1.2,
-            1.2,
+        drawing.draw_marker(
+            painter,
+            marker0,
+            radius=1.2,
+            color="#000000",
+            offset=self._offset,
         )
 
         # Point de contact
-        painter.setPen(QPen(QColor("#ff9900"), 0))
-        painter.drawEllipse(QPointF(contact[0] + self._offset[0], contact[1] + self._offset[1]), 1.3, 1.3)
+        drawing.draw_marker(
+            painter,
+            contact,
+            radius=1.3,
+            color="#ff9900",
+            offset=self._offset,
+        )
 
         # Trou / stylo courant
-        painter.setPen(QPen(QColor("#e62739"), 0))
-        painter.drawEllipse(QPointF(hole[0] + self._offset[0], hole[1] + self._offset[1]), 1.5, 1.5)
+        drawing.draw_marker(
+            painter,
+            hole,
+            radius=1.5,
+            color="#e62739",
+            offset=self._offset,
+        )
 
         painter.resetTransform()
         bg_color = self.palette().color(self.backgroundRole())

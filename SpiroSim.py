@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 
 import modular_tracks_2 as modular_tracks
 import modular_tracks_2_demo as modular_track_demo
+import drawing
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -2559,6 +2560,10 @@ class ModularTrackView(QWidget):
         self.total_length = 0.0
         self.segments = []
         self.last_tangent = 0.0  # angle de la tangente au dernier point (rad)
+        self.inner_side: List[Tuple[float, float]] = []
+        self.outer_side: List[Tuple[float, float]] = []
+        self.half_width = 0.0
+        self.track_teeth_markers: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
 
     def sizeHint(self):
         return QSize(500, 500)
@@ -2569,6 +2574,10 @@ class ModularTrackView(QWidget):
         self.have_track = False
         self.total_length = 0.0
         self.last_tangent = 0.0
+        self.inner_side = []
+        self.outer_side = []
+        self.half_width = 0.0
+        self.track_teeth_markers = []
         self.update()
 
     def set_track(
@@ -2584,24 +2593,33 @@ class ModularTrackView(QWidget):
         self.inner_teeth = max(1, inner_teeth)
         self.outer_teeth = max(self.inner_teeth + 1, outer_teeth)
         self.pitch_mm = pitch_mm
+        centerline, inner, outer, half_w = modular_tracks.compute_track_polylines(
+            track, half_width=None
+        )
+        self.points = centerline
+        self.inner_side = inner
+        self.outer_side = outer
+        self.half_width = half_w
         self.have_track = len(self.points) > 1 and self.total_length > 0.0
         if self.have_track and self.segments:
             _, theta, _ = modular_tracks._interpolate_on_segments(
                 self.total_length, self.segments
             )
             self.last_tangent = theta
+            self.track_teeth_markers = drawing.build_track_teeth_markers_from_segments(
+                self.segments,
+                pitch_mm=self.pitch_mm,
+                half_width=self.half_width,
+                total_length=self.total_length,
+                sign_side=1.0,
+            )
         else:
             self.last_tangent = 0.0
+            self.track_teeth_markers = []
         self.update()
 
     def _compute_scale(self, w: int, h: int) -> float:
-        if not self.points:
-            return 1.0
-        max_x = max(abs(x) for x, _ in self.points) or 1.0
-        max_y = max(abs(y) for _, y in self.points) or 1.0
-        sx = (w * 0.45) / max_x
-        sy = (h * 0.45) / max_y
-        return min(sx, sy)
+        return drawing.compute_view_scale(self.points, w, h)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -2624,69 +2642,16 @@ class ModularTrackView(QWidget):
         painter.translate(w / 2.0, h / 2.0)
         painter.scale(scale, -scale)
 
-        # Largeur réelle de la piste (en mm)
-        inner_r = (self.pitch_mm * float(self.inner_teeth)) / (2.0 * math.pi)
-        outer_r = (self.pitch_mm * float(self.outer_teeth)) / (2.0 * math.pi)
-        width_mm = max(outer_r - inner_r, self.pitch_mm)
-        half_w = width_mm / 2.0
+        width_mm = max(self.half_width * 2.0, self.pitch_mm)
 
-        # 1) polyline centrale
-        pen_center = QPen(QColor("#606060"))
-        pen_center.setWidthF(0)  # ligne "cosmétique"
-        painter.setPen(pen_center)
+        drawing.draw_track(
+            painter,
+            centerline=self.points,
+            inner=self.inner_side,
+            outer=self.outer_side,
+        )
 
-        for i in range(len(self.points) - 1):
-            x0, y0 = self.points[i]
-            x1, y1 = self.points[i + 1]
-            painter.drawLine(QPointF(x0, y0), QPointF(x1, y1))
-
-        # 2) bords de la piste (inner/outer approximatifs)
-        pen_border = QPen(QColor("#808080"))
-        pen_border.setWidthF(0)
-        painter.setPen(pen_border)
-
-        for i in range(len(self.points) - 1):
-            x0, y0 = self.points[i]
-            x1, y1 = self.points[i + 1]
-            dx = x1 - x0
-            dy = y1 - y0
-            seg_len = math.hypot(dx, dy) or 1.0
-            nx = -dy / seg_len
-            ny = dx / seg_len
-
-            ix0 = x0 - nx * half_w
-            iy0 = y0 - ny * half_w
-            ix1 = x1 - nx * half_w
-            iy1 = y1 - ny * half_w
-
-            ox0 = x0 + nx * half_w
-            oy0 = y0 + ny * half_w
-            ox1 = x1 + nx * half_w
-            oy1 = y1 + ny * half_w
-
-            painter.drawLine(QPointF(ix0, iy0), QPointF(ix1, iy1))
-            painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
-
-        # 3) dents (petits ticks côté "outer")
-        L = self.total_length if self.have_track else 0.0
-        if L > 0.0 and self.segments and self.pitch_mm > 0:
-            pen_teeth = QPen(QColor("#404040"))
-            pen_teeth.setWidthF(0)
-            painter.setPen(pen_teeth)
-            tooth_len = width_mm * 0.4
-            num_teeth = max(1, int(L / self.pitch_mm))
-            for k in range(num_teeth):
-                s = (k + 0.5) * self.pitch_mm
-                (x, y), theta, _ = modular_tracks._interpolate_on_segments(
-                    s % L, self.segments
-                )
-                nx = -math.sin(theta)
-                ny = math.cos(theta)
-                bx = x + nx * half_w
-                by = y + ny * half_w
-                tx = bx + nx * tooth_len
-                ty = by + ny * tooth_len
-                painter.drawLine(QPointF(bx, by), QPointF(tx, ty))
+        drawing.draw_teeth_markers(painter, self.track_teeth_markers, color="#404040")
 
         # 4) Ligne rouge perpendiculaire à la tangente de fin
         if len(self.points) >= 2:
