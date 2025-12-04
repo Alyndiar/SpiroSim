@@ -587,6 +587,8 @@ def _build_roll_context(
     inner_teeth: int,
     outer_teeth: int,
     pitch_mm_per_tooth: float,
+    track_length_override: Optional[float] = None,
+    track_teeth_override: Optional[float] = None,
 ) -> TrackRollContext:
     """Prépare les paramètres partagés pour le roulement sans glissement."""
 
@@ -599,8 +601,12 @@ def _build_roll_context(
 
     r_wheel = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
 
-    if track.total_teeth > 0:
-        N_track = max(1, int(round(track.total_teeth)))
+    track_teeth_value = (
+        track_teeth_override if track_teeth_override is not None else track.total_teeth
+    )
+
+    if track_teeth_value > 0:
+        N_track = max(1, int(round(track_teeth_value)))
     else:
         N_track = max(1, int(wheel_teeth))
 
@@ -615,7 +621,7 @@ def _build_roll_context(
     orientation_sign = _track_orientation_sign(track)
     sign_side = orientation_sign if relation == "dedans" else -orientation_sign
 
-    L = track.total_length
+    L = track_length_override if track_length_override is not None else track.total_length
     s_max = L * float(nb_laps)
 
     return TrackRollContext(
@@ -715,6 +721,102 @@ def compute_track_lengths(
         mid_teeth * pitch_mm_per_tooth,
         track_outer_teeth * pitch_mm_per_tooth,
     )
+
+
+# ---------------------------------------------------------------------------
+# 4.bis) Re-paramétrisation des segments selon le côté utilisé
+# ---------------------------------------------------------------------------
+
+def _parameterize_segments_for_relation(
+    track: TrackBuildResult,
+    relation: str,
+    inner_teeth: float,
+    outer_teeth: float,
+    pitch_mm_per_tooth: float,
+) -> Tuple[List[TrackSegment], float, float]:
+    """Crée une copie des segments avec s recalculé pour le côté choisi.
+
+    Le paramètre ``relation`` indique si la roue roule *dedans* (piste
+    intérieure) ou *dehors* (piste extérieure). Les longueurs curvilignes
+    (s_start/s_end) sont reconstruites en fonction du rayon de contact
+    correspondant, et le total de dents est recalculé en cohérence.
+    """
+
+    if not track.segments or pitch_mm_per_tooth <= 0:
+        return list(track.segments or []), track.total_length, track.total_teeth
+
+    use_inner = relation.strip().lower() == "dedans"
+    r_in = (inner_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
+    r_out = (outer_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
+
+    s_cursor = 0.0
+    total_teeth = 0.0
+    remapped: List[TrackSegment] = []
+
+    for seg in track.segments:
+        seg_length = 0.0
+        seg_teeth = 0.0
+        sign = seg.sign or (
+            "+" if seg.side == "concave" else "-" if seg.side == "convexe" else None
+        )
+
+        if seg.kind == "arc" and seg.phi_end is not None:
+            angle_rad = abs(seg.phi_end - seg.phi_start)
+            if sign == "+":
+                radius = r_in if use_inner else r_out
+                seg_teeth = (inner_teeth if use_inner else outer_teeth) * (
+                    math.degrees(angle_rad) / 360.0
+                )
+            elif sign == "-":
+                radius = r_out if use_inner else r_in
+                seg_teeth = (outer_teeth if use_inner else inner_teeth) * (
+                    math.degrees(angle_rad) / 360.0
+                )
+            else:
+                radius = seg.R_track if seg.R_track > 0 else (r_in + r_out) * 0.5
+                seg_teeth = abs(radius * angle_rad) / pitch_mm_per_tooth
+
+            seg_length = abs(radius * angle_rad)
+
+            new_seg = TrackSegment(
+                kind="arc",
+                s_start=s_cursor,
+                s_end=s_cursor + seg_length,
+                sign=seg.sign,
+                O=seg.O,
+                rM=seg.rM,
+                phi_start=seg.phi_start,
+                phi_end=seg.phi_end,
+                sigma_curve=seg.sigma_curve,
+                P0=seg.P0,
+                side=seg.side,
+                R_track=radius,
+                sigma_roll=seg.sigma_roll,
+            )
+        elif seg.kind == "line" and seg.P0 is not None and seg.P1 is not None:
+            x0, y0 = seg.P0
+            x1, y1 = seg.P1
+            seg_length = math.hypot(x1 - x0, y1 - y0)
+            seg_teeth = seg_length / pitch_mm_per_tooth
+            new_seg = TrackSegment(
+                kind="line",
+                s_start=s_cursor,
+                s_end=s_cursor + seg_length,
+                sign=seg.sign,
+                P0=seg.P0,
+                P1=seg.P1,
+                side=seg.side,
+                R_track=seg.R_track,
+                sigma_roll=seg.sigma_roll,
+            )
+        else:
+            new_seg = seg
+
+        remapped.append(new_seg)
+        s_cursor += seg_length
+        total_teeth += seg_teeth
+
+    return remapped, s_cursor, total_teeth
 
 
 # ---------------------------------------------------------------------------
@@ -829,6 +931,14 @@ def _generate_track_roll_bundle(
     if steps <= 1:
         steps = 2
 
+    segments_for_relation, track_length_rel, track_teeth_rel = _parameterize_segments_for_relation(
+        track,
+        relation,
+        inner_teeth,
+        outer_teeth,
+        pitch_mm_per_tooth,
+    )
+
     context = _build_roll_context(
         track,
         relation=relation,
@@ -836,9 +946,11 @@ def _generate_track_roll_bundle(
         inner_teeth=inner_teeth,
         outer_teeth=outer_teeth,
         pitch_mm_per_tooth=pitch_mm_per_tooth,
+        track_length_override=track_length_rel,
+        track_teeth_override=track_teeth_rel,
     )
 
-    if not track.segments or context.track_length <= 0:
+    if not segments_for_relation or context.track_length <= 0:
         return TrackRollBundle(
             stylo=[],
             centre=[],
@@ -869,7 +981,7 @@ def _generate_track_roll_bundle(
 
     for i in range(steps):
         s = s_max * i / (steps - 1)
-        C, theta, N_vec = _interpolate_on_segments(s % L, track.segments)
+        C, theta, N_vec = _interpolate_on_segments(s % L, segments_for_relation)
         x_track, y_track = C
         nx, ny = N_vec
 
