@@ -50,6 +50,22 @@ from typing import List, Tuple, Optional
 Point = Tuple[float, float]
 
 
+@dataclass
+class TrackRollContext:
+    """Contexte de roulement partagé entre les générateurs de points."""
+
+    orientation_sign: float
+    sign_side: float
+    half_width: float
+    r_wheel: float
+    N_track: int
+    N_wheel: int
+    track_length: float
+    s_max: float
+    track_offset_teeth: float
+    pitch_mm_per_tooth: float
+
+
 # ---------------------------------------------------------------------------
 # 1) Définitions de base
 # ---------------------------------------------------------------------------
@@ -244,6 +260,31 @@ def _normalize(vx: float, vy: float) -> Point:
     if n == 0:
         return 0.0, 0.0
     return vx / n, vy / n
+
+
+def _track_orientation_sign(track: TrackBuildResult) -> float:
+    """Retourne +1 pour une piste CCW, -1 pour CW (0 => +1 par défaut)."""
+
+    def _turn_sum_rad(segments: List[TrackSegment]) -> float:
+        turn = 0.0
+        for seg in segments:
+            if seg.kind == "arc":
+                turn += seg.phi_end - seg.phi_start
+        return turn
+
+    turn_rad = _turn_sum_rad(track.segments)
+    turn_deg = math.degrees(turn_rad)
+    if abs(turn_deg) >= 300.0:
+        return 1.0 if turn_deg > 0.0 else -1.0
+
+    pts = track.points or []
+    if len(pts) < 3:
+        return 1.0
+    area = 0.0
+    for i, (x0, y0) in enumerate(pts):
+        x1, y1 = pts[(i + 1) % len(pts)]
+        area += x0 * y1 - x1 * y0
+    return 1.0 if area >= 0.0 else -1.0
 
 
 def _build_segments_from_parsed(
@@ -538,6 +579,59 @@ def _build_segments_from_parsed(
     )
 
 
+def _build_roll_context(
+    track: TrackBuildResult,
+    *,
+    relation: str,
+    wheel_teeth: int,
+    inner_teeth: int,
+    outer_teeth: int,
+    pitch_mm_per_tooth: float,
+) -> TrackRollContext:
+    """Prépare les paramètres partagés pour le roulement sans glissement."""
+
+    relation = relation.lower()
+
+    r_in = (inner_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
+    r_out = (outer_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
+    dR = r_out - r_in
+    half_width = abs(dR) * 0.5 if abs(dR) > 0.0 else max(pitch_mm_per_tooth, 1.0)
+
+    r_wheel = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
+
+    if track.total_teeth > 0:
+        N_track = max(1, int(round(track.total_teeth)))
+    else:
+        N_track = max(1, int(wheel_teeth))
+
+    N_wheel = max(1, int(wheel_teeth))
+    g = math.gcd(N_track, N_wheel)
+    if g <= 0:
+        g = 1
+    nb_laps = N_wheel // g if N_wheel >= g else 1
+    if nb_laps < 1:
+        nb_laps = 1
+
+    orientation_sign = _track_orientation_sign(track)
+    sign_side = orientation_sign if relation == "dedans" else -orientation_sign
+
+    L = track.total_length
+    s_max = L * float(nb_laps)
+
+    return TrackRollContext(
+        orientation_sign=orientation_sign,
+        sign_side=sign_side,
+        half_width=half_width,
+        r_wheel=r_wheel,
+        N_track=N_track,
+        N_wheel=N_wheel,
+        track_length=L,
+        s_max=s_max,
+        track_offset_teeth=float(track.offset_teeth or 0.0),
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+    )
+
+
 def build_track_from_notation(
     notation: str,
     inner_teeth: int = 96,
@@ -705,6 +799,110 @@ def _interpolate_on_segments(
     return (0.0, 0.0), 0.0, (0.0, 1.0)
 
 
+@dataclass
+class TrackRollBundle:
+    stylo: List[Point]
+    centre: List[Point]
+    contact: List[Point]
+    marker0: List[Point]
+    wheel_teeth_indices: List[int]
+    track_teeth_indices: List[int]
+    context: TrackRollContext
+
+
+def _generate_track_roll_bundle(
+    *,
+    track: TrackBuildResult,
+    notation: str,
+    wheel_teeth: int,
+    hole_index: float,
+    hole_spacing_mm: float,
+    steps: int,
+    relation: str = "dedans",
+    wheel_phase_teeth: float = 0.0,
+    inner_teeth: int = 96,
+    outer_teeth: int = 144,
+    pitch_mm_per_tooth: float = 0.65,
+) -> TrackRollBundle:
+    """Calcule tous les points nécessaires à l'animation (stylo, centre...)."""
+
+    if steps <= 1:
+        steps = 2
+
+    context = _build_roll_context(
+        track,
+        relation=relation,
+        wheel_teeth=wheel_teeth,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+    )
+
+    if not track.segments or context.track_length <= 0:
+        return TrackRollBundle(
+            stylo=[],
+            centre=[],
+            contact=[],
+            marker0=[],
+            wheel_teeth_indices=[],
+            track_teeth_indices=[],
+            context=context,
+        )
+
+    r_wheel = context.r_wheel
+    d = max(0.0, r_wheel - hole_index * hole_spacing_mm)
+
+    N_w = context.N_wheel
+    N_track = context.N_track
+    roll_sign = -context.sign_side
+    L = context.track_length
+    s_max = context.s_max
+    track_offset_teeth = context.track_offset_teeth
+    pitch = context.pitch_mm_per_tooth
+
+    stylo_points: List[Point] = []
+    wheel_centers: List[Point] = []
+    contacts: List[Point] = []
+    marker0: List[Point] = []
+    wheel_teeth_indices: List[int] = []
+    track_teeth_indices: List[int] = []
+
+    for i in range(steps):
+        s = s_max * i / (steps - 1)
+        C, theta, N_vec = _interpolate_on_segments(s % L, track.segments)
+        x_track, y_track = C
+        nx, ny = N_vec
+
+        contact_x = x_track + context.sign_side * nx * context.half_width
+        contact_y = y_track + context.sign_side * ny * context.half_width
+
+        cx = contact_x + context.sign_side * nx * r_wheel
+        cy = contact_y + context.sign_side * ny * r_wheel
+
+        wheel_centers.append((cx, cy))
+        contacts.append((contact_x, contact_y))
+
+        teeth_rolled = (s / pitch) - float(wheel_phase_teeth) + track_offset_teeth
+        angle_contact = math.atan2(contact_y - cy, contact_x - cx)
+        phi = angle_contact + roll_sign * 2.0 * math.pi * (teeth_rolled / float(N_w))
+
+        stylo_points.append((cx + d * math.cos(phi), cy + d * math.sin(phi)))
+        marker0.append((cx + r_wheel * math.cos(angle_contact), cy + r_wheel * math.sin(angle_contact)))
+
+        wheel_teeth_indices.append(int(math.floor((teeth_rolled % N_w + N_w) % N_w)))
+        track_teeth_indices.append(int(math.floor(((s / pitch) + track_offset_teeth) % N_track)))
+
+    return TrackRollBundle(
+        stylo=stylo_points,
+        centre=wheel_centers,
+        contact=contacts,
+        marker0=marker0,
+        wheel_teeth_indices=wheel_teeth_indices,
+        track_teeth_indices=track_teeth_indices,
+        context=context,
+    )
+
+
 def generate_track_base_points(
     notation: str,
     wheel_teeth: int,
@@ -736,146 +934,31 @@ def generate_track_base_points(
       - "dedans" : roue à l'intérieur de la piste
       - "dehors" : roue à l'extérieur
     """
-    if steps <= 1:
-        steps = 2
-
-    relation = relation.lower()
-
-    # Construire la piste géométrique
     track = build_track_from_notation(
         notation,
         inner_teeth=inner_teeth,
         outer_teeth=outer_teeth,
         pitch_mm_per_tooth=pitch_mm_per_tooth,
     )
-    segments = track.segments
-    if not segments:
-        return []
-
-    def _track_orientation_sign(pts: List[Point]) -> float:
-        """Retourne +1 pour une piste CCW, -1 pour CW (0 => +1 par défaut).
-
-        Priorité à la somme signée des angles tournés (≈360° attendu sur une
-        piste fermée) pour suivre la règle de l'utilisateur : une somme -360°
-        doit inverser la relation dedans/dehors. En cas de somme trop faible
-        ou de piste ouverte, on retombe sur l'aire signée de la polyligne.
-        """
-
-        def _turn_sum_rad(segments: List[TrackSegment]) -> float:
-            turn = 0.0
-            for seg in segments:
-                if seg.kind == "arc":
-                    # phi_end inclut déjà le signe sigma_curve ; accumuler directement
-                    turn += seg.phi_end - seg.phi_start
-            return turn
-
-        # 1) Somme des angles tournés : on considère la piste "fermée" si
-        # l'accumulation approche +/- 360°, même si les extrémités ne coïncident
-        # pas exactement après recentrage.
-        turn_rad = _turn_sum_rad(segments)
-        turn_deg = math.degrees(turn_rad)
-        if abs(turn_deg) >= 300.0:
-            return 1.0 if turn_deg > 0.0 else -1.0
-
-        # 2) Aire signée comme fallback
-        if len(pts) < 3:
-            return 1.0
-        area = 0.0
-        for i, (x0, y0) in enumerate(pts):
-            x1, y1 = pts[(i + 1) % len(pts)]
-            area += x0 * y1 - x1 * y0
-        return 1.0 if area >= 0.0 else -1.0
-
-    # Rayons de l'anneau de référence
-    r_in = (inner_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
-    r_out = (outer_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
-    dR = r_out - r_in
-    half_width = abs(dR) * 0.5 if abs(dR) > 0.0 else max(pitch_mm_per_tooth, 1.0)
-
-    # Rayon de la roue mobile
-    r_wheel = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
-
-    # Distance du stylo au centre de la roue :
-    #  - piste intérieure/extérieur -> on utilise le rayon de la roue comme base
-    R_tip = r_wheel
-    d = R_tip - hole_index * hole_spacing_mm
-    if d < 0.0:
-        d = 0.0
-
-    # Longueur totale de la piste (sur la médiane)
-    L = track.total_length
-    if L <= 0:
-        return []
-
-    # Nombre "équivalent" de dents pour la piste
-    if track.total_teeth > 0:
-        N_track = max(1, int(round(track.total_teeth)))
-    else:
-        N_track = wheel_teeth
-
-    N_w = max(1, int(wheel_teeth))
-    g = math.gcd(N_track, N_w)
-    if g <= 0:
-        g = 1
-    nb_laps = N_w // g if N_w >= g else 1
-    if nb_laps < 1:
-        nb_laps = 1
-
-    s_max = L * float(nb_laps)
-
-    base_points: List[Point] = []
+    bundle = _generate_track_roll_bundle(
+        track=track,
+        notation=notation,
+        wheel_teeth=wheel_teeth,
+        hole_index=hole_index,
+        hole_spacing_mm=hole_spacing_mm,
+        steps=steps,
+        relation=relation,
+        wheel_phase_teeth=wheel_phase_teeth,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+    )
 
     mode = output_mode.lower()
-    if mode not in {"stylo", "contact", "centre"}:
-        raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
-
-    orientation_sign = _track_orientation_sign(track.points)
-    # relation dedans/dehors dépend du sens (CW/CCW) de la piste :
-    # - piste CCW  : normale à gauche = intérieur
-    # - piste CW   : normale à gauche = extérieur
-    relation_effective = relation
-    sign_side = orientation_sign if relation_effective == "dedans" else -orientation_sign
-
-    # Sens de rotation de la roue : pour roulement sans glissement,
-    # V + ω × r = 0 au point de contact, soit ω = -(v/R) * sign_side
-    # (v > 0 suit la tangente). On prend donc le signe opposé au côté
-    # utilisé pour que la phase du trou suive toujours la rotation réelle.
-    roll_sign = -sign_side
-    track_offset_teeth = float(track.offset_teeth or 0.0)
-
-    for i in range(steps):
-        s = s_max * i / (steps - 1)
-        C, theta, N_vec = _interpolate_on_segments(s % L, segments)
-        x_track, y_track = C
-        nx, ny = N_vec
-
-        # point de contact sur le bord utilisé
-        contact_x = x_track + sign_side * nx * half_width
-        contact_y = y_track + sign_side * ny * half_width
-
-        # centre de la roue
-        cx = contact_x + sign_side * nx * r_wheel
-        cy = contact_y + sign_side * ny * r_wheel
-
-        if mode == "centre":
-            base_points.append((cx, cy))
-            continue
-
-        # approximation : la longueur parcourue sur la piste en "dents" vaut
-        # s / pitch_mm_per_tooth, avec un décalage initial optionnel.
-        teeth_rolled = (s / pitch_mm_per_tooth) - float(wheel_phase_teeth) + track_offset_teeth
-
-        # Phase de la roue (sens horaire Spirograph)
-        angle_contact = math.atan2(contact_y - cy, contact_x - cx)
-        phi = angle_contact + roll_sign * 2.0 * math.pi * (teeth_rolled / float(N_w))
-
-        if mode == "contact":
-            base_points.append((contact_x, contact_y))
-            continue
-
-        px = cx + d * math.cos(phi)
-        py = cy + d * math.sin(phi)
-
-        base_points.append((px, py))
-
-    return base_points
+    if mode == "stylo":
+        return bundle.stylo
+    if mode == "centre":
+        return bundle.centre
+    if mode == "contact":
+        return bundle.contact
+    raise ValueError("output_mode doit être 'stylo', 'contact' ou 'centre'")
