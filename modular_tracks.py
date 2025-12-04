@@ -233,7 +233,18 @@ def build_segments_for_parsed_track(
 
         r_center = r_center_base
         L_arc = abs(r_center * angle)
-        teeth_here = L_arc / pitch_mm_per_tooth
+
+        # Nombre "équivalent" de dents d'après la règle décrite en en-tête :
+        #   concave (+)  : inner_teeth * angle / 360
+        #   convexe (-)  : outer_teeth * angle / 360
+        if side > 0:
+            teeth_here = inner_teeth * angle_deg / 360.0
+        else:
+            teeth_here = outer_teeth * angle_deg / 360.0
+
+        # Si aucun paramètre d'anneau n'est fourni, on revient à la longueur géométrique
+        if teeth_here == 0:
+            teeth_here = L_arc / pitch_mm_per_tooth
 
         # côté concave/convexe : signe +/-
         # + => concave (côté "intérieur")

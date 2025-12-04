@@ -323,6 +323,9 @@ TRANSLATIONS = {
         "mod_editor_info_error": "Erreur : {error}",
         "mod_editor_info_empty": "Notation valide, mais piste vide.",
         "mod_editor_info_ok": "Longueur ~ {length:.1f} mm, équivalent ~ {teeth:.1f} dents",
+        "mod_editor_summary_inner": "Piste intérieure : {length:.1f} mm (~{teeth:.1f} dents)",
+        "mod_editor_summary_mid": "Piste médiane : {length:.1f} mm (~{teeth:.1f} dents)",
+        "mod_editor_summary_outer": "Piste extérieure : {length:.1f} mm (~{teeth:.1f} dents)",
 
         "dlg_close": "Fermer",
         "track_test_title": "Test du tracé modulaire",
@@ -442,6 +445,9 @@ TRANSLATIONS = {
         "mod_editor_info_error": "Error: {error}",
         "mod_editor_info_empty": "Notation is valid, but track is empty.",
         "mod_editor_info_ok": "Length ~ {length:.1f} mm, equivalent ~ {teeth:.1f} teeth",
+        "mod_editor_summary_inner": "Inner track: {length:.1f} mm (~{teeth:.1f} teeth)",
+        "mod_editor_summary_mid": "Center track: {length:.1f} mm (~{teeth:.1f} teeth)",
+        "mod_editor_summary_outer": "Outer track: {length:.1f} mm (~{teeth:.1f} teeth)",
 
         "dlg_close": "Close",
         "track_test_title": "Modular track test",
@@ -628,7 +634,7 @@ def generate_trochoid_points_for_layer_path(
         inner_teeth = g0.teeth if g0.teeth > 0 else 1
         outer_teeth = g0.outer_teeth if g0.outer_teeth > 0 else inner_teeth
 
-        base_points = modular_tracks.generate_track_base_points(
+        _, bundle = modular_tracks.build_track_and_bundle_from_notation(
             notation=g0.modular_notation,
             wheel_teeth=T1,
             hole_index=hole_index,
@@ -641,7 +647,7 @@ def generate_trochoid_points_for_layer_path(
             pitch_mm_per_tooth=pitch_mm_per_tooth,
         )
 
-        return base_points
+        return bundle.stylo
 
     # --- Cas 2 : comportement standard (anneau / roue ... ) ---
 
@@ -1417,23 +1423,37 @@ def layers_to_svg(
                 and getattr(layer.gears[0], "modular_notation", "")
             ):
                 g0 = layer.gears[0]
+                relation = "dedans"
+                wheel_teeth_rel = 1
+                if len(layer.gears) > 1:
+                    g1_tmp = layer.gears[1]
+                    relation = getattr(g1_tmp, "relation", "dedans") or "dedans"
+                    wheel_teeth_rel = max(
+                        1, contact_teeth_for_relation(g1_tmp, relation)
+                    )
+
                 inner_teeth = max(1, int(g0.teeth))
                 outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
                 outer_teeth = max(outer_teeth, inner_teeth)
 
-                track = modular_tracks.build_track_from_notation(
-                    g0.modular_notation,
+                track, bundle = modular_tracks.build_track_and_bundle_from_notation(
+                    notation=g0.modular_notation,
+                    wheel_teeth=wheel_teeth_rel,
+                    hole_index=0.0,
+                    hole_spacing_mm=hole_spacing_mm,
+                    steps=2,
+                    relation=relation,
+                    wheel_phase_teeth=0.0,
                     inner_teeth=inner_teeth,
                     outer_teeth=outer_teeth,
                     pitch_mm_per_tooth=pitch_mm_per_tooth,
-                    steps_per_tooth=3,
                 )
-                if track.points:
-                    layer_track_points = track.points
-                    r_inner = (pitch_mm_per_tooth * float(inner_teeth)) / (2.0 * math.pi)
-                    r_outer = (pitch_mm_per_tooth * float(outer_teeth)) / (2.0 * math.pi)
-                    width_mm = max(r_outer - r_inner, pitch_mm_per_tooth)
-                    layer_track_width_mm = width_mm * layer_zoom
+                if track.segments:
+                    centerline, _, _, half_w = modular_tracks.compute_track_polylines(
+                        track, half_width=bundle.context.half_width
+                    )
+                    layer_track_points = centerline
+                    layer_track_width_mm = (half_w * 2.0) * layer_zoom
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
                 layer,
@@ -2855,12 +2875,22 @@ class ModularTrackEditorDialog(QDialog):
             return
 
         self.track_view.set_track(track, inner_teeth, outer_teeth, pitch)
-        self.info_label.setText(
-            tr(self.lang, "mod_editor_info_ok").format(
-                length=track.total_length,
-                teeth=track.total_teeth,
-            )
+        inner_len, mid_len, outer_len = modular_tracks.compute_track_lengths(
+            track, inner_teeth, outer_teeth, pitch
         )
+        pitch_safe = pitch if pitch > 0 else 1.0
+        summaries = [
+            tr(self.lang, "mod_editor_summary_inner").format(
+                length=inner_len, teeth=inner_len / pitch_safe
+            ),
+            tr(self.lang, "mod_editor_summary_mid").format(
+                length=mid_len, teeth=mid_len / pitch_safe
+            ),
+            tr(self.lang, "mod_editor_summary_outer").format(
+                length=outer_len, teeth=outer_len / pitch_safe
+            ),
+        ]
+        self.info_label.setText("\n".join(summaries))
 
 # ---------- 7) Fenêtre principale ----------
 

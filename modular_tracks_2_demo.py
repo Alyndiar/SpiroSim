@@ -15,7 +15,7 @@ Exécution rapide :
 
 import math
 import sys
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from PySide6.QtCore import QPointF, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
@@ -24,57 +24,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 import modular_tracks_2 as modular_tracks
 
 Point = Tuple[float, float]
-
-
-def _estimate_track_half_width(segments: List[modular_tracks.TrackSegment]) -> float:
-    """Estime la demi-largeur de piste à partir des segments connus."""
-
-    for seg in segments:
-        if seg.kind == "arc":
-            width = abs(seg.rM - seg.R_track) * 2.0
-        elif seg.kind == "line":
-            width = abs(seg.R_track) * 2.0
-        else:
-            continue
-        if width > 0:
-            return width * 0.5
-    return 5.0  # valeur de repli (mm)
-
-
-def _compute_track_polylines(
-    track: modular_tracks.TrackBuildResult,
-    samples: int = 400,
-    *,
-    half_width: Optional[float] = None,
-) -> Tuple[List[Point], List[Point], List[Point], float]:
-    """Retourne (centre, côté intérieur, côté extérieur, demi-largeur)."""
-
-    segments = track.segments
-    effective_half_width = half_width if (half_width and half_width > 0.0) else None
-    if effective_half_width is None:
-        effective_half_width = _estimate_track_half_width(segments)
-
-    L = track.total_length
-    centerline: List[Point] = track.points if track.points else []
-
-    if not centerline:
-        for i in range(samples + 1):
-            s = (L * i) / float(max(samples, 1))
-            C, _, _ = modular_tracks._interpolate_on_segments(s, segments)
-            centerline.append(C)
-
-    inner: List[Point] = []
-    outer: List[Point] = []
-
-    for i in range(samples + 1):
-        s = (L * i) / float(max(samples, 1))
-        C, _, N = modular_tracks._interpolate_on_segments(s, segments)
-        x, y = C
-        nx, ny = N
-        inner.append((x - nx * effective_half_width, y - ny * effective_half_width))
-        outer.append((x + nx * effective_half_width, y + ny * effective_half_width))
-
-    return centerline, inner, outer, effective_half_width
 
 
 def _compute_animation_sequences(
@@ -93,17 +42,20 @@ def _compute_animation_sequences(
     List[Point],
     List[Point],
     List[Point],
+    List[Point],
     float,
+    float,
+    List[Tuple[Point, Point]],
+    int,
+    int,
+    List[int],
+    List[int],
     float,
 ]:
     """
-    Prépare la piste et les positions (stylo, centre de roue, contact).
-
-    Retourne (track, stylo_points, wheel_centers, contact_points, half_width, r_wheel).
+    Prépare la piste, les positions (stylo, centre, contact) et les métadonnées
+    de dents pour l'affichage animé.
     """
-
-    if steps <= 1:
-        steps = 2
 
     track = modular_tracks.build_track_from_notation(
         notation,
@@ -111,81 +63,63 @@ def _compute_animation_sequences(
         outer_teeth=outer_teeth,
         pitch_mm_per_tooth=pitch_mm_per_tooth,
     )
-    segments = track.segments
-    if not segments:
-        return track, [], [], [], 0.0, 0.0
+    if not track.segments:
+        return track, [], [], [], [], 0.0, 0.0, [], 0, 0, [], [], 0.0
 
-    width_mm = (
-        (float(outer_teeth) - float(inner_teeth))
-        * pitch_mm_per_tooth
-        / (2.0 * math.pi)
-        if outer_teeth and inner_teeth and outer_teeth > inner_teeth
-        else 0.0
+    bundle = modular_tracks._generate_track_roll_bundle(
+        track=track,
+        notation=notation,
+        wheel_teeth=wheel_teeth,
+        hole_index=hole_index,
+        hole_spacing_mm=hole_spacing_mm,
+        steps=steps,
+        relation=relation,
+        wheel_phase_teeth=wheel_phase_teeth,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
     )
-    half_width = width_mm * 0.5 if width_mm > 0.0 else _estimate_track_half_width(segments)
-    track_offset_teeth = float(track.offset_teeth or 0.0)
 
-    centerline, _, _, half_width = _compute_track_polylines(
-        track, half_width=half_width
+    centerline, _, _, half_width = modular_tracks.compute_track_polylines(
+        track, half_width=bundle.context.half_width
     )
 
-    # Rayon de la roue et distance du trou par rapport au centre
-    r_wheel = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
-    d = r_wheel - hole_index * hole_spacing_mm
-    if d < 0.0:
-        d = 0.0
-
-    # Longueur parcourue totale
-    L = track.total_length
-    if L <= 0:
-        return track, [], [], [], half_width, r_wheel
-
-    if track.total_teeth > 0:
-        N_track = max(1, int(round(track.total_teeth)))
-    else:
-        N_track = wheel_teeth
-    N_w = max(1, int(wheel_teeth))
-    g = math.gcd(N_track, N_w)
-    if g <= 0:
-        g = 1
-    nb_laps = N_w // g if N_w >= g else 1
-    if nb_laps < 1:
-        nb_laps = 1
-    s_max = L * float(nb_laps)
-
-    stylo_points: List[Point] = []
-    wheel_centers: List[Point] = []
-    contact_points: List[Point] = []
-
-    sign_side = -1.0 if relation == "dedans" else 1.0
-
-    for i in range(steps):
-        s = s_max * i / float(steps - 1)
-        C, _, N_vec = modular_tracks._interpolate_on_segments(s % L, segments)
-        x_track, y_track = C
+    track_teeth_markers: List[Tuple[Point, Point]] = []
+    tooth_len = max(bundle.context.pitch_mm_per_tooth * 0.35, 0.8)
+    L = bundle.context.track_length
+    for t_idx in range(bundle.context.N_track):
+        s = (bundle.context.pitch_mm_per_tooth * t_idx) % max(L, 1e-9)
+        C, _, N_vec = modular_tracks._interpolate_on_segments(s, track.segments)
         nx, ny = N_vec
+        x_edge = C[0] + bundle.context.sign_side * nx * bundle.context.half_width
+        y_edge = C[1] + bundle.context.sign_side * ny * bundle.context.half_width
+        track_teeth_markers.append(
+            (
+                (x_edge, y_edge),
+                (
+                    x_edge + bundle.context.sign_side * nx * tooth_len,
+                    y_edge + bundle.context.sign_side * ny * tooth_len,
+                ),
+            )
+        )
 
-        contact_offset = sign_side * half_width
-        contact_x = x_track + contact_offset * nx
-        contact_y = y_track + contact_offset * ny
-        contact_points.append((contact_x, contact_y))
-
-        center_offset = contact_offset + sign_side * r_wheel
-        cx = x_track + center_offset * nx
-        cy = y_track + center_offset * ny
-        wheel_centers.append((cx, cy))
-
-        angle_contact = math.atan2(contact_y - cy, contact_x - cx)
-        teeth_rolled = (s / pitch_mm_per_tooth) - float(wheel_phase_teeth) + track_offset_teeth
-        phi = angle_contact + 2.0 * math.pi * (teeth_rolled / float(N_w))
-        px = cx + d * math.cos(phi)
-        py = cy + d * math.sin(phi)
-        stylo_points.append((px, py))
-
-    # Remplacer track.points par la médiane recalculée pour l'affichage
     track.points = centerline
 
-    return track, stylo_points, wheel_centers, contact_points, half_width, r_wheel
+    return (
+        track,
+        bundle.stylo,
+        bundle.centre,
+        bundle.contact,
+        bundle.marker0,
+        half_width,
+        bundle.context.r_wheel,
+        track_teeth_markers,
+        bundle.context.N_wheel,
+        bundle.context.N_track,
+        bundle.wheel_teeth_indices,
+        bundle.track_teeth_indices,
+        -bundle.context.sign_side,
+    )
 
 
 class ModularTrackDemo(QWidget):
@@ -225,10 +159,17 @@ class ModularTrackDemo(QWidget):
         self.stylo_points: List[Point] = []
         self.wheel_centers: List[Point] = []
         self.contact_points: List[Point] = []
+        self.markers_angle0: List[Point] = []
         self.inner_side: List[Point] = []
         self.outer_side: List[Point] = []
+        self.track_teeth_markers: List[Tuple[Point, Point]] = []
         self.half_width = 0.0
         self.r_wheel = 0.0
+        self.wheel_teeth_count = 0
+        self.track_teeth_count = 0
+        self.wheel_tooth_indices: List[int] = []
+        self.track_tooth_indices: List[int] = []
+        self.roll_sign = 0.0
         self.current_step = 0
 
         self.set_configuration(
@@ -263,13 +204,20 @@ class ModularTrackDemo(QWidget):
         pitch_mm_per_tooth: float,
         scale: float = 1.0,
     ):
-        (
+        ( 
             track,
             stylo_points,
             wheel_centers,
             contact_points,
+            markers_angle0,
             half_width,
             r_wheel,
+            track_teeth_markers,
+            wheel_teeth_count,
+            track_teeth_count,
+            wheel_tooth_indices,
+            track_tooth_indices,
+            roll_sign,
         ) = _compute_animation_sequences(
             notation,
             wheel_teeth=wheel_teeth,
@@ -289,10 +237,17 @@ class ModularTrackDemo(QWidget):
             self.stylo_points = []
             self.wheel_centers = []
             self.contact_points = []
+            self.markers_angle0 = []
             self.inner_side = []
             self.outer_side = []
+            self.track_teeth_markers = []
             self.half_width = 0.0
             self.r_wheel = 0.0
+            self.wheel_teeth_count = 0
+            self.track_teeth_count = 0
+            self.wheel_tooth_indices = []
+            self.track_tooth_indices = []
+            self.roll_sign = 0.0
             self.current_step = 0
             self._progress = 0.0
             self._full_path = False
@@ -310,13 +265,24 @@ class ModularTrackDemo(QWidget):
         self.stylo_points = _scale_pts(stylo_points)
         self.wheel_centers = _scale_pts(wheel_centers)
         self.contact_points = _scale_pts(contact_points)
+        self.markers_angle0 = _scale_pts(markers_angle0)
+        self.track_teeth_markers = [
+            (_scale_pts([a])[0], _scale_pts([b])[0]) for (a, b) in track_teeth_markers
+        ]
         self.half_width = half_width * scale
         self.r_wheel = r_wheel * scale
+        self.wheel_teeth_count = wheel_teeth_count
+        self.track_teeth_count = track_teeth_count
+        self.wheel_tooth_indices = wheel_tooth_indices
+        self.track_tooth_indices = track_tooth_indices
+        self.roll_sign = roll_sign
         self.current_step = 0
         self._progress = 0.0
         self._full_path = False
 
-        centerline, inner, outer, _ = _compute_track_polylines(track)
+        centerline, inner, outer, _ = modular_tracks.compute_track_polylines(
+            track, half_width=half_width
+        )
         self.track.points = _scale_pts(centerline)
         self.inner_side = _scale_pts(inner)
         self.outer_side = _scale_pts(outer)
@@ -367,6 +333,10 @@ class ModularTrackDemo(QWidget):
         all_points.extend(self.stylo_points)
         all_points.extend(self.wheel_centers)
         all_points.extend(self.contact_points)
+        all_points.extend(self.markers_angle0)
+        for a, b in self.track_teeth_markers:
+            all_points.append(a)
+            all_points.append(b)
         if not all_points:
             self._scale = 1.0
             self._offset = (0.0, 0.0)
@@ -426,6 +396,13 @@ class ModularTrackDemo(QWidget):
         self._draw_polyline(painter, self.inner_side)
         self._draw_polyline(painter, self.outer_side)
 
+        painter.setPen(QPen(QColor("#444"), 0))
+        for a, b in self.track_teeth_markers:
+            painter.drawLine(
+                QPointF(a[0] + self._offset[0], a[1] + self._offset[1]),
+                QPointF(b[0] + self._offset[0], b[1] + self._offset[1]),
+            )
+
         # Indicateur de départ (point de contact à s=0)
         if self.contact_points:
             start = self.contact_points[0]
@@ -444,6 +421,11 @@ class ModularTrackDemo(QWidget):
         wheel_center = self.wheel_centers[idx]
         contact = self.contact_points[idx]
         hole = self.stylo_points[idx]
+        marker0 = self.markers_angle0[idx]
+
+        wheel_idx = self.wheel_tooth_indices[idx] if idx < len(self.wheel_tooth_indices) else 0
+        track_idx = self.track_tooth_indices[idx] if idx < len(self.track_tooth_indices) else 0
+        angle_contact = math.atan2(contact[1] - wheel_center[1], contact[0] - wheel_center[0])
 
         # Roue
         painter.setPen(QPen(QColor("#1f77b4"), 0))
@@ -453,6 +435,34 @@ class ModularTrackDemo(QWidget):
             self.r_wheel,
         )
 
+        if self.wheel_teeth_count > 0:
+            tooth_len = max(self.r_wheel * 0.12, 0.8)
+            for k in range(self.wheel_teeth_count):
+                angle = angle_contact + self.roll_sign * 2.0 * math.pi * (
+                    (k - wheel_idx) / float(self.wheel_teeth_count)
+                )
+                cos_a, sin_a = math.cos(angle), math.sin(angle)
+                inner_r = self.r_wheel
+                outer_r = self.r_wheel + tooth_len
+                painter.drawLine(
+                    QPointF(
+                        wheel_center[0] + self._offset[0] + inner_r * cos_a,
+                        wheel_center[1] + self._offset[1] + inner_r * sin_a,
+                    ),
+                    QPointF(
+                        wheel_center[0] + self._offset[0] + outer_r * cos_a,
+                        wheel_center[1] + self._offset[1] + outer_r * sin_a,
+                    ),
+                )
+
+        # Marqueur d'angle 0 sur le bord de la roue (permet de suivre la rotation).
+        painter.setPen(QPen(QColor("#000000"), 0))
+        painter.drawEllipse(
+            QPointF(marker0[0] + self._offset[0], marker0[1] + self._offset[1]),
+            1.2,
+            1.2,
+        )
+
         # Point de contact
         painter.setPen(QPen(QColor("#ff9900"), 0))
         painter.drawEllipse(QPointF(contact[0] + self._offset[0], contact[1] + self._offset[1]), 1.3, 1.3)
@@ -460,6 +470,22 @@ class ModularTrackDemo(QWidget):
         # Trou / stylo courant
         painter.setPen(QPen(QColor("#e62739"), 0))
         painter.drawEllipse(QPointF(hole[0] + self._offset[0], hole[1] + self._offset[1]), 1.5, 1.5)
+
+        painter.resetTransform()
+        bg_color = self.palette().color(self.backgroundRole())
+        avg_rgb = (bg_color.red() + bg_color.green() + bg_color.blue()) / 3.0
+        text_color = QColor("#000000" if avg_rgb > 128 else "#ffffff")
+        painter.setPen(QPen(text_color))
+        painter.drawText(
+            10,
+            20,
+            f"Contact dents: roue {wheel_idx}/{max(1, self.wheel_teeth_count)} - piste {track_idx}/{max(1, self.track_teeth_count)}",
+        )
+        painter.drawText(
+            10,
+            40,
+            f"Dents roue: {self.wheel_teeth_count} | Dents piste: {self.track_teeth_count}",
+        )
 
         painter.end()
 
