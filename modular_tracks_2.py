@@ -263,13 +263,7 @@ def _normalize(vx: float, vy: float) -> Point:
 
 
 def _track_orientation_sign(track: TrackBuildResult) -> float:
-    """Retourne +1 pour une piste CCW, -1 pour CW (0 => +1 par défaut).
-
-    L'angle total accumulé peut être négatif pour une piste parcourue
-    anti-horaire (tournant "vers la droite" selon la convention des pièces
-    concaves). On inverse donc le signe du cumul pour que la valeur retournée
-    soit positive sur ces pistes et négative sur les pistes réellement CW.
-    """
+    """Retourne +1 pour une piste CCW, -1 pour CW (0 => +1 par défaut)."""
 
     def _turn_sum_rad(segments: List[TrackSegment]) -> float:
         turn = 0.0
@@ -281,7 +275,7 @@ def _track_orientation_sign(track: TrackBuildResult) -> float:
     turn_rad = _turn_sum_rad(track.segments)
     turn_deg = math.degrees(turn_rad)
     if abs(turn_deg) >= 300.0:
-        return -1.0 if turn_deg > 0.0 else 1.0
+        return 1.0 if turn_deg > 0.0 else -1.0
 
     pts = track.points or []
     if len(pts) < 3:
@@ -290,9 +284,7 @@ def _track_orientation_sign(track: TrackBuildResult) -> float:
     for i, (x0, y0) in enumerate(pts):
         x1, y1 = pts[(i + 1) % len(pts)]
         area += x0 * y1 - x1 * y0
-    # Le signe de l'aire est inversé pour conserver la même convention que
-    # ci-dessus (aire négative -> parcours anti-horaire -> +1).
-    return -1.0 if area >= 0.0 else 1.0
+    return 1.0 if area >= 0.0 else -1.0
 
 
 def _build_segments_from_parsed(
