@@ -1071,6 +1071,45 @@ def _generate_track_roll_bundle(
     )
 
 
+def build_track_and_bundle_from_notation(
+    *,
+    notation: str,
+    wheel_teeth: int,
+    hole_index: float,
+    hole_spacing_mm: float,
+    steps: int,
+    relation: str = "dedans",
+    wheel_phase_teeth: float = 0.0,
+    inner_teeth: int = 96,
+    outer_teeth: int = 144,
+    pitch_mm_per_tooth: float = 0.65,
+) -> Tuple[TrackBuildResult, TrackRollBundle]:
+    """Construit la piste et le bundle de roulage associé en une seule étape."""
+
+    track = build_track_from_notation(
+        notation,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+    )
+
+    bundle = _generate_track_roll_bundle(
+        track=track,
+        notation=notation,
+        wheel_teeth=wheel_teeth,
+        hole_index=hole_index,
+        hole_spacing_mm=hole_spacing_mm,
+        steps=steps,
+        relation=relation,
+        wheel_phase_teeth=wheel_phase_teeth,
+        inner_teeth=inner_teeth,
+        outer_teeth=outer_teeth,
+        pitch_mm_per_tooth=pitch_mm_per_tooth,
+    )
+
+    return track, bundle
+
+
 def generate_track_base_points(
     notation: str,
     wheel_teeth: int,
@@ -1102,14 +1141,7 @@ def generate_track_base_points(
       - "dedans" : roue à l'intérieur de la piste
       - "dehors" : roue à l'extérieur
     """
-    track = build_track_from_notation(
-        notation,
-        inner_teeth=inner_teeth,
-        outer_teeth=outer_teeth,
-        pitch_mm_per_tooth=pitch_mm_per_tooth,
-    )
-    bundle = _generate_track_roll_bundle(
-        track=track,
+    _, bundle = build_track_and_bundle_from_notation(
         notation=notation,
         wheel_teeth=wheel_teeth,
         hole_index=hole_index,

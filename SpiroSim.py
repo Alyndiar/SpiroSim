@@ -634,7 +634,7 @@ def generate_trochoid_points_for_layer_path(
         inner_teeth = g0.teeth if g0.teeth > 0 else 1
         outer_teeth = g0.outer_teeth if g0.outer_teeth > 0 else inner_teeth
 
-        base_points = modular_tracks.generate_track_base_points(
+        _, bundle = modular_tracks.build_track_and_bundle_from_notation(
             notation=g0.modular_notation,
             wheel_teeth=T1,
             hole_index=hole_index,
@@ -647,7 +647,7 @@ def generate_trochoid_points_for_layer_path(
             pitch_mm_per_tooth=pitch_mm_per_tooth,
         )
 
-        return base_points
+        return bundle.stylo
 
     # --- Cas 2 : comportement standard (anneau / roue ... ) ---
 
@@ -1436,35 +1436,21 @@ def layers_to_svg(
                 outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
                 outer_teeth = max(outer_teeth, inner_teeth)
 
-                track = modular_tracks.build_track_from_notation(
-                    g0.modular_notation,
+                track, bundle = modular_tracks.build_track_and_bundle_from_notation(
+                    notation=g0.modular_notation,
+                    wheel_teeth=wheel_teeth_rel,
+                    hole_index=0.0,
+                    hole_spacing_mm=hole_spacing_mm,
+                    steps=2,
+                    relation=relation,
+                    wheel_phase_teeth=0.0,
                     inner_teeth=inner_teeth,
                     outer_teeth=outer_teeth,
                     pitch_mm_per_tooth=pitch_mm_per_tooth,
-                    steps_per_tooth=3,
                 )
                 if track.segments:
-                    _, track_len_rel, track_teeth_rel = modular_tracks._parameterize_segments_for_relation(
-                        track,
-                        relation,
-                        inner_teeth,
-                        outer_teeth,
-                        pitch_mm_per_tooth,
-                    )
-
-                    ctx = modular_tracks._build_roll_context(
-                        track,
-                        relation=relation,
-                        wheel_teeth=wheel_teeth_rel,
-                        inner_teeth=inner_teeth,
-                        outer_teeth=outer_teeth,
-                        pitch_mm_per_tooth=pitch_mm_per_tooth,
-                        track_length_override=track_len_rel,
-                        track_teeth_override=track_teeth_rel,
-                    )
-
                     centerline, _, _, half_w = modular_tracks.compute_track_polylines(
-                        track, half_width=ctx.half_width
+                        track, half_width=bundle.context.half_width
                     )
                     layer_track_points = centerline
                     layer_track_width_mm = (half_w * 2.0) * layer_zoom
