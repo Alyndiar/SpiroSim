@@ -589,7 +589,6 @@ def _build_roll_context(
     pitch_mm_per_tooth: float,
     track_length_override: Optional[float] = None,
     track_teeth_override: Optional[float] = None,
-    orientation_sign_override: Optional[float] = None,
 ) -> TrackRollContext:
     """Prépare les paramètres partagés pour le roulement sans glissement."""
 
@@ -619,11 +618,7 @@ def _build_roll_context(
     if nb_laps < 1:
         nb_laps = 1
 
-    orientation_sign = (
-        orientation_sign_override
-        if orientation_sign_override is not None
-        else _track_orientation_sign(track)
-    )
+    orientation_sign = _track_orientation_sign(track)
     sign_side = orientation_sign if relation == "dedans" else -orientation_sign
 
     L = track_length_override if track_length_override is not None else track.total_length
@@ -992,19 +987,9 @@ def _generate_track_roll_bundle(
     if steps <= 1:
         steps = 2
 
-    rel_norm = relation.strip().lower()
-    orientation_sign = _track_orientation_sign(track)
-    effective_relation = rel_norm
-    if orientation_sign < 0.0:
-        effective_relation = "dehors" if rel_norm == "dedans" else "dedans"
-
-    (
-        segments_for_relation,
-        track_length_rel,
-        track_teeth_rel,
-    ) = _parameterize_segments_for_relation(
+    segments_for_relation, track_length_rel, track_teeth_rel = _parameterize_segments_for_relation(
         track,
-        effective_relation,
+        relation,
         inner_teeth,
         outer_teeth,
         pitch_mm_per_tooth,
@@ -1012,14 +997,13 @@ def _generate_track_roll_bundle(
 
     context = _build_roll_context(
         track,
-        relation=effective_relation,
+        relation=relation,
         wheel_teeth=wheel_teeth,
         inner_teeth=inner_teeth,
         outer_teeth=outer_teeth,
         pitch_mm_per_tooth=pitch_mm_per_tooth,
         track_length_override=track_length_rel,
         track_teeth_override=track_teeth_rel,
-        orientation_sign_override=orientation_sign,
     )
 
     if not segments_for_relation or context.track_length <= 0:
