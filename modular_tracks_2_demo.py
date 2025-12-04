@@ -280,7 +280,9 @@ class ModularTrackDemo(QWidget):
         self._progress = 0.0
         self._full_path = False
 
-        centerline, inner, outer, _ = _compute_track_polylines(track)
+        centerline, inner, outer, _ = modular_tracks.compute_track_polylines(
+            track, half_width=half_width
+        )
         self.track.points = _scale_pts(centerline)
         self.inner_side = _scale_pts(inner)
         self.outer_side = _scale_pts(outer)
