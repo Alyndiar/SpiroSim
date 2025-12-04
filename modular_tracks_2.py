@@ -1002,45 +1002,25 @@ def _generate_track_roll_bundle(
 
     rel_norm = relation.strip().lower()
     orientation_sign = _track_orientation_sign(track)
+    effective_relation = rel_norm
+    if orientation_sign < 0.0:
+        effective_relation = "dehors" if rel_norm == "dedans" else "dedans"
 
-    # On prépare les deux variantes (piste intérieure / extérieure) puis on
-    # sélectionne celle qui respecte la consigne :
-    #   * relation "dedans"  -> le chemin avec le **plus petit** nombre de dents
-    #   * relation "dehors"  -> le chemin avec le **plus grand** nombre de dents
-    segments_ded, length_ded, teeth_ded = _parameterize_segments_for_relation(
+    (
+        segments_for_relation,
+        track_length_rel,
+        track_teeth_rel,
+    ) = _parameterize_segments_for_relation(
         track,
-        "dedans",
+        effective_relation,
         inner_teeth,
         outer_teeth,
         pitch_mm_per_tooth,
     )
-    segments_deh, length_deh, teeth_deh = _parameterize_segments_for_relation(
-        track,
-        "dehors",
-        inner_teeth,
-        outer_teeth,
-        pitch_mm_per_tooth,
-    )
-
-    choose_inner = teeth_ded <= teeth_deh if rel_norm == "dedans" else teeth_ded > teeth_deh
-    relation_effective = "dedans" if choose_inner else "dehors"
-
-    if choose_inner:
-        segments_for_relation, track_length_rel, track_teeth_rel = (
-            segments_ded,
-            length_ded,
-            teeth_ded,
-        )
-    else:
-        segments_for_relation, track_length_rel, track_teeth_rel = (
-            segments_deh,
-            length_deh,
-            teeth_deh,
-        )
 
     context = _build_roll_context(
         track,
-        relation=relation_effective,
+        relation=effective_relation,
         wheel_teeth=wheel_teeth,
         inner_teeth=inner_teeth,
         outer_teeth=outer_teeth,
