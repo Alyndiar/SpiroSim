@@ -37,8 +37,8 @@ Hypothèses :
 Limitations actuelles :
   - Les pièces Y (jonction triple), Z (terminateur) et l'opérateur '*'
     (saut de branche) sont encore parsés mais **pas** implémentés
-    géométriquement : un NotImplementedError sera levé si on les
-    rencontre lors de la construction de la piste.
+    géométriquement. Ils sont simplement ignorés lors de la construction
+    de la piste pour éviter de bloquer les notations existantes.
 """
 
 from __future__ import annotations

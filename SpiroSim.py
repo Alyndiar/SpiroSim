@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 
 import modular_tracks_2 as modular_tracks
 import modular_tracks_2_demo as modular_track_demo
+import drawing
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -48,6 +49,7 @@ from PySide6.QtGui import (
     QFont,
     QPixmap,
     QPen,   # <-- AJOUT ICI
+    QBrush,
 )
 from PySide6.QtCore import (
     QByteArray, 
@@ -239,6 +241,8 @@ TRANSLATIONS = {
         "dlg_layers_add_layer": "Ajouter une couche",
         "dlg_layers_add_path": "Ajouter un tracé",
         "dlg_layers_edit": "Éditer",
+        "dlg_layers_toggle_activate": "Activer",
+        "dlg_layers_toggle_deactivate": "Désactiver",
         "dlg_layers_move_up": "↑ Monter",
         "dlg_layers_move_down": "↓ Descendre",
         "dlg_layers_test_track": "Test du tracé",
@@ -247,6 +251,9 @@ TRANSLATIONS = {
         "dlg_layers_cancel": "Annuler",
         "dlg_layers_must_keep_layer_title": "Impossible",
         "dlg_layers_must_keep_layer_text": "Il doit rester au moins une couche.",
+        "dlg_layers_must_keep_active_layer_text": "Il doit rester au moins une couche active.",
+        "dlg_layers_must_keep_active_path_text": "Chaque couche doit conserver au moins un tracé actif.",
+        "dlg_layers_must_keep_path_text": "Chaque couche doit contenir au moins un tracé.",
         "dlg_layers_remove_last_path_title": "Supprimer le dernier tracé ?",
         "dlg_layers_remove_last_path_text": "Cette couche n'aura plus aucun tracé. Continuer ?",
         "dlg_layers_need_layer_title": "Aucune couche",
@@ -361,6 +368,8 @@ TRANSLATIONS = {
         "dlg_layers_add_layer": "Add layer",
         "dlg_layers_add_path": "Add path",
         "dlg_layers_edit": "Edit",
+        "dlg_layers_toggle_activate": "Activate",
+        "dlg_layers_toggle_deactivate": "Deactivate",
         "dlg_layers_move_up": "↑ Move up",
         "dlg_layers_move_down": "↓ Move down",
         "dlg_layers_test_track": "Test path",
@@ -369,6 +378,9 @@ TRANSLATIONS = {
         "dlg_layers_cancel": "Cancel",
         "dlg_layers_must_keep_layer_title": "Impossible",
         "dlg_layers_must_keep_layer_text": "At least one layer must remain.",
+        "dlg_layers_must_keep_active_layer_text": "At least one layer must remain active.",
+        "dlg_layers_must_keep_active_path_text": "Each layer must keep at least one active path.",
+        "dlg_layers_must_keep_path_text": "Each layer must contain at least one path.",
         "dlg_layers_remove_last_path_title": "Remove last path?",
         "dlg_layers_remove_last_path_text": "This layer will have no paths left. Continue?",
         "dlg_layers_need_layer_title": "No layer",
@@ -499,11 +511,13 @@ class PathConfig:
     color_norm: Optional[str] = None  # valeur normalisée (#rrggbb) pour le dessin
     stroke_width: float = 1.2
     zoom: float = 1.0
+    active: bool = True
 
 
 @dataclass
 class LayerConfig:
     name: str = "Couche"
+    active: bool = True
     visible: bool = True
     zoom: float = 1.0                         # zoom de la couche
     gears: List[GearConfig] = field(default_factory=list)  # 2 ou 3 engrenages
@@ -1410,7 +1424,7 @@ def layers_to_svg(
     render_tracks = []
 
     for layer in layers:
-        if not layer.visible:
+        if not layer.visible or not getattr(layer, "active", True):
             continue
         layer_zoom = getattr(layer, "zoom", 1.0)
 
@@ -1455,6 +1469,8 @@ def layers_to_svg(
                     layer_track_points = centerline
                     layer_track_width_mm = (half_w * 2.0) * layer_zoom
         for path in layer.paths:
+            if not getattr(path, "active", True):
+                continue
             pts = generate_trochoid_points_for_layer_path(
                 layer,
                 path,
@@ -1526,7 +1542,7 @@ def layers_to_svg(
     tracks_out = []
 
     for layer in layers:
-        if not layer.visible:
+        if not layer.visible or not getattr(layer, "active", True):
             continue
         layer_paths = [rp for rp in rendered_paths if rp[0] == layer.name]
         layer_tracks = [rt for rt in render_tracks if rt["layer_name"] == layer.name]
@@ -2154,6 +2170,7 @@ class LayerManagerDialog(QDialog):
         self.btn_add_layer = QPushButton(tr(self.lang, "dlg_layers_add_layer"))
         self.btn_add_path = QPushButton(tr(self.lang, "dlg_layers_add_path"))
         self.btn_edit = QPushButton(tr(self.lang, "dlg_layers_edit"))
+        self.btn_toggle_active = QPushButton()
         self.btn_move_up = QPushButton(tr(self.lang, "dlg_layers_move_up"))
         self.btn_move_down = QPushButton(tr(self.lang, "dlg_layers_move_down"))
         self.btn_test_track = QPushButton(tr(self.lang, "dlg_layers_test_track"))
@@ -2161,6 +2178,7 @@ class LayerManagerDialog(QDialog):
         btn_layout.addWidget(self.btn_add_layer)
         btn_layout.addWidget(self.btn_add_path)
         btn_layout.addWidget(self.btn_edit)
+        btn_layout.addWidget(self.btn_toggle_active)
         btn_layout.addWidget(self.btn_move_up)
         btn_layout.addWidget(self.btn_move_down)
         btn_layout.addWidget(self.btn_test_track)
@@ -2177,6 +2195,7 @@ class LayerManagerDialog(QDialog):
         self.btn_add_layer.clicked.connect(self.on_add_layer)
         self.btn_add_path.clicked.connect(self.on_add_path)
         self.btn_edit.clicked.connect(self.on_edit)
+        self.btn_toggle_active.clicked.connect(self.on_toggle_active)
         self.btn_move_up.clicked.connect(self.on_move_up)
         self.btn_move_down.clicked.connect(self.on_move_down)
         self.btn_test_track.clicked.connect(self.on_test_track)
@@ -2233,10 +2252,34 @@ class LayerManagerDialog(QDialog):
     def _update_test_button_state(self):
         obj, kind = self.get_selected_object()
         enabled = False
-        if kind == "path":
+        if kind == "path" and getattr(obj, "active", True):
             layer = self.find_parent_layer(obj)
-            enabled = self._layer_allows_test(layer)
+            enabled = bool(layer and getattr(layer, "active", True))
+            enabled = enabled and self._layer_allows_test(layer)
         self.btn_test_track.setEnabled(enabled)
+
+    def _update_toggle_button_state(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            self.btn_toggle_active.setEnabled(False)
+            self.btn_toggle_active.setText(tr(self.lang, "dlg_layers_toggle_activate"))
+            return
+        is_active = getattr(obj, "active", True)
+        key = "dlg_layers_toggle_deactivate" if is_active else "dlg_layers_toggle_activate"
+        self.btn_toggle_active.setText(tr(self.lang, key))
+        self.btn_toggle_active.setEnabled(True)
+
+    def _count_active_layers(self) -> int:
+        return sum(1 for layer in self.layers if getattr(layer, "active", True))
+
+    def _count_active_paths(self, layer: LayerConfig) -> int:
+        return sum(1 for path in layer.paths if getattr(path, "active", True))
+
+    def _apply_item_color(self, item: QTreeWidgetItem, active: bool):
+        color = QColor("#50FF50" if active else "#FF5050")
+        brush = QBrush(color)
+        for col in range(item.columnCount()):
+            item.setForeground(col, brush)
 
     def _update_move_buttons_state(self):
         obj, kind = self.get_selected_object()
@@ -2266,6 +2309,7 @@ class LayerManagerDialog(QDialog):
                 [layer.name, tr(self.lang, "tree_type_layer"), self._layer_summary(layer)]
             )
             layer_item.setData(0, Qt.UserRole, layer)
+            self._apply_item_color(layer_item, getattr(layer, "active", True))
             self.tree.addTopLevelItem(layer_item)
 
             if li == self.selected_layer_idx and self.selected_path_idx is None:
@@ -2276,6 +2320,7 @@ class LayerManagerDialog(QDialog):
                     [path.name, tr(self.lang, "tree_type_path"), self._path_summary(path)]
                 )
                 path_item.setData(0, Qt.UserRole, path)
+                self._apply_item_color(path_item, getattr(path, "active", True))
                 layer_item.addChild(path_item)
 
                 if (
@@ -2298,6 +2343,7 @@ class LayerManagerDialog(QDialog):
             self.tree.setCurrentItem(current_item_to_select)
         self._update_test_button_state()
         self._update_move_buttons_state()
+        self._update_toggle_button_state()
 
     def get_selected_object(self):
         item = self.tree.currentItem()
@@ -2327,6 +2373,8 @@ class LayerManagerDialog(QDialog):
             self.btn_test_track.setEnabled(False)
             self.btn_move_up.setEnabled(False)
             self.btn_move_down.setEnabled(False)
+            self.btn_toggle_active.setEnabled(False)
+            self.btn_toggle_active.setText(tr(self.lang, "dlg_layers_toggle_activate"))
             return
 
         obj = current.data(0, Qt.UserRole)
@@ -2347,6 +2395,40 @@ class LayerManagerDialog(QDialog):
             self.selected_path_idx = pi
         self._update_test_button_state()
         self._update_move_buttons_state()
+        self._update_toggle_button_state()
+
+    def on_toggle_active(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+        if kind == "layer":
+            if getattr(obj, "active", True):
+                if self._count_active_layers() <= 1:
+                    QMessageBox.warning(
+                        self,
+                        tr(self.lang, "dlg_layers_must_keep_layer_title"),
+                        tr(self.lang, "dlg_layers_must_keep_active_layer_text"),
+                    )
+                    return
+                obj.active = False
+            else:
+                obj.active = True
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                return
+            if getattr(obj, "active", True):
+                if self._count_active_paths(layer) <= 1:
+                    QMessageBox.warning(
+                        self,
+                        tr(self.lang, "dlg_layers_must_keep_layer_title"),
+                        tr(self.lang, "dlg_layers_must_keep_active_path_text"),
+                    )
+                    return
+                obj.active = False
+            else:
+                obj.active = True
+        self.refresh_tree()
 
     def on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
         self.on_edit()
@@ -2518,14 +2600,12 @@ class LayerManagerDialog(QDialog):
                 li = self.layers.index(layer)
                 pi = layer.paths.index(obj)
                 if len(layer.paths) == 1:
-                    ret = QMessageBox.question(
+                    QMessageBox.warning(
                         self,
-                        tr(self.lang, "dlg_layers_remove_last_path_title"),
-                        tr(self.lang, "dlg_layers_remove_last_path_text"),
-                        QMessageBox.Yes | QMessageBox.No,
+                        tr(self.lang, "dlg_layers_must_keep_layer_title"),
+                        tr(self.lang, "dlg_layers_must_keep_path_text"),
                     )
-                    if ret != QMessageBox.Yes:
-                        return
+                    return
                 del layer.paths[pi]
                 if layer.paths:
                     pi = min(pi, len(layer.paths) - 1)
@@ -2559,6 +2639,10 @@ class ModularTrackView(QWidget):
         self.total_length = 0.0
         self.segments = []
         self.last_tangent = 0.0  # angle de la tangente au dernier point (rad)
+        self.inner_side: List[Tuple[float, float]] = []
+        self.outer_side: List[Tuple[float, float]] = []
+        self.half_width = 0.0
+        self.track_teeth_markers: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
 
     def sizeHint(self):
         return QSize(500, 500)
@@ -2569,6 +2653,10 @@ class ModularTrackView(QWidget):
         self.have_track = False
         self.total_length = 0.0
         self.last_tangent = 0.0
+        self.inner_side = []
+        self.outer_side = []
+        self.half_width = 0.0
+        self.track_teeth_markers = []
         self.update()
 
     def set_track(
@@ -2584,24 +2672,33 @@ class ModularTrackView(QWidget):
         self.inner_teeth = max(1, inner_teeth)
         self.outer_teeth = max(self.inner_teeth + 1, outer_teeth)
         self.pitch_mm = pitch_mm
+        centerline, inner, outer, half_w = modular_tracks.compute_track_polylines(
+            track, half_width=None
+        )
+        self.points = centerline
+        self.inner_side = inner
+        self.outer_side = outer
+        self.half_width = half_w
         self.have_track = len(self.points) > 1 and self.total_length > 0.0
         if self.have_track and self.segments:
             _, theta, _ = modular_tracks._interpolate_on_segments(
                 self.total_length, self.segments
             )
             self.last_tangent = theta
+            self.track_teeth_markers = drawing.build_track_teeth_markers_from_segments(
+                self.segments,
+                pitch_mm=self.pitch_mm,
+                half_width=self.half_width,
+                total_length=self.total_length,
+                sign_side=1.0,
+            )
         else:
             self.last_tangent = 0.0
+            self.track_teeth_markers = []
         self.update()
 
     def _compute_scale(self, w: int, h: int) -> float:
-        if not self.points:
-            return 1.0
-        max_x = max(abs(x) for x, _ in self.points) or 1.0
-        max_y = max(abs(y) for _, y in self.points) or 1.0
-        sx = (w * 0.45) / max_x
-        sy = (h * 0.45) / max_y
-        return min(sx, sy)
+        return drawing.compute_view_scale(self.points, w, h)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -2624,69 +2721,16 @@ class ModularTrackView(QWidget):
         painter.translate(w / 2.0, h / 2.0)
         painter.scale(scale, -scale)
 
-        # Largeur réelle de la piste (en mm)
-        inner_r = (self.pitch_mm * float(self.inner_teeth)) / (2.0 * math.pi)
-        outer_r = (self.pitch_mm * float(self.outer_teeth)) / (2.0 * math.pi)
-        width_mm = max(outer_r - inner_r, self.pitch_mm)
-        half_w = width_mm / 2.0
+        width_mm = max(self.half_width * 2.0, self.pitch_mm)
 
-        # 1) polyline centrale
-        pen_center = QPen(QColor("#606060"))
-        pen_center.setWidthF(0)  # ligne "cosmétique"
-        painter.setPen(pen_center)
+        drawing.draw_track(
+            painter,
+            centerline=self.points,
+            inner=self.inner_side,
+            outer=self.outer_side,
+        )
 
-        for i in range(len(self.points) - 1):
-            x0, y0 = self.points[i]
-            x1, y1 = self.points[i + 1]
-            painter.drawLine(QPointF(x0, y0), QPointF(x1, y1))
-
-        # 2) bords de la piste (inner/outer approximatifs)
-        pen_border = QPen(QColor("#808080"))
-        pen_border.setWidthF(0)
-        painter.setPen(pen_border)
-
-        for i in range(len(self.points) - 1):
-            x0, y0 = self.points[i]
-            x1, y1 = self.points[i + 1]
-            dx = x1 - x0
-            dy = y1 - y0
-            seg_len = math.hypot(dx, dy) or 1.0
-            nx = -dy / seg_len
-            ny = dx / seg_len
-
-            ix0 = x0 - nx * half_w
-            iy0 = y0 - ny * half_w
-            ix1 = x1 - nx * half_w
-            iy1 = y1 - ny * half_w
-
-            ox0 = x0 + nx * half_w
-            oy0 = y0 + ny * half_w
-            ox1 = x1 + nx * half_w
-            oy1 = y1 + ny * half_w
-
-            painter.drawLine(QPointF(ix0, iy0), QPointF(ix1, iy1))
-            painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
-
-        # 3) dents (petits ticks côté "outer")
-        L = self.total_length if self.have_track else 0.0
-        if L > 0.0 and self.segments and self.pitch_mm > 0:
-            pen_teeth = QPen(QColor("#404040"))
-            pen_teeth.setWidthF(0)
-            painter.setPen(pen_teeth)
-            tooth_len = width_mm * 0.4
-            num_teeth = max(1, int(L / self.pitch_mm))
-            for k in range(num_teeth):
-                s = (k + 0.5) * self.pitch_mm
-                (x, y), theta, _ = modular_tracks._interpolate_on_segments(
-                    s % L, self.segments
-                )
-                nx = -math.sin(theta)
-                ny = math.cos(theta)
-                bx = x + nx * half_w
-                by = y + ny * half_w
-                tx = bx + nx * tooth_len
-                ty = by + ny * tooth_len
-                painter.drawLine(QPointF(bx, by), QPointF(tx, ty))
+        drawing.draw_teeth_markers(painter, self.track_teeth_markers, color="#404040")
 
         # 4) Ligne rouge perpendiculaire à la tangente de fin
         if len(self.points) >= 2:
@@ -3544,6 +3588,7 @@ class SpiroWindow(QWidget):
         for layer in self.layers:
             data_layer = {
                 "name": layer.name,
+                "active": getattr(layer, "active", True),
                 "visible": layer.visible,
                 "zoom": getattr(layer, "zoom", 1.0),
                 "gears": [],
@@ -3567,6 +3612,7 @@ class SpiroWindow(QWidget):
                     "color_norm": getattr(p, "color_norm", None),  # peut être None
                     "stroke_width": p.stroke_width,
                     "zoom": getattr(p, "zoom", 1.0),
+                    "active": getattr(p, "active", True),
                 })
             data_layers.append(data_layer)
         return data_layers
@@ -3603,11 +3649,13 @@ class SpiroWindow(QWidget):
                         color_norm=color_norm,
                         stroke_width=float(pd.get("stroke_width", 1.0)),
                         zoom=float(pd.get("zoom", 1.0)),
+                        active=bool(pd.get("active", True)),
                     )
                 )
             layers.append(
                 LayerConfig(
                     name=ld.get("name", "Couche"),
+                    active=bool(ld.get("active", True)),
                     visible=bool(ld.get("visible", True)),
                     zoom=float(ld.get("zoom", 1.0)),
                     gears=gears,
