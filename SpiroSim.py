@@ -69,22 +69,14 @@ PITCH_MM_PER_TOOTH = 0.65
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
     """
-    Analyse 'mollement' une notation de piste modulaire, en ignorant les espaces
-    et en convertissant tout en MAJUSCULES.
+    Analyse "mollement" une notation de piste modulaire (nouvelle syntaxe).
 
     Retourne (valid, rest, has_piece) où :
-      - valid : partie comprise (offset + suites de +A, -C, * ...)
+      - valid : partie comprise (offsets + suites de +a, -d, * ...)
       - rest  : le reste (non compris ou incomplet)
-      - has_piece : True s'il y a au moins une pièce (+A, -B, etc.)
-
-    Exemples :
-      "-18"    -> ("-18", "", False)   # seulement offset, pas de pièce
-      "-18-C"  -> ("-18-C", "", True)
-      "-19-C+D"-> ("-19-C+D", "", True)
-      "-19- X" -> ("-19", "-X", False)
+      - has_piece : True s'il y a au moins une pièce (a, d, b, y)
     """
-    # 1) on supprime les espaces et on force les MAJUSCULES
-    s = "".join(ch.upper() for ch in text if not ch.isspace())
+    s = "".join(ch.lower() for ch in text if not ch.isspace())
     n = len(s)
     idx = 0
     has_piece = False
@@ -92,31 +84,50 @@ def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
     if n == 0:
         return "", "", False
 
-    # 2) offset signé optionnel : (+/-)?digits*
-    if idx < n and s[idx] in "+-":
-        idx += 1
-    start_digits = idx
-    while idx < n and s[idx].isdigit():
-        idx += 1
-    # on ne force pas la présence de chiffres : "-C" est autorisé syntaxiquement
-    # mais dans ce cas offset == 0 et les pièces commencent directement après.
+    def _consume_number(pos: int) -> int:
+        start = pos
+        while pos < n and (s[pos].isdigit() or s[pos] == "."):
+            pos += 1
+        return pos if pos > start else start
 
-    # 3) suite de "*", "+X" ou "-X"
+    # opérateur initial optionnel
+    if idx < n and s[idx] in "+-*":
+        idx += 1
+
     while idx < n:
-        ch = s[idx]
-        if ch == "*":
+        if s[idx] in "+-*":
+            op = s[idx]
             idx += 1
-            continue
-        if ch in "+-":
-            if idx + 1 < n and s[idx + 1] in modular_tracks.PIECES:
-                has_piece = True
-                idx += 2
+            if op == "*":
                 continue
-            else:
-                # signe suivi de quelque chose de non reconnu -> on s'arrête
+        else:
+            op = "+"
+
+        if idx >= n:
+            break
+
+        if s[idx].isdigit():
+            next_idx = _consume_number(idx)
+            if next_idx == idx:
                 break
-        # caractère inattendu -> on s'arrête ici
-        break
+            idx = next_idx
+            continue
+
+        letter = s[idx]
+        if letter not in modular_tracks.PIECES:
+            break
+        idx += 1
+
+        if letter in {"a", "d", "n", "o"}:
+            next_idx = _consume_number(idx)
+            if next_idx == idx:
+                break
+            idx = next_idx
+        elif letter in {"b", "y"}:
+            pass
+
+        if letter in {"a", "d", "b", "y"}:
+            has_piece = True
 
     valid = s[:idx]
     rest = s[idx:]
@@ -596,7 +607,7 @@ def generate_trochoid_points_for_layer_path(
     piste virtuelle SuperSpirograph, définie par :
       - g0.teeth        => dents intérieures de l’anneau de base
       - g0.outer_teeth  => dents extérieures de l’anneau de base
-      - g0.modular_notation => notation de pièce (ex: "-18-C+D+B-...")
+      - g0.modular_notation => notation de pièce (ex: "+a60+d144-b*d72")
     Dans ce cas, on délègue à modular_tracks.generate_track_base_points.
     """
 

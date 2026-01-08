@@ -122,7 +122,7 @@ class ModularTrackDemo(QWidget):
         parent=None,
         *,
         auto_start: bool = True,
-        notation: str = "-18-C+D+B-C+D+",
+        notation: str = "+a60+d144+a60+d144",
         wheel_teeth: int = 84,
         hole_index: float = 9.5,
         hole_spacing: float = 1.0,

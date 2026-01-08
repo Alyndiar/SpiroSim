@@ -174,6 +174,8 @@ class TrackRollContext:
 # ---------------------------------------------------------------------------
 
 _VALID_PIECES = {"a", "d", "b", "y", "n", "o"}
+# Exposer pour compatibilité avec l'ancienne validation côté UI.
+PIECES = frozenset(_VALID_PIECES)
 
 
 def _parse_number(s: str, idx: int) -> Tuple[Optional[float], int]:
