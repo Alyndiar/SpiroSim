@@ -658,8 +658,8 @@ def _sample_segments(segments: List[TrackSegment], samples: int) -> Iterable[Poi
                 y = seg.start[1] + (seg.end[1] - seg.start[1]) * t
                 yield (x, y)
         elif seg.kind == "arc" and seg.center is not None and seg.radius is not None:
-            angle0 = seg.angle_start or 0.0
-            angle1 = seg.angle_end or angle0
+            angle0 = seg.angle_start if seg.angle_start is not None else 0.0
+            angle1 = seg.angle_end if seg.angle_end is not None else angle0
             for i in range(n_steps):
                 t = i / float(n_steps - 1)
                 a = angle0 + (angle1 - angle0) * t
@@ -698,8 +698,8 @@ def _interpolate_on_segments(s: float, segments: List[TrackSegment]) -> Tuple[Po
     if seg.kind == "arc" and seg.center is not None and seg.radius is not None:
         length = seg.s_end - seg.s_start
         t = 0.0 if length == 0 else local_s / length
-        angle_start = seg.angle_start or 0.0
-        angle_end = seg.angle_end or angle_start
+        angle_start = seg.angle_start if seg.angle_start is not None else 0.0
+        angle_end = seg.angle_end if seg.angle_end is not None else angle_start
         a = angle_start + (angle_end - angle_start) * t
         x = seg.center[0] + seg.radius * math.cos(a)
         y = seg.center[1] + seg.radius * math.sin(a)
@@ -744,8 +744,8 @@ def _make_side_segments(track: TrackBuildResult, side: str) -> List[TrackSegment
             s_cursor += length
         elif seg.kind == "arc" and seg.center is not None and seg.radius is not None:
             radius_side = seg.radius - seg.turn * side_sign * half_w
-            angle_start = seg.angle_start or 0.0
-            angle_end = seg.angle_end or angle_start
+            angle_start = seg.angle_start if seg.angle_start is not None else 0.0
+            angle_end = seg.angle_end if seg.angle_end is not None else angle_start
             length = abs(radius_side * (angle_end - angle_start))
             remapped.append(
                 TrackSegment(
@@ -770,12 +770,13 @@ def _make_side_segments(track: TrackBuildResult, side: str) -> List[TrackSegment
     for seg in remapped:
         if seg.kind == "arc" and seg.center is not None and seg.radius is not None:
             seg.start = (
-                seg.center[0] + seg.radius * math.cos(seg.angle_start or 0.0),
-                seg.center[1] + seg.radius * math.sin(seg.angle_start or 0.0),
+                seg.center[0] + seg.radius * math.cos(seg.angle_start if seg.angle_start is not None else 0.0),
+                seg.center[1] + seg.radius * math.sin(seg.angle_start if seg.angle_start is not None else 0.0),
             )
+            end_angle = seg.angle_end if seg.angle_end is not None else seg.angle_start
             seg.end = (
-                seg.center[0] + seg.radius * math.cos(seg.angle_end or seg.angle_start or 0.0),
-                seg.center[1] + seg.radius * math.sin(seg.angle_end or seg.angle_start or 0.0),
+                seg.center[0] + seg.radius * math.cos(end_angle if end_angle is not None else 0.0),
+                seg.center[1] + seg.radius * math.sin(end_angle if end_angle is not None else 0.0),
             )
     return remapped
 
