@@ -247,7 +247,8 @@ def parse_track_notation(text: str) -> ParsedTrack:
         letter = cleaned[idx]
         idx += 1
         if letter not in _VALID_PIECES:
-            raise ValueError(f"Pièce inconnue : {letter}")
+            # Tolérance : ignorer les pièces inconnues (anciennes notations)
+            continue
 
         value: Optional[float] = None
         if letter in {"a", "d", "n", "o"}:
