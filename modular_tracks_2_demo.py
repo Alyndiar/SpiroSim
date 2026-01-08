@@ -57,17 +57,7 @@ def _compute_animation_sequences(
     de dents pour l'affichage animé.
     """
 
-    track = modular_tracks.build_track_from_notation(
-        notation,
-        inner_teeth=inner_teeth,
-        outer_teeth=outer_teeth,
-        pitch_mm_per_tooth=pitch_mm_per_tooth,
-    )
-    if not track.segments:
-        return track, [], [], [], [], 0.0, 0.0, [], 0, 0, [], [], 0.0
-
-    bundle = modular_tracks._generate_track_roll_bundle(
-        track=track,
+    track, bundle = modular_tracks.build_track_and_bundle_from_notation(
         notation=notation,
         wheel_teeth=wheel_teeth,
         hole_index=hole_index,
@@ -79,9 +69,11 @@ def _compute_animation_sequences(
         outer_teeth=outer_teeth,
         pitch_mm_per_tooth=pitch_mm_per_tooth,
     )
+    if not track.segments:
+        return track, [], [], [], [], 0.0, 0.0, [], 0, 0, [], [], 0.0
 
     centerline, _, _, half_width = modular_tracks.compute_track_polylines(
-        track, half_width=bundle.context.half_width
+        track, half_width=track.half_width
     )
 
     track_teeth_markers: List[Tuple[Point, Point]] = []
@@ -91,8 +83,8 @@ def _compute_animation_sequences(
         s = (bundle.context.pitch_mm_per_tooth * t_idx) % max(L, 1e-9)
         C, _, N_vec = modular_tracks._interpolate_on_segments(s, track.segments)
         nx, ny = N_vec
-        x_edge = C[0] + bundle.context.sign_side * nx * bundle.context.half_width
-        y_edge = C[1] + bundle.context.sign_side * ny * bundle.context.half_width
+        x_edge = C[0] + bundle.context.sign_side * nx * track.half_width
+        y_edge = C[1] + bundle.context.sign_side * ny * track.half_width
         track_teeth_markers.append(
             (
                 (x_edge, y_edge),
@@ -130,7 +122,7 @@ class ModularTrackDemo(QWidget):
         parent=None,
         *,
         auto_start: bool = True,
-        notation: str = "-18-C+D+B-C+D+",
+        notation: str = "+a60+d144+a60+d144",
         wheel_teeth: int = 84,
         hole_index: float = 9.5,
         hole_spacing: float = 1.0,
@@ -154,7 +146,18 @@ class ModularTrackDemo(QWidget):
         self.timer.timeout.connect(self._on_tick)
 
         self.track = modular_tracks.TrackBuildResult(
-            points=[], total_length=0.0, total_teeth=0.0, offset_teeth=0, segments=[]
+            segments=[],
+            points=[],
+            width=0.0,
+            half_width=0.0,
+            left_teeth=0.0,
+            right_teeth=0.0,
+            inner_teeth=0.0,
+            outer_teeth=0.0,
+            inner_side="both",
+            origin_teeth_offset=0.0,
+            origin_angle_offset=0.0,
+            ring=modular_tracks.ReferenceRing(),
         )
         self.stylo_points: List[Point] = []
         self.wheel_centers: List[Point] = []
