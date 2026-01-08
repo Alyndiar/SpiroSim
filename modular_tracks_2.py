@@ -478,8 +478,8 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
             length_mm = (block.value or 0.0) * ring.pitch_mm_per_tooth
             seg, pose, len_left, len_right, s_cursor = _append_line(pose, length_mm, s_cursor)
             segments.append(seg)
-            left_teeth += block.value or 0.0
-            right_teeth += block.value or 0.0
+            left_teeth += len_left / ring.pitch_mm_per_tooth
+            right_teeth += len_right / ring.pitch_mm_per_tooth
             continue
 
         if block.kind == "a":
@@ -491,15 +491,9 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
                 s_cursor=s_cursor,
             )
             segments.append(seg)
-            # comptage des dents basé sur la position intérieure/extérieure
-            teeth_inner = ring.inner_teeth * ((block.value or 0.0) / 360.0)
-            teeth_outer = ring.outer_teeth * ((block.value or 0.0) / 360.0)
-            if turn_sign > 0:
-                left_teeth += teeth_inner
-                right_teeth += teeth_outer
-            else:
-                left_teeth += teeth_outer
-                right_teeth += teeth_inner
+            # comptage des dents basé sur la longueur réelle des côtés
+            left_teeth += len_left / ring.pitch_mm_per_tooth
+            right_teeth += len_right / ring.pitch_mm_per_tooth
             continue
 
         if block.kind == "b":
@@ -512,9 +506,8 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
                 radius_override=ring.half_width,
             )
             segments.append(seg)
-            teeth_here = (seg.s_end - seg.s_start) / ring.pitch_mm_per_tooth
-            left_teeth += teeth_here
-            right_teeth += teeth_here
+            left_teeth += len_left / ring.pitch_mm_per_tooth
+            right_teeth += len_right / ring.pitch_mm_per_tooth
             # Le bout ouvre implicitement une branche libre
             branch_queue.append(_BranchState(pose=_Pose(point=pose.point, tangent=pose.tangent, normal=pose.normal)))
             continue
@@ -533,8 +526,8 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
                 teeth_for_both_sides=ring.inner_teeth * (angle / 360.0),
             )
             segments.append(seg0)
-            left_teeth += ring.inner_teeth * (angle / 360.0)
-            right_teeth += ring.inner_teeth * (angle / 360.0)
+            left_teeth += len_left / ring.pitch_mm_per_tooth
+            right_teeth += len_right / ring.pitch_mm_per_tooth
 
             heading = math.atan2(pose.tangent[1], pose.tangent[0])
             alpha0 = heading - turn_sign * (math.pi / 2.0)
