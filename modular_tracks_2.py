@@ -203,6 +203,9 @@ def parse_track_notation(text: str) -> ParsedTrack:
         return None, pos
 
     default_turn = 1
+    origin_teeth_offset = 0.0
+    origin_angle_offset = 0.0
+
     op, idx = _consume_operator(idx)
     if op in {"+", "-"}:
         default_turn = 1 if op == "+" else -1
@@ -213,8 +216,13 @@ def parse_track_notation(text: str) -> ParsedTrack:
     else:
         pending_op = "+"
 
-    origin_teeth_offset = 0.0
-    origin_angle_offset = 0.0
+    # Compatibilité : ancien format avec un décalage initial numérique (-18-...)
+    if idx < n and cleaned[idx].isdigit():
+        implicit_op = pending_op or "+"
+        value, idx = _parse_number(cleaned, idx)
+        if value is not None:
+            delta = value if implicit_op == "+" else -value
+            origin_teeth_offset += delta
 
     while idx < n:
         op, idx = _consume_operator(idx)
@@ -226,6 +234,15 @@ def parse_track_notation(text: str) -> ParsedTrack:
             pending_op = op
         if idx >= n:
             break
+
+        # Compatibilité : nombre directement après un opérateur -> offset n
+        if cleaned[idx].isdigit():
+            value, idx = _parse_number(cleaned, idx)
+            if value is None:
+                break
+            delta = value if (pending_op or "+") == "+" else -value
+            origin_teeth_offset += delta
+            continue
 
         letter = cleaned[idx]
         idx += 1
