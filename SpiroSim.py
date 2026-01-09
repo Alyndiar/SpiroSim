@@ -1913,7 +1913,6 @@ class TrackTestDialog(QDialog):
         self,
         layer: LayerConfig,
         path: PathConfig,
-        *,
     ):
         if len(layer.gears) < 2:
             QMessageBox.information(
