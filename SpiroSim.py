@@ -1348,6 +1348,8 @@ def layers_to_svg(
                     )
                     layer_track_points = centerline
                     layer_track_width_mm = (half_w * 2.0) * layer_zoom
+        layer_paths = []
+        layer_trace_points = []
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
                 layer,
@@ -1359,22 +1361,40 @@ def layers_to_svg(
             path_zoom = getattr(path, "zoom", 1.0)
             zoom = layer_zoom * path_zoom
             pts_zoomed = [(x * zoom, y * zoom) for (x, y) in pts]
-            rendered_paths.append((layer.name, layer_zoom, path, pts_zoomed, path_zoom))
-            all_points.extend(pts_zoomed)
-            trace_points.extend(pts_zoomed)
+            layer_paths.append((path, pts_zoomed, path_zoom))
+            layer_trace_points.extend(pts_zoomed)
+
+        if layer_trace_points:
+            layer_cx = sum(p[0] for p in layer_trace_points) / len(layer_trace_points)
+            layer_cy = sum(p[1] for p in layer_trace_points) / len(layer_trace_points)
+        else:
+            layer_cx = 0.0
+            layer_cy = 0.0
+
+        if layer_paths:
+            for path_cfg, pts_zoomed, path_zoom in layer_paths:
+                shifted_points = [
+                    (x - layer_cx, y - layer_cy) for (x, y) in pts_zoomed
+                ]
+                rendered_paths.append(
+                    (layer.name, layer_zoom, path_cfg, shifted_points, path_zoom)
+                )
+                all_points.extend(shifted_points)
+                trace_points.extend(shifted_points)
 
         if show_tracks and layer_track_points:
             track_zoomed = [
                 (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
             ]
+            shifted_track = [(x - layer_cx, y - layer_cy) for (x, y) in track_zoomed]
             render_tracks.append(
                 {
                     "layer_name": layer.name,
-                    "points": track_zoomed,
+                    "points": shifted_track,
                     "stroke_width_mm": layer_track_width_mm,
                 }
             )
-            all_points.extend(track_zoomed)
+            all_points.extend(shifted_track)
 
     if not all_points:
         svg_empty = f'''<?xml version="1.0" standalone="no"?>
