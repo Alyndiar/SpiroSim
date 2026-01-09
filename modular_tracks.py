@@ -639,8 +639,8 @@ def generate_track_base_points(
       - "contact" : renvoie le point de contact (centre de la piste).
       - "centre" : renvoie la position du centre de la roue.
     phase_offset :
-      - décalage initial (en unités) de la roue par rapport au point 0 de la piste,
-        converti en tours par phase_offset / wheel_size.
+      - décalage initial (en unités le long de la piste),
+        converti en tours par phase_offset / track_size.
     relation :
       - "dedans" : la roue roule côté intérieur de la piste.
       - "dehors" : la roue roule côté extérieur.
@@ -737,7 +737,7 @@ def generate_track_base_points(
     key = (first_piece_sign or "-", relation_effective)
     phase_sign = phase_sign_table.get(key, 1.0)
 
-    phase_turns = float(phase_offset) / float(wt)
+    phase_turns = float(phase_offset) / float(max(1, N_track))
 
     for i in range(steps):
         s = s_max * i / (steps - 1)

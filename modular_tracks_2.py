@@ -892,7 +892,7 @@ def build_track_and_bundle_from_notation(
     wheel_indices: List[int] = []
     track_indices: List[int] = []
 
-    phase_turns = phase_offset / float(wheel_size)
+    phase_turns = phase_offset / float(track_size_side)
 
     for i in range(steps):
         s = s_max * i / (steps - 1)
