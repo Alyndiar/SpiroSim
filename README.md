@@ -2,7 +2,7 @@
 
 **English** | [Français](README.fr.md)
 
-A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, multiple traces per layers, "Super Spirograph"-inspired custom tracks. Configurable number of teeth per gear, tooth spacing, hole spacing, colors. Save/export designs to JSON, PNG and SVG.
+A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, multiple traces per layers, "Super Spirograph"-inspired custom tracks. Configurable gear sizes, path offsets, colors. Save/export designs to JSON, PNG and SVG.
 
 ## Installation
 
@@ -47,7 +47,6 @@ The main window renders the drawing and exposes the following menus and dialogs.
 
 ### Options menu
 
-- **Hole spacing / tooth pitch**: set the radial hole spacing and tooth pitch.
 - **Background color**: set the canvas background (CSS4 name or hex).
 - **Canvas size and precision**: set output width/height and points per path.
 - **Language**: switch the UI between French and English.
@@ -83,8 +82,8 @@ configure:
 - **Type**:
   - `ring`, `wheel`, `triangle`, `square`, `bar`, `cross`, `eye`
   - `modular` (modular track base, only allowed for Gear 1)
-- **Teeth (wheel / inner ring)**: tooth count for the wheel or inner ring.
-- **Outer teeth (ring)**: outer tooth count for ring-type gears.
+- **Size (wheel / inner ring)**: size for the wheel or inner ring.
+- **Outer size (ring)**: outer size for ring-type gears.
 - **Relation**:
   - `stationary`: only valid for Gear 1 (fixed in place).
   - `inside`: wheel rolls inside the ring (hypotrochoid).
@@ -97,8 +96,8 @@ configure:
 Each path defines how the pen is placed on the moving gear:
 
 - **Name**: label displayed in the manager and exports.
-- **Hole index**: radial hole index on the moving gear (distance from center).
-- **Phase offset (teeth)**: phase shift applied to the pen position.
+- **Hole offset**: radial hole offset on the moving gear (distance from center).
+- **Phase offset (turns)**: phase shift applied to the pen position.
 - **Color**: CSS4 name or `#RRGGBB` hex.
 - **Stroke width**: line width in the preview and exports.
 - **Path zoom**: scales only this path (multiplicative with layer zoom).
@@ -125,11 +124,11 @@ piece. A leading `*` jumps to the first open branch.
 ### Pieces
 
 - `aNN`: arc of `NN` degrees. The sign (`+`/`-`) determines left/right turn.
-- `dNN`: straight segment of `NN` teeth.
+- `dNN`: straight segment of `NN` units.
 - `b`: rounded end (half-circle) connecting the two sides of the track.
 - `y`: triangular junction composed of three 120° arcs spaced by the track
   width.
-- `nNN`: origin offset in teeth, applied in the direction of the current sign.
+- `nNN`: origin offset in units, applied in the direction of the current sign.
 - `oNN`: origin angular offset in degrees, applied with the same sign
   convention.
 
@@ -141,5 +140,5 @@ piece. A leading `*` jumps to the first open branch.
 +a90-d40+b*a90
 ```
 
-This builds a 90° left arc, a 40-tooth straight, a rounded end, then continues
+This builds a 90° left arc, a 40-unit straight, a rounded end, then continues
 on the next branch with another 90° left arc.

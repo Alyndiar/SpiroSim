@@ -62,10 +62,10 @@ from PySide6.QtCore import (
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
 
-# ----- Constante : pas par dent (approximation Spirograph) -----
-# On suppose que chaque dent sur le cercle de pas correspond à ~0,65 mm
-# de longueur d'arc. Le rayon (en mm) = (pas * dents) / (2π).
-PITCH_MM_PER_TOOTH = 0.65
+# ----- Constante : unités normalisées -----
+# Les tailles et distances sont désormais exprimées en unités abstraites,
+# sans conversion réelle.
+UNIT_LENGTH = 1.0
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
     """
@@ -227,7 +227,6 @@ TRANSLATIONS = {
         "menu_options": "Options",
         "menu_regen": "Régénérer",
         "menu_layers_manage": "Gérer les couches et les tracés…",
-        "menu_options_spacing": "Espacement radial des trous / pas des dents…",
         "menu_options_bgcolor": "Couleur de fond…",
         "menu_options_language": "Langue",
         "menu_lang_fr": "Français",
@@ -271,8 +270,8 @@ TRANSLATIONS = {
         "dlg_layer_gear_label": "Engrenage {index}",
         "dlg_layer_gear_name": "Nom :",
         "dlg_layer_gear_type": "Type :",
-        "dlg_layer_gear_teeth": "Dents (roue / int. anneau) :",
-        "dlg_layer_gear_outer": "Dents ext. (anneau) :",
+        "dlg_layer_gear_size": "Taille (roue / int. anneau) :",
+        "dlg_layer_gear_outer": "Taille ext. (anneau) :",
         "dlg_layer_gear_relation": "Relation :",
         "dlg_layer_gear_modular_notation": "Piste modulaire (notation) :",
 
@@ -281,15 +280,11 @@ TRANSLATIONS = {
 
         "dlg_path_edit_title": "Éditer le tracé",
         "dlg_path_name": "Nom du tracé :",
-        "dlg_path_hole_index": "Trou (index, float) :",
-        "dlg_path_phase": "Décalage (en dents) :",
+        "dlg_path_hole_index": "Décalage du trou :",
+        "dlg_path_phase": "Décalage de phase (tours) :",
         "dlg_path_color": "Couleur (nom CSS4 ou #hex) :",
         "dlg_path_width": "Largeur de trait :",
         "dlg_path_zoom": "Zoom du tracé :",
-
-        "spacing_dialog_title": "Espacement radial des trous",
-        "spacing_label": "Espacement (en mm) :",
-        "teeth_spacing_label": "Pas des dents (mm/dent) :",
 
         "bgcolor_dialog_title": "Couleur de fond",
         "bgcolor_label": "Couleur de fond (nom CSS4 ou #hex) :",
@@ -327,16 +322,15 @@ TRANSLATIONS = {
 
         "mod_editor_title": "Éditeur de piste modulaire",
         "mod_editor_notation_label": "Notation :",
-        "mod_editor_inner_teeth": "Dents intérieures :",
-        "mod_editor_outer_teeth": "Dents extérieures :",
-        "mod_editor_pitch": "Pas (mm/dent) :",
+        "mod_editor_inner_size": "Taille intérieure :",
+        "mod_editor_outer_size": "Taille extérieure :",
         "mod_editor_info_no_piece": "Aucune pièce valide dans la notation.",
         "mod_editor_info_error": "Erreur : {error}",
         "mod_editor_info_empty": "Notation valide, mais piste vide.",
-        "mod_editor_info_ok": "Longueur ~ {length:.1f} mm, équivalent ~ {teeth:.1f} dents",
-        "mod_editor_summary_inner": "Piste intérieure : {length:.1f} mm (~{teeth:.1f} dents)",
-        "mod_editor_summary_mid": "Piste médiane : {length:.1f} mm (~{teeth:.1f} dents)",
-        "mod_editor_summary_outer": "Piste extérieure : {length:.1f} mm (~{teeth:.1f} dents)",
+        "mod_editor_info_ok": "Longueur ~ {length:.1f} unités",
+        "mod_editor_summary_inner": "Piste intérieure : {length:.1f} unités",
+        "mod_editor_summary_mid": "Piste médiane : {length:.1f} unités",
+        "mod_editor_summary_outer": "Piste extérieure : {length:.1f} unités",
 
         "dlg_close": "Fermer",
         "track_test_title": "Test du tracé modulaire",
@@ -349,7 +343,6 @@ TRANSLATIONS = {
         "menu_options": "Options",
         "menu_regen": "Regenerate",
         "menu_layers_manage": "Manage layers and paths…",
-        "menu_options_spacing": "Hole radial spacing / tooth pitch…",
         "menu_options_bgcolor": "Background color…",
         "menu_options_language": "Language",
         "menu_lang_fr": "Français",
@@ -393,8 +386,8 @@ TRANSLATIONS = {
         "dlg_layer_gear_label": "Gear {index}",
         "dlg_layer_gear_name": "Name:",
         "dlg_layer_gear_type": "Type:",
-        "dlg_layer_gear_teeth": "Teeth (wheel / inner ring):",
-        "dlg_layer_gear_outer": "Outer teeth (ring):",
+        "dlg_layer_gear_size": "Size (wheel / inner ring):",
+        "dlg_layer_gear_outer": "Outer size (ring):",
         "dlg_layer_gear_relation": "Relation:",
         "dlg_layer_gear_modular_notation": "Modular track (notation):",
 
@@ -403,15 +396,11 @@ TRANSLATIONS = {
 
         "dlg_path_edit_title": "Edit path",
         "dlg_path_name": "Path name:",
-        "dlg_path_hole_index": "Hole (index, float):",
-        "dlg_path_phase": "Offset (in teeth):",
+        "dlg_path_hole_index": "Hole offset:",
+        "dlg_path_phase": "Phase offset (turns):",
         "dlg_path_color": "Color (CSS4 name or #hex):",
         "dlg_path_width": "Stroke width:",
         "dlg_path_zoom": "Path zoom:",
-
-        "spacing_dialog_title": "Hole radial spacing",
-        "spacing_label": "Spacing (mm):",
-        "teeth_spacing_label": "Tooth spacing (mm/tooth):",
 
         "bgcolor_dialog_title": "Background color",
         "bgcolor_label": "Background color (CSS4 name or #hex):",
@@ -449,16 +438,15 @@ TRANSLATIONS = {
 
         "mod_editor_title": "Modular track editor",
         "mod_editor_notation_label": "Notation:",
-        "mod_editor_inner_teeth": "Inner teeth:",
-        "mod_editor_outer_teeth": "Outer teeth:",
-        "mod_editor_pitch": "Pitch (mm/tooth):",
+        "mod_editor_inner_size": "Inner size:",
+        "mod_editor_outer_size": "Outer size:",
         "mod_editor_info_no_piece": "No valid piece found in notation.",
         "mod_editor_info_error": "Error: {error}",
         "mod_editor_info_empty": "Notation is valid, but track is empty.",
-        "mod_editor_info_ok": "Length ~ {length:.1f} mm, equivalent ~ {teeth:.1f} teeth",
-        "mod_editor_summary_inner": "Inner track: {length:.1f} mm (~{teeth:.1f} teeth)",
-        "mod_editor_summary_mid": "Center track: {length:.1f} mm (~{teeth:.1f} teeth)",
-        "mod_editor_summary_outer": "Outer track: {length:.1f} mm (~{teeth:.1f} teeth)",
+        "mod_editor_info_ok": "Length ~ {length:.1f} units",
+        "mod_editor_summary_inner": "Inner track: {length:.1f} units",
+        "mod_editor_summary_mid": "Center track: {length:.1f} units",
+        "mod_editor_summary_outer": "Outer track: {length:.1f} units",
 
         "dlg_close": "Close",
         "track_test_title": "Modular track test",
@@ -520,8 +508,8 @@ def relation_label(relation: str, lang: str) -> str:
 class GearConfig:
     name: str = "Engrenage"
     gear_type: str = "anneau"   # anneau, roue, triangle, carré, barre, croix, oeil, modulaire
-    teeth: int = 96             # roues, dents int. anneau / anneau modulaire
-    outer_teeth: int = 144      # anneau : dents ext. (ex: 150/105) / anneau modulaire
+    size: int = 96              # taille de la roue / taille intérieure de l'anneau
+    outer_size: int = 144       # anneau : taille extérieure / anneau modulaire
     relation: str = "stationnaire"  # stationnaire / dedans / dehors
     modular_notation: Optional[str] = None  # notation de piste si gear_type == "modulaire"
 
@@ -529,8 +517,8 @@ class GearConfig:
 @dataclass
 class PathConfig:
     name: str = "Tracé"
-    hole_index: float = 1.0
-    phase_offset_teeth: float = 0.0
+    hole_offset: float = 1.0
+    phase_offset: float = 0.0
     color: str = "blue"            # chaîne telle que saisie / affichée
     color_norm: Optional[str] = None  # valeur normalisée (#rrggbb) pour le dessin
     stroke_width: float = 1.2
@@ -548,45 +536,40 @@ class LayerConfig:
 
 # ---------- 2) GÉOMÉTRIE ----------
 
-def radius_from_teeth(teeth: int, pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH) -> float:
+def radius_from_size(size: int) -> float:
     """
-    Calcule le rayon (en mm) d’un cercle de pas ayant 'teeth' dents,
-    en supposant un pas configurable (par défaut 0,65 mm par dent).
+    Calcule le rayon d’un cercle de pas ayant une taille donnée.
     """
-    if teeth <= 0:
+    if size <= 0:
         return 0.0
-    return (pitch_mm_per_tooth * float(teeth)) / (2.0 * math.pi)
+    return float(size) / (2.0 * math.pi)
 
 
-def contact_teeth_for_relation(gear: GearConfig, relation: str) -> int:
+def contact_size_for_relation(gear: GearConfig, relation: str) -> int:
     """
-    Nombre de dents utilisé pour le contact, selon la relation.
-    - anneau + 'dedans' : on utilise les dents intérieures (gear.teeth)
-    - anneau + 'dehors' : on utilise les dents extérieures (gear.outer_teeth)
-    - roue / autres : gear.teeth
+    Taille utilisée pour le contact, selon la relation.
+    - anneau + 'dedans' : on utilise la taille intérieure (gear.size)
+    - anneau + 'dehors' : on utilise la taille extérieure (gear.outer_size)
+    - roue / autres : gear.size
     """
     if gear.gear_type == "anneau":
         if relation == "dehors":
-            return gear.outer_teeth or gear.teeth
+            return gear.outer_size or gear.size
         else:
-            return gear.teeth
-    return gear.teeth
+            return gear.size
+    return gear.size
 
 
-def contact_radius_for_relation(
-    gear: GearConfig, relation: str, pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH
-) -> float:
+def contact_radius_for_relation(gear: GearConfig, relation: str) -> float:
     """
-    Rayon de contact des dents pour un engrenage donné, selon la relation,
-    en mm (via radius_from_teeth).
+    Rayon de contact pour un engrenage donné, selon la relation.
     """
-    t = contact_teeth_for_relation(gear, relation)
-    return radius_from_teeth(t, pitch_mm_per_tooth=pitch_mm_per_tooth)
+    size = contact_size_for_relation(gear, relation)
+    return radius_from_size(size)
 
 
 def generate_simple_circle_for_index(
-    hole_index: float,
-    hole_spacing_mm: float,
+    hole_offset: float,
     steps: int,
 ):
     """
@@ -594,11 +577,11 @@ def generate_simple_circle_for_index(
     dont le rayon dépend du trou indexé.
     On prend un rayon "référence" R_tip = 50 mm.
     Trou 0 : rayon = R_tip
-    Trou n : R = R_tip - n * hole_spacing_mm  (n peut être float et négatif)
+    Trou n : R = R_tip - n
     R est clampé à >= 0.
     """
     R_tip = 50.0
-    d = R_tip - hole_index * hole_spacing_mm
+    d = R_tip - hole_offset
     if d < 0:
         d = 0.0
 
@@ -615,8 +598,6 @@ def generate_trochoid_points_for_layer_path(
     layer: LayerConfig,
     path: PathConfig,
     steps: int = 5000,
-    hole_spacing_mm: float = 0.65,
-    pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
 ):
     """
     Génère la courbe pour un path donné, en utilisant la configuration
@@ -626,26 +607,22 @@ def generate_trochoid_points_for_layer_path(
       - Le PREMIER engrenage de la couche (gears[0]) est stationnaire
         et centré en (0, 0).
       - Le DEUXIÈME engrenage (gears[1]) est mobile et porte les trous du path.
-      - path.hole_index est un float, peut être négatif.
+      - path.hole_offset est un float, peut être négatif.
 
     Si le premier engrenage est de type "modulaire", il représente une
     piste virtuelle SuperSpirograph, définie par :
-      - g0.teeth        => dents intérieures de l’anneau de base
-      - g0.outer_teeth  => dents extérieures de l’anneau de base
+      - g0.size        => taille intérieure de l’anneau de base
+      - g0.outer_size  => taille extérieure de l’anneau de base
       - g0.modular_notation => notation de pièce (ex: "+a60+d144-b*d72")
     Dans ce cas, on délègue à modular_tracks.generate_track_base_points.
     """
 
-    hole_index = float(path.hole_index)
+    hole_offset = float(path.hole_offset)
 
     # Pas assez d’engrenages : cercle simple + rotation
     if len(layer.gears) < 2:
-        base_points = generate_simple_circle_for_index(
-            hole_index, hole_spacing_mm, steps
-        )
-        teeth_moving = 1
-        angle_from_teeth = 2.0 * math.pi * (path.phase_offset_teeth / teeth_moving)
-        total_angle = math.pi / 2.0 - angle_from_teeth
+        base_points = generate_simple_circle_for_index(hole_offset, steps)
+        total_angle = math.pi / 2.0 - (2.0 * math.pi * path.phase_offset)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
@@ -661,43 +638,37 @@ def generate_trochoid_points_for_layer_path(
 
     relation = g1.relation
 
-    # Nombre de dents de contact pour chaque engrenage
-    T0 = max(1, contact_teeth_for_relation(g0, relation))
-    T1 = max(1, contact_teeth_for_relation(g1, relation))
+    # Taille de contact pour chaque engrenage
+    T0 = max(1, contact_size_for_relation(g0, relation))
+    T1 = max(1, contact_size_for_relation(g1, relation))
 
     # --- Cas 1 : piste modulaire comme premier engrenage ---
     if g0.gear_type == "modulaire" and g0.modular_notation:
-        inner_teeth = g0.teeth if g0.teeth > 0 else 1
-        outer_teeth = g0.outer_teeth if g0.outer_teeth > 0 else inner_teeth
+        inner_size = g0.size if g0.size > 0 else 1
+        outer_size = g0.outer_size if g0.outer_size > 0 else inner_size
 
         _, bundle = modular_tracks.build_track_and_bundle_from_notation(
             notation=g0.modular_notation,
-            wheel_teeth=T1,
-            hole_index=hole_index,
-            hole_spacing_mm=hole_spacing_mm,
+            wheel_size=T1,
+            hole_offset=hole_offset,
             steps=steps,
             relation=relation,
-            wheel_phase_teeth=path.phase_offset_teeth,
-            inner_teeth=inner_teeth,
-            outer_teeth=outer_teeth,
-            pitch_mm_per_tooth=pitch_mm_per_tooth,
+            phase_offset=path.phase_offset,
+            inner_size=inner_size,
+            outer_size=outer_size,
         )
 
         return bundle.stylo
 
     # --- Cas 2 : comportement standard (anneau / roue ... ) ---
 
-    # Rayons de contact en mm
-    R = contact_radius_for_relation(g0, relation, pitch_mm_per_tooth)
-    r = contact_radius_for_relation(g1, relation, pitch_mm_per_tooth)
+    # Rayons de contact
+    R = contact_radius_for_relation(g0, relation)
+    r = contact_radius_for_relation(g1, relation)
 
     if R <= 0 or r <= 0:
-        base_points = generate_simple_circle_for_index(
-            hole_index, hole_spacing_mm, steps
-        )
-        teeth_moving = max(1, T1)
-        angle_from_teeth = 2.0 * math.pi * (path.phase_offset_teeth / teeth_moving)
-        total_angle = math.pi / 2.0 - angle_from_teeth
+        base_points = generate_simple_circle_for_index(hole_offset, steps)
+        total_angle = math.pi / 2.0 - (2.0 * math.pi * path.phase_offset)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
@@ -709,18 +680,18 @@ def generate_trochoid_points_for_layer_path(
             rotated_points.append((xr, yr))
         return rotated_points
 
-    # Distance du stylo au centre de l’engrenage mobile (d, en mm)
+    # Distance du stylo au centre de l’engrenage mobile
     if g1.gear_type == "anneau":
-        R_tip_teeth = g1.outer_teeth or g1.teeth
+        R_tip_size = g1.outer_size or g1.size
     else:
-        R_tip_teeth = g1.teeth
+        R_tip_size = g1.size
 
-    R_tip = radius_from_teeth(R_tip_teeth, pitch_mm_per_tooth=pitch_mm_per_tooth)
-    d = R_tip - hole_index * hole_spacing_mm
+    R_tip = radius_from_size(R_tip_size)
+    d = R_tip - hole_offset
     if d < 0:
         d = 0.0
 
-    # Durée t_max pour "fermer" la courbe (basée sur le ratio des dents)
+    # Durée t_max pour "fermer" la courbe (basée sur le ratio des tailles)
     if T0 >= 1 and T1 >= 1:
         g = math.gcd(int(T0), int(T1))
         # La période correcte dépend du petit engrenage (mobile) :
@@ -754,14 +725,12 @@ def generate_trochoid_points_for_layer_path(
 
         base_points.append((x, y))
 
-    # Rotation globale selon le décalage en dents
-    # On utilise les dents de contact de l’engrenage mobile pour l’offset.
-    teeth_moving = max(1, T1)
-    angle_from_teeth = 2.0 * math.pi * (path.phase_offset_teeth / teeth_moving)
+    # Rotation globale selon le décalage de phase.
+    angle_from_phase = 2.0 * math.pi * path.phase_offset
     # 0 => motif pointant vers le haut (π/2),
     # positif => tourne vers la droite (horaire),
     # négatif => vers la gauche (anti-horaire).
-    total_angle = math.pi / 2.0 - angle_from_teeth
+    total_angle = math.pi / 2.0 - angle_from_phase
 
     cos_a = math.cos(total_angle)
     sin_a = math.sin(total_angle)
@@ -900,112 +869,6 @@ class ColorSquare(QWidget):
         if event.buttons() & Qt.LeftButton:
             pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
             self._update_from_pos(pos)
-
-def paintEvent(self, event):
-    painter = QPainter(self)
-    try:
-        painter.setRenderHint(QPainter.Antialiasing, True)
-
-        w = self.width()
-        h = self.height()
-
-        painter.fillRect(self.rect(), self.palette().window())
-
-        if not self.have_track or not self.points:
-            painter.setPen(Qt.gray)
-            # on pourrait afficher un texte, mais souvent on laisse vide
-            return
-
-        # Échelle et transform pour centrer autour de (0,0) et inverser Y
-        scale = self._compute_scale(w, h)
-        painter.translate(w / 2.0, h / 2.0)
-        painter.scale(scale, -scale)
-
-        # Largeur réelle de la piste (en mm)
-        inner_r = (self.pitch_mm * float(self.inner_teeth)) / (2.0 * math.pi)
-        outer_r = (self.pitch_mm * float(self.outer_teeth)) / (2.0 * math.pi)
-        width_mm = max(outer_r - inner_r, self.pitch_mm)
-        half_w = width_mm / 2.0
-
-        # 1) polyline centrale
-        pen_center = QPen(QColor("#606060"))
-        pen_center.setWidthF(0)  # ligne "cosmétique"
-        painter.setPen(pen_center)
-
-        for i in range(len(self.points) - 1):
-            x0, y0 = self.points[i]
-            x1, y1 = self.points[i + 1]
-            painter.drawLine(QPointF(x0, y0), QPointF(x1, y1))
-
-        # 2) bords de la piste (inner/outer approximatifs)
-        pen_border = QPen(QColor("#808080"))
-        pen_border.setWidthF(0)
-        painter.setPen(pen_border)
-
-        for i in range(len(self.points) - 1):
-            x0, y0 = self.points[i]
-            x1, y1 = self.points[i + 1]
-            dx = x1 - x0
-            dy = y1 - y0
-            seg_len = math.hypot(dx, dy) or 1.0
-            nx = -dy / seg_len
-            ny = dx / seg_len
-
-            ix0 = x0 - nx * half_w
-            iy0 = y0 - ny * half_w
-            ix1 = x1 - nx * half_w
-            iy1 = y1 - ny * half_w
-
-            ox0 = x0 + nx * half_w
-            oy0 = y0 + ny * half_w
-            ox1 = x1 + nx * half_w
-            oy1 = y1 + ny * half_w
-
-            painter.drawLine(QPointF(ix0, iy0), QPointF(ix1, iy1))
-            painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
-
-        # 3) dents (petits ticks côté "outer")
-        L = self.total_length if self.have_track else 0.0
-        segments = getattr(self, "segments", [])
-
-        if L > 0.0 and segments and self.pitch_mm > 0:
-            pen_teeth = QPen(QColor("#404040"))
-            pen_teeth.setWidthF(0)
-            painter.setPen(pen_teeth)
-            tooth_len = width_mm * 0.4
-            num_teeth = max(1, int(L / self.pitch_mm))
-            for k in range(num_teeth):
-                s = (k + 0.5) * self.pitch_mm
-                (x, y), theta, _ = modular_tracks._interpolate_on_segments(
-                    s % L, segments
-                )
-                nx = -math.sin(theta)
-                ny = math.cos(theta)
-                bx = x + nx * half_w
-                by = y + ny * half_w
-                tx = bx + nx * tooth_len
-                ty = by + ny * tooth_len
-                painter.drawLine(QPointF(bx, by), QPointF(tx, ty))
-
-        # 4) Ligne rouge perpendiculaire à la tangente de fin
-        if len(self.points) >= 2:
-            x_last, y_last = self.points[-1]
-            theta = self.last_tangent
-            nx = -math.sin(theta)
-            ny = math.cos(theta)
-            line_len = width_mm * 1.5  # 50 % de plus que la largeur
-            hx = (line_len / 2.0) * nx
-            hy = (line_len / 2.0) * ny
-
-            pen_red = QPen(QColor("#ff0000"))
-            pen_red.setWidthF(0)
-            painter.setPen(pen_red)
-            painter.drawLine(
-                QPointF(x_last - hx, y_last - hy),
-                QPointF(x_last + hx, y_last + hy),
-            )
-    finally:
-        painter.end()
 
 class ColorPickerDialog(QDialog):
     """
@@ -1427,9 +1290,7 @@ def layers_to_svg(
     width: int = 1000,
     height: int = 1000,
     bg_color: str = "#ffffff",
-    hole_spacing_mm: float = 0.65,
     points_per_path: int = 6000,
-    pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
     show_tracks: bool = True,
     return_render_data: bool = False,
 ) -> str:
@@ -1460,29 +1321,25 @@ def layers_to_svg(
             ):
                 g0 = layer.gears[0]
                 relation = "dedans"
-                wheel_teeth_rel = 1
+                wheel_size_rel = 1
                 if len(layer.gears) > 1:
                     g1_tmp = layer.gears[1]
                     relation = getattr(g1_tmp, "relation", "dedans") or "dedans"
-                    wheel_teeth_rel = max(
-                        1, contact_teeth_for_relation(g1_tmp, relation)
-                    )
+                    wheel_size_rel = max(1, contact_size_for_relation(g1_tmp, relation))
 
-                inner_teeth = max(1, int(g0.teeth))
-                outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
-                outer_teeth = max(outer_teeth, inner_teeth)
+                inner_size = max(1, int(g0.size))
+                outer_size = int(g0.outer_size) if g0.outer_size else inner_size
+                outer_size = max(outer_size, inner_size)
 
                 track, bundle = modular_tracks.build_track_and_bundle_from_notation(
                     notation=g0.modular_notation,
-                    wheel_teeth=wheel_teeth_rel,
-                    hole_index=0.0,
-                    hole_spacing_mm=hole_spacing_mm,
+                    wheel_size=wheel_size_rel,
+                    hole_offset=0.0,
                     steps=2,
                     relation=relation,
-                    wheel_phase_teeth=0.0,
-                    inner_teeth=inner_teeth,
-                    outer_teeth=outer_teeth,
-                    pitch_mm_per_tooth=pitch_mm_per_tooth,
+                    phase_offset=0.0,
+                    inner_size=inner_size,
+                    outer_size=outer_size,
                 )
                 if track.segments:
                     centerline, _, _, half_w = modular_tracks.compute_track_polylines(
@@ -1495,8 +1352,6 @@ def layers_to_svg(
                 layer,
                 path,
                 steps=points_per_path,
-                hole_spacing_mm=hole_spacing_mm,
-                pitch_mm_per_tooth=pitch_mm_per_tooth,
             )
             if not pts:
                 continue
@@ -1638,8 +1493,8 @@ class LayerEditDialog(QDialog):
       - nom
       - visible
       - zoom
-      - 2 ou 3 engrenages (type, dents, relation)
-      - pour un anneau : dents extérieures / intérieures
+      - 2 ou 3 engrenages (type, tailles, relation)
+      - pour un anneau : tailles extérieures / intérieures
     """
 
     def __init__(
@@ -1647,13 +1502,11 @@ class LayerEditDialog(QDialog):
         layer: LayerConfig,
         lang: str = "fr",
         parent=None,
-        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
     ):
         super().__init__(parent)
         self.lang = lang
         self.setWindowTitle(tr(self.lang, "dlg_layer_edit_title"))
         self.layer = layer
-        self.pitch_mm_per_tooth = pitch_mm_per_tooth
 
         layout = QFormLayout(self)
 
@@ -1683,8 +1536,8 @@ class LayerEditDialog(QDialog):
             gear_type_combo = QComboBox()
             for gear_type in GEAR_TYPES:
                 gear_type_combo.addItem(gear_type_label(gear_type, self.lang), gear_type)
-            teeth_spin = QSpinBox()
-            teeth_spin.setRange(1, 10000)
+            size_spin = QSpinBox()
+            size_spin.setRange(1, 10000)
             outer_spin = QSpinBox()
             outer_spin.setRange(0, 20000)
             rel_combo = QComboBox()
@@ -1711,9 +1564,9 @@ class LayerEditDialog(QDialog):
             sub.addLayout(row2)
 
             row3 = QHBoxLayout()
-            label_teeth = QLabel(tr(self.lang, "dlg_layer_gear_teeth"))
-            row3.addWidget(label_teeth)
-            row3.addWidget(teeth_spin)
+            label_size = QLabel(tr(self.lang, "dlg_layer_gear_size"))
+            row3.addWidget(label_size)
+            row3.addWidget(size_spin)
             sub.addLayout(row3)
 
             row4 = QHBoxLayout()
@@ -1746,7 +1599,7 @@ class LayerEditDialog(QDialog):
                 index=i,
                 name_edit=gear_name_edit,
                 type_combo=gear_type_combo,
-                teeth_spin=teeth_spin,
+                size_spin=size_spin,
                 outer_spin=outer_spin,
                 outer_label=label_outer,
                 rel_combo=rel_combo,
@@ -1772,15 +1625,15 @@ class LayerEditDialog(QDialog):
                     g = GearConfig(
                         name=tr(self.lang, "default_ring_name"),
                         gear_type="anneau",
-                        teeth=105,
-                        outer_teeth=150,
+                        size=105,
+                        outer_size=150,
                         relation="stationnaire",
                     )
                 else:
                     g = GearConfig(
                         name=tr(self.lang, "default_wheel_name"),
                         gear_type="roue",
-                        teeth=30,
+                        size=30,
                         relation="dedans",
                     )
 
@@ -1795,8 +1648,8 @@ class LayerEditDialog(QDialog):
                 type_index = 0
             gw["type_combo"].setCurrentIndex(type_index)
 
-            gw["teeth_spin"].setValue(g.teeth)
-            gw["outer_spin"].setValue(g.outer_teeth if g.outer_teeth > 0 else 0)
+            gw["size_spin"].setValue(g.size)
+            gw["outer_spin"].setValue(g.outer_size if g.outer_size > 0 else 0)
             gw["modular_edit"].setText(getattr(g, "modular_notation", "") or "")
 
             rel_index = gw["rel_combo"].findData(g.relation)
@@ -1822,7 +1675,7 @@ class LayerEditDialog(QDialog):
         t = gw["type_combo"].currentData() or gw["type_combo"].currentText()
         idx = gw.get("index", 0)
 
-        # "anneau" et "modulaire" ont des dents intérieures / extérieures
+        # "anneau" et "modulaire" ont des tailles intérieures / extérieures
         is_ring_like = (t == "anneau" or t == "modulaire")
         gw["outer_label"].setVisible(is_ring_like)
         gw["outer_spin"].setVisible(is_ring_like)
@@ -1840,16 +1693,15 @@ class LayerEditDialog(QDialog):
             return
 
         notation = gw["modular_edit"].text().strip()
-        inner_teeth = gw["teeth_spin"].value()
-        outer_teeth = gw["outer_spin"].value() or inner_teeth
+        inner_size = gw["size_spin"].value()
+        outer_size = gw["outer_spin"].value() or inner_size
 
         dlg = ModularTrackEditorDialog(
             lang=self.lang,
             parent=self,
             initial_notation=notation,
-            inner_teeth=inner_teeth,
-            outer_teeth=outer_teeth,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            inner_size=inner_size,
+            outer_size=outer_size,
         )
         if dlg.exec() == QDialog.Accepted:
             gw["modular_edit"].setText(dlg.result_notation())
@@ -1870,8 +1722,8 @@ class LayerEditDialog(QDialog):
             if i > 0 and gear_type == "modulaire":
                 gear_type = "roue"
 
-            teeth = gw["teeth_spin"].value()
-            outer_teeth = gw["outer_spin"].value() if gear_type in ("anneau", "modulaire") else 0
+            size = gw["size_spin"].value()
+            outer_size = gw["outer_spin"].value() if gear_type in ("anneau", "modulaire") else 0
 
             rel = gw["rel_combo"].currentData() or gw["rel_combo"].currentText()
             if i == 0:
@@ -1887,8 +1739,8 @@ class LayerEditDialog(QDialog):
                 GearConfig(
                     name=name,
                     gear_type=gear_type,
-                    teeth=teeth,
-                    outer_teeth=outer_teeth,
+                    size=size,
+                    outer_size=outer_size,
                     relation=rel,
                     modular_notation=modular_notation,
                 )
@@ -1901,8 +1753,8 @@ class LayerEditDialog(QDialog):
 class PathEditDialog(QDialog):
     """
     Path :
-      - hole_index (float, positif ou négatif)
-      - décalage en dents
+      - hole_offset (float, positif ou négatif)
+      - décalage de phase (tours)
       - couleur (CSS4 ou hex) avec validation X11/CSS4/hex
       - largeur de trait
       - zoom
@@ -1921,12 +1773,12 @@ class PathEditDialog(QDialog):
         self.hole_spin = QDoubleSpinBox()
         self.hole_spin.setRange(-1000.0, 1000.0)
         self.hole_spin.setDecimals(3)
-        self.hole_spin.setValue(self.path.hole_index)
+        self.hole_spin.setValue(self.path.hole_offset)
 
         self.phase_spin = QDoubleSpinBox()
         self.phase_spin.setRange(-1000.0, 1000.0)
         self.phase_spin.setDecimals(3)
-        self.phase_spin.setValue(self.path.phase_offset_teeth)
+        self.phase_spin.setValue(self.path.phase_offset)
 
         self.color_edit = QLineEdit(self.path.color)
         btn_pick = QPushButton("…")
@@ -1971,8 +1823,8 @@ class PathEditDialog(QDialog):
 
     def accept(self):
         self.path.name = self.name_edit.text().strip() or tr(self.lang, "default_path_name")
-        self.path.hole_index = self.hole_spin.value()
-        self.path.phase_offset_teeth = self.phase_spin.value()
+        self.path.hole_offset = self.hole_spin.value()
+        self.path.phase_offset = self.phase_spin.value()
 
         new_color_input = self.color_edit.text().strip() or "#000000"
         norm_color = normalize_color_string(new_color_input)
@@ -2002,8 +1854,6 @@ class TrackTestDialog(QDialog):
         path: PathConfig,
         *,
         lang: str = "fr",
-        hole_spacing_mm: float = 0.65,
-        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
         points_per_path: int = 6000,
         parent=None,
     ):
@@ -2057,8 +1907,6 @@ class TrackTestDialog(QDialog):
         self._apply_configuration(
             layer,
             path,
-            hole_spacing_mm=hole_spacing_mm,
-            pitch_mm_per_tooth=pitch_mm_per_tooth,
         )
 
     def _apply_configuration(
@@ -2066,8 +1914,6 @@ class TrackTestDialog(QDialog):
         layer: LayerConfig,
         path: PathConfig,
         *,
-        hole_spacing_mm: float,
-        pitch_mm_per_tooth: float,
     ):
         if len(layer.gears) < 2:
             QMessageBox.information(
@@ -2088,21 +1934,19 @@ class TrackTestDialog(QDialog):
             return
 
         relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
-        wheel_teeth = max(1, contact_teeth_for_relation(g1, relation))
-        inner_teeth = g0.teeth if g0.teeth > 0 else 1
-        outer_teeth = g0.outer_teeth if g0.outer_teeth > 0 else inner_teeth
+        wheel_size = max(1, contact_size_for_relation(g1, relation))
+        inner_size = g0.size if g0.size > 0 else 1
+        outer_size = g0.outer_size if g0.outer_size > 0 else inner_size
         scale = getattr(layer, "zoom", 1.0) * getattr(path, "zoom", 1.0)
 
         self.demo_widget.set_configuration(
             notation=g0.modular_notation,
-            wheel_teeth=wheel_teeth,
-            hole_index=path.hole_index,
-            hole_spacing=hole_spacing_mm,
+            wheel_size=wheel_size,
+            hole_offset=path.hole_offset,
             relation=relation,
-            wheel_phase_teeth=getattr(path, "phase_offset_teeth", 0.0),
-            inner_teeth=inner_teeth,
-            outer_teeth=outer_teeth,
-            pitch_mm_per_tooth=pitch_mm_per_tooth,
+            phase_offset=getattr(path, "phase_offset", 0.0),
+            inner_size=inner_size,
+            outer_size=outer_size,
             steps=self.points_per_path,
             scale=scale,
         )
@@ -2159,8 +2003,6 @@ class LayerManagerDialog(QDialog):
         layers: List[LayerConfig],
         lang: str = "fr",
         parent=None,
-        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
-        hole_spacing_mm: float = 0.65,
         points_per_path: int = 6000,
     ):
         super().__init__(parent)
@@ -2169,8 +2011,6 @@ class LayerManagerDialog(QDialog):
         self.resize(550, 500)
 
         self.layers: List[LayerConfig] = copy.deepcopy(layers)
-        self.pitch_mm_per_tooth: float = pitch_mm_per_tooth
-        self.hole_spacing_mm: float = hole_spacing_mm
         self.points_per_path: int = max(2, int(points_per_path))
 
         self.selected_layer_idx: int = 0
@@ -2239,13 +2079,13 @@ class LayerManagerDialog(QDialog):
             else:
                 type_name = type_name.lower()
 
-            if g.gear_type in ("anneau", "modulaire") and g.outer_teeth > 0:
-                tooth_str = f"{g.outer_teeth}/{g.teeth}"
+            if g.gear_type in ("anneau", "modulaire") and g.outer_size > 0:
+                size_str = f"{g.outer_size}/{g.size}"
             else:
-                tooth_str = f"{g.teeth}"
+                size_str = f"{g.size}"
 
             rel = relation_label(g.relation, self.lang)
-            gear_descs.append(f"{type_name} {tooth_str} {rel}")
+            gear_descs.append(f"{type_name} {size_str} {rel}")
         if gear_descs:
             parts.append(", ".join(gear_descs))
 
@@ -2258,7 +2098,7 @@ class LayerManagerDialog(QDialog):
         return ", ".join(parts)
 
     def _path_summary(self, path: PathConfig) -> str:
-        return f"{path.hole_index:g}, {path.phase_offset_teeth:g}, {path.color}, {path.stroke_width:g}, zoom {path.zoom:g}"
+        return f"{path.hole_offset:g}, {path.phase_offset:g}, {path.color}, {path.stroke_width:g}, zoom {path.zoom:g}"
 
     def _layer_allows_test(self, layer: Optional[LayerConfig]) -> bool:
         if not layer or len(layer.gears) < 2:
@@ -2395,14 +2235,14 @@ class LayerManagerDialog(QDialog):
         g0 = GearConfig(
             name=tr(self.lang, "default_ring_name"),
             gear_type="anneau",
-            teeth=105,
-            outer_teeth=150,
+            size=105,
+            outer_size=150,
             relation="stationnaire",
         )
         g1 = GearConfig(
             name=tr(self.lang, "default_wheel_name"),
             gear_type="roue",
-            teeth=30,
+            size=30,
             relation="dedans",
         )
         new_layer = LayerConfig(
@@ -2410,7 +2250,7 @@ class LayerManagerDialog(QDialog):
             visible=True,
             zoom=1.0,
             gears=[g0, g1],
-            paths=[PathConfig(name=f"{tr(self.lang, 'default_path_name')} 1", hole_index=1.0, zoom=1.0)],
+            paths=[PathConfig(name=f"{tr(self.lang, 'default_path_name')} 1", hole_offset=1.0, zoom=1.0)],
         )
         self.layers.append(new_layer)
 
@@ -2433,7 +2273,7 @@ class LayerManagerDialog(QDialog):
             return
         new_path = PathConfig(
             name=f"{tr(self.lang, 'default_path_name')} {len(layer.paths) + 1}",
-            hole_index=1.0,
+            hole_offset=1.0,
             zoom=1.0,
         )
         layer.paths.append(new_path)
@@ -2454,7 +2294,6 @@ class LayerManagerDialog(QDialog):
                 obj,
                 lang=self.lang,
                 parent=self,
-                pitch_mm_per_tooth=self.pitch_mm_per_tooth,
             )
         else:
             dlg = PathEditDialog(obj, lang=self.lang, parent=self)
@@ -2523,8 +2362,6 @@ class LayerManagerDialog(QDialog):
             obj,
             lang=self.lang,
             parent=self,
-            hole_spacing_mm=self.hole_spacing_mm,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
             points_per_path=self.points_per_path,
         )
         dlg.setWindowState(dlg.windowState() | Qt.WindowFullScreen)
@@ -2583,7 +2420,7 @@ class ModularTrackView(QWidget):
     Widget de visualisation d'une piste modulaire :
       - polyline centrale (modular_tracks)
       - bande de largeur réelle (inner/outer)
-      - dents approximatives le long de la piste
+      - graduations approximatives le long de la piste
       - ligne rouge perpendiculaire à la tangente de fin
     """
 
@@ -2591,9 +2428,8 @@ class ModularTrackView(QWidget):
         super().__init__(parent)
         self.points: List[Tuple[float, float]] = []
         self.have_track = False
-        self.inner_teeth = 96
-        self.outer_teeth = 144
-        self.pitch_mm = 0.65
+        self.inner_size = 96
+        self.outer_size = 144
         self.total_length = 0.0
         self.segments = []
         self.last_tangent = 0.0  # angle de la tangente au dernier point (rad)
@@ -2612,16 +2448,14 @@ class ModularTrackView(QWidget):
     def set_track(
         self,
         track: modular_tracks.TrackBuildResult,
-        inner_teeth: int,
-        outer_teeth: int,
-        pitch_mm: float,
+        inner_size: int,
+        outer_size: int,
     ):
         self.points = track.points or []
         self.segments = track.segments or []
         self.total_length = track.total_length
-        self.inner_teeth = max(1, inner_teeth)
-        self.outer_teeth = max(self.inner_teeth + 1, outer_teeth)
-        self.pitch_mm = pitch_mm
+        self.inner_size = max(1, inner_size)
+        self.outer_size = max(self.inner_size + 1, outer_size)
         self.have_track = len(self.points) > 1 and self.total_length > 0.0
         if self.have_track and self.segments:
             _, theta, _ = modular_tracks._interpolate_on_segments(
@@ -2662,10 +2496,10 @@ class ModularTrackView(QWidget):
         painter.translate(w / 2.0, h / 2.0)
         painter.scale(scale, -scale)
 
-        # Largeur réelle de la piste (en mm)
-        inner_r = (self.pitch_mm * float(self.inner_teeth)) / (2.0 * math.pi)
-        outer_r = (self.pitch_mm * float(self.outer_teeth)) / (2.0 * math.pi)
-        width_mm = max(outer_r - inner_r, self.pitch_mm)
+        # Largeur réelle de la piste (unités abstraites)
+        inner_r = float(self.inner_size) / (2.0 * math.pi)
+        outer_r = float(self.outer_size) / (2.0 * math.pi)
+        width_mm = max(outer_r - inner_r, UNIT_LENGTH)
         half_w = width_mm / 2.0
 
         # 1) polyline centrale
@@ -2705,16 +2539,16 @@ class ModularTrackView(QWidget):
             painter.drawLine(QPointF(ix0, iy0), QPointF(ix1, iy1))
             painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
 
-        # 3) dents (petits ticks côté "outer")
+        # 3) graduations (petits ticks côté "outer")
         L = self.total_length if self.have_track else 0.0
-        if L > 0.0 and self.segments and self.pitch_mm > 0:
-            pen_teeth = QPen(QColor("#404040"))
-            pen_teeth.setWidthF(0)
-            painter.setPen(pen_teeth)
-            tooth_len = width_mm * 0.4
-            num_teeth = max(1, int(L / self.pitch_mm))
-            for k in range(num_teeth):
-                s = (k + 0.5) * self.pitch_mm
+        if L > 0.0 and self.segments:
+            pen_ticks = QPen(QColor("#404040"))
+            pen_ticks.setWidthF(0)
+            painter.setPen(pen_ticks)
+            tick_len = width_mm * 0.4
+            num_ticks = max(1, int(L))
+            for k in range(num_ticks):
+                s = (k + 0.5)
                 (x, y), theta, _ = modular_tracks._interpolate_on_segments(
                     s % L, self.segments
                 )
@@ -2722,8 +2556,8 @@ class ModularTrackView(QWidget):
                 ny = math.cos(theta)
                 bx = x + nx * half_w
                 by = y + ny * half_w
-                tx = bx + nx * tooth_len
-                ty = by + ny * tooth_len
+                tx = bx + nx * tick_len
+                ty = by + ny * tick_len
                 painter.drawLine(QPointF(bx, by), QPointF(tx, ty))
 
         # 4) Ligne rouge perpendiculaire à la tangente de fin
@@ -2750,7 +2584,7 @@ class ModularTrackEditorDialog(QDialog):
     """
     Éditeur en temps réel pour les pistes modulaires :
       - notation (avec surlignage de la partie comprise)
-      - paramètres inner/outer/pitch
+      - paramètres inner/outer
       - vue centrée sur le barycentre (via modular_tracks)
     """
 
@@ -2759,9 +2593,8 @@ class ModularTrackEditorDialog(QDialog):
         lang: str = "fr",
         parent=None,
         initial_notation: str = "",
-        inner_teeth: int = 96,
-        outer_teeth: int = 144,
-        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+        inner_size: int = 96,
+        outer_size: int = 144,
     ):
         super().__init__(parent)
         self.lang = lang
@@ -2797,24 +2630,16 @@ class ModularTrackEditorDialog(QDialog):
         params_layout = QHBoxLayout()
         self.inner_spin = QSpinBox()
         self.inner_spin.setRange(1, 2000)
-        self.inner_spin.setValue(max(1, inner_teeth))
+        self.inner_spin.setValue(max(1, inner_size))
 
         self.outer_spin = QSpinBox()
         self.outer_spin.setRange(1, 4000)
-        self.outer_spin.setValue(max(1, outer_teeth))
+        self.outer_spin.setValue(max(1, outer_size))
 
-        self.pitch_spin = QDoubleSpinBox()
-        self.pitch_spin.setRange(0.01, 5.0)
-        self.pitch_spin.setDecimals(3)
-        self.pitch_spin.setSingleStep(0.01)
-        self.pitch_spin.setValue(max(0.01, pitch_mm_per_tooth))
-
-        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_inner_teeth")))
+        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_inner_size")))
         params_layout.addWidget(self.inner_spin)
-        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_outer_teeth")))
+        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_outer_size")))
         params_layout.addWidget(self.outer_spin)
-        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_pitch")))
-        params_layout.addWidget(self.pitch_spin)
         params_layout.addStretch(1)
 
         notation_layout.addLayout(params_layout)
@@ -2843,7 +2668,6 @@ class ModularTrackEditorDialog(QDialog):
         self.notation_edit.textChanged.connect(self.update_track)
         self.inner_spin.valueChanged.connect(self.update_track)
         self.outer_spin.valueChanged.connect(self.update_track)
-        self.pitch_spin.valueChanged.connect(self.update_track)
 
         # Valeurs initiales
         self.notation_edit.setText(self._initial_notation)
@@ -2875,9 +2699,8 @@ class ModularTrackEditorDialog(QDialog):
         else:
             self.notation_display.setText("&nbsp;")
 
-        inner_teeth = self.inner_spin.value()
-        outer_teeth = self.outer_spin.value()
-        pitch = self.pitch_spin.value()
+        inner_size = self.inner_spin.value()
+        outer_size = self.outer_spin.value()
 
         # Rien à dessiner si aucune pièce
         if not has_piece or not valid:
@@ -2888,10 +2711,9 @@ class ModularTrackEditorDialog(QDialog):
         try:
             track = modular_tracks.build_track_from_notation(
                 valid,
-                inner_teeth=inner_teeth,
-                outer_teeth=outer_teeth,
-                pitch_mm_per_tooth=pitch,
-                steps_per_tooth=3,
+                inner_size=inner_size,
+                outer_size=outer_size,
+                steps_per_unit=3,
             )
         except NotImplementedError as e:
             # Cas des pièces non encore gérées (Y, etc.)
@@ -2912,21 +2734,14 @@ class ModularTrackEditorDialog(QDialog):
             self.info_label.setText(tr(self.lang, "mod_editor_info_empty"))
             return
 
-        self.track_view.set_track(track, inner_teeth, outer_teeth, pitch)
+        self.track_view.set_track(track, inner_size, outer_size)
         inner_len, mid_len, outer_len = modular_tracks.compute_track_lengths(
-            track, inner_teeth, outer_teeth, pitch
+            track, inner_size, outer_size
         )
-        pitch_safe = pitch if pitch > 0 else 1.0
         summaries = [
-            tr(self.lang, "mod_editor_summary_inner").format(
-                length=inner_len, teeth=inner_len / pitch_safe
-            ),
-            tr(self.lang, "mod_editor_summary_mid").format(
-                length=mid_len, teeth=mid_len / pitch_safe
-            ),
-            tr(self.lang, "mod_editor_summary_outer").format(
-                length=outer_len, teeth=outer_len / pitch_safe
-            ),
+            tr(self.lang, "mod_editor_summary_inner").format(length=inner_len),
+            tr(self.lang, "mod_editor_summary_mid").format(length=mid_len),
+            tr(self.lang, "mod_editor_summary_outer").format(length=outer_len),
         ]
         self.info_label.setText("\n".join(summaries))
 
@@ -2941,12 +2756,6 @@ class SpiroWindow(QWidget):
 
         # Indicateur de restauration de géométrie
         self._geometry_restored = False
-
-        # Espacement radial des trous en mm
-        self.hole_spacing_mm: float = 0.65
-
-        # Espacement des dents en mm/dent
-        self.pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH
 
         # Couleur de fond
         self.bg_color: str = "#ffffff"
@@ -2998,10 +2807,6 @@ class SpiroWindow(QWidget):
         # Menu Options
         self.menu_options = QMenu(menubar)
         menubar.addMenu(self.menu_options)
-        self.act_spacing = QAction(menubar)
-        self.act_spacing.triggered.connect(self.edit_hole_spacing)
-        self.menu_options.addAction(self.act_spacing)
-
         self.act_bg_color = QAction(menubar)
         self.act_bg_color.triggered.connect(self.edit_bg_color)
         self.menu_options.addAction(self.act_bg_color)
@@ -3109,14 +2914,14 @@ class SpiroWindow(QWidget):
         g0 = GearConfig(
             name=tr(self.language, "default_ring_name"),
             gear_type="anneau",
-            teeth=105,        # intérieur
-            outer_teeth=150,  # extérieur
+            size=105,        # intérieur
+            outer_size=150,  # extérieur
             relation="stationnaire",
         )
         g1 = GearConfig(
             name=tr(self.language, "default_wheel_name"),
             gear_type="roue",
-            teeth=30,
+            size=30,
             relation="dedans",
         )
         base_layer = LayerConfig(
@@ -3127,16 +2932,16 @@ class SpiroWindow(QWidget):
             paths=[
                 PathConfig(
                     name=f"{tr(self.language, 'default_path_name')} 1",
-                    hole_index=1.0,
-                    phase_offset_teeth=0.0,
+                    hole_offset=1.0,
+                    phase_offset=0.0,
                     color="red",
                     stroke_width=1.2,
                     zoom=1.0,
                 ),
                 PathConfig(
                     name=f"{tr(self.language, 'default_path_name')} 2",
-                    hole_index=2.0,
-                    phase_offset_teeth=5.0,
+                    hole_offset=2.0,
+                    phase_offset=0.25,
                     color="#0000aa",
                     stroke_width=1.0,
                     zoom=1.0,
@@ -3182,7 +2987,6 @@ class SpiroWindow(QWidget):
 
         # Actions Options
         self.act_manage_layers.setText(tr(self.language, "menu_layers_manage"))
-        self.act_spacing.setText(tr(self.language, "menu_options_spacing"))
         self.act_bg_color.setText(tr(self.language, "menu_options_bgcolor"))
         self.act_canvas.setText(tr(self.language, "menu_options_canvas"))
         self.menu_lang.setTitle(tr(self.language, "menu_options_language"))
@@ -3250,9 +3054,7 @@ class SpiroWindow(QWidget):
             width=self.canvas_width,
             height=self.canvas_height,
             bg_color=bg_norm,
-            hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
             show_tracks=self.show_track,
             return_render_data=True,
         )
@@ -3460,50 +3262,16 @@ class SpiroWindow(QWidget):
             self.layers,
             lang=self.language,
             parent=self,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
-            hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
         )
         if dlg.exec() == QDialog.Accepted:
             self.layers = dlg.get_layers()
             self.update_svg()
 
-    def edit_hole_spacing(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle(tr(self.language, "spacing_dialog_title"))
-        layout = QFormLayout(dlg)
-        spin = QDoubleSpinBox()
-        spin.setRange(0.01, 10.0)
-        spin.setDecimals(3)
-        spin.setValue(self.hole_spacing_mm)
-        layout.addRow(tr(self.language, "spacing_label"), spin)
-
-        pitch_spin = QDoubleSpinBox()
-        pitch_spin.setRange(0.01, 5.0)
-        pitch_spin.setDecimals(3)
-        pitch_spin.setSingleStep(0.01)
-        pitch_spin.setValue(self.pitch_mm_per_tooth)
-        layout.addRow(tr(self.language, "teeth_spacing_label"), pitch_spin)
-
-        btn_box = QHBoxLayout()
-        btn_ok = QPushButton(tr(self.language, "dlg_ok"))
-        btn_cancel = QPushButton(tr(self.language, "dlg_cancel"))
-        btn_ok.clicked.connect(dlg.accept)
-        btn_cancel.clicked.connect(dlg.reject)
-        btn_box.addWidget(btn_ok)
-        btn_box.addWidget(btn_cancel)
-        layout.addRow(btn_box)
-
-        if dlg.exec() == QDialog.Accepted:
-            self.hole_spacing_mm = spin.value()
-            self.pitch_mm_per_tooth = pitch_spin.value()
-            self.update_svg()
-
     def open_modular_track_editor(self):
         dlg = ModularTrackEditorDialog(
             lang=self.language,
             parent=self,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
         dlg.exec()
 
@@ -3586,16 +3354,16 @@ class SpiroWindow(QWidget):
                 data_layer["gears"].append({
                     "name": g.name,
                     "gear_type": g.gear_type,
-                    "teeth": g.teeth,
-                    "outer_teeth": g.outer_teeth,
+                    "size": g.size,
+                    "outer_size": g.outer_size,
                     "relation": g.relation,
                     "modular_notation": getattr(g, "modular_notation", None),
                 })
             for p in layer.paths:
                 data_layer["paths"].append({
                     "name": p.name,
-                    "hole_index": p.hole_index,
-                    "phase_offset_teeth": p.phase_offset_teeth,
+                    "hole_offset": p.hole_offset,
+                    "phase_offset": p.phase_offset,
                     "color": p.color,  # ce que tu as tapé
                     "color_norm": getattr(p, "color_norm", None),  # peut être None
                     "stroke_width": p.stroke_width,
@@ -3613,8 +3381,8 @@ class SpiroWindow(QWidget):
                     GearConfig(
                         name=gd.get("name", "Engrenage"),
                         gear_type=gd.get("gear_type", "roue"),
-                        teeth=int(gd.get("teeth", 30)),
-                        outer_teeth=int(gd.get("outer_teeth", 0)),
+                        size=int(gd.get("size", 30)),
+                        outer_size=int(gd.get("outer_size", 0)),
                         relation=gd.get("relation", "stationnaire"),
                         modular_notation=gd.get("modular_notation"),
                     )
@@ -3630,8 +3398,8 @@ class SpiroWindow(QWidget):
                 paths.append(
                     PathConfig(
                         name=pd.get("name", "Tracé"),
-                        hole_index=float(pd.get("hole_index", 1.0)),
-                        phase_offset_teeth=float(pd.get("phase_offset_teeth", 0.0)),
+                        hole_offset=float(pd.get("hole_offset", pd.get("hole_index", 1.0))),
+                        phase_offset=float(pd.get("phase_offset", 0.0)),
                         color=color_input,
                         color_norm=color_norm,
                         stroke_width=float(pd.get("stroke_width", 1.0)),
@@ -3663,8 +3431,6 @@ class SpiroWindow(QWidget):
         data = {
             "version": 1,
             "language": self.language,
-            "hole_spacing_mm": self.hole_spacing_mm,
-            "pitch_mm_per_tooth": self.pitch_mm_per_tooth,
             "bg_color": self.bg_color,
             "canvas_width": self.canvas_width,
             "canvas_height": self.canvas_height,
@@ -3691,10 +3457,6 @@ class SpiroWindow(QWidget):
 
     def _apply_state_dict(self, data, *, apply_window: bool, refresh: bool):
         self.language = data.get("language", self.language)
-        self.hole_spacing_mm = float(data.get("hole_spacing_mm", self.hole_spacing_mm))
-        self.pitch_mm_per_tooth = float(
-            data.get("pitch_mm_per_tooth", self.pitch_mm_per_tooth)
-        )
         self.bg_color = data.get("bg_color", self.bg_color)
         self.canvas_width = int(data.get("canvas_width", self.canvas_width))
         self.canvas_height = int(data.get("canvas_height", self.canvas_height))
@@ -3823,9 +3585,7 @@ class SpiroWindow(QWidget):
             width=self.canvas_width,
             height=self.canvas_height,
             bg_color=self.bg_color,
-            hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
 
         try:
@@ -3886,9 +3646,7 @@ class SpiroWindow(QWidget):
             width=out_w,
             height=out_h,
             bg_color=bg_norm,
-            hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
 
         renderer = QSvgRenderer(QByteArray(svg_data.encode("utf-8")))

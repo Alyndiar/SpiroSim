@@ -2,7 +2,7 @@
 
 [English](README.md) | **Français**
 
-Un simulateur/banc d’essai pour des dessins inspirés du Spirographe. Plusieurs couches d’engrenages, plusieurs tracés par couche, pistes personnalisées façon « Super Spirograph ». Nombre de dents, espacement des dents, espacement des trous et couleurs configurables. Export en JSON, PNG et SVG.
+Un simulateur/banc d’essai pour des dessins inspirés du Spirographe. Plusieurs couches d’engrenages, plusieurs tracés par couche, pistes personnalisées façon « Super Spirograph ». Tailles des engrenages, décalages de tracé et couleurs configurables. Export en JSON, PNG et SVG.
 
 ## Installation
 
@@ -47,7 +47,6 @@ La fenêtre principale affiche le dessin et propose les menus et dialogues suiva
 
 ### Menu Options
 
-- **Espacement radial / pas des dents** : régler l’espacement radial des trous et le pas des dents.
 - **Couleur de fond** : définir la couleur d’arrière-plan (nom CSS4 ou hex).
 - **Taille du canevas et précision** : régler largeur/hauteur et points par tracé.
 - **Langue** : basculer l’interface en français ou en anglais.
@@ -83,8 +82,8 @@ engrenage, vous pouvez configurer :
 - **Type** :
   - `anneau`, `roue`, `triangle`, `carré`, `barre`, `croix`, `oeil`
   - `modulaire` (piste modulaire de base, uniquement pour l’engrenage 1)
-- **Dents (roue / int. anneau)** : nombre de dents de la roue ou de l’anneau intérieur.
-- **Dents ext. (anneau)** : nombre de dents de l’anneau extérieur.
+- **Taille (roue / int. anneau)** : taille de la roue ou de l’anneau intérieur.
+- **Taille ext. (anneau)** : taille de l’anneau extérieur.
 - **Relation** :
   - `stationnaire` : uniquement pour l’engrenage 1 (fixe).
   - `dedans` : la roue roule à l’intérieur de l’anneau (hypotrochoïde).
@@ -97,8 +96,8 @@ engrenage, vous pouvez configurer :
 Chaque tracé définit la position du stylo sur la roue mobile :
 
 - **Nom** : libellé affiché dans le gestionnaire et dans les exports.
-- **Indice de trou** : indice radial du trou sur l’engrenage (distance au centre).
-- **Décalage de phase (dents)** : déphasage appliqué à la position du stylo.
+- **Décalage du trou** : décalage radial du trou sur l’engrenage (distance au centre).
+- **Décalage de phase (tours)** : déphasage appliqué à la position du stylo.
 - **Couleur** : nom CSS4 ou hex `#RRGGBB`.
 - **Largeur de trait** : épaisseur dans l’aperçu et les exports.
 - **Zoom du tracé** : échelle appliquée uniquement à ce tracé (multipliée par le zoom de couche).
@@ -125,11 +124,11 @@ initial saute directement à la première branche ouverte.
 ### Pièces
 
 - `aNN` : arc de `NN` degrés. Le signe (`+`/`-`) indique le sens.
-- `dNN` : segment droit de `NN` dents.
+- `dNN` : segment droit de `NN` unités.
 - `b` : bout arrondi (demi-cercle) reliant les deux côtés de la piste.
 - `y` : jonction triangulaire composée de trois arcs de 120° espacés de la
   largeur de la piste.
-- `nNN` : décalage d’origine en dents, dans le sens du signe courant.
+- `nNN` : décalage d’origine en unités, dans le sens du signe courant.
 - `oNN` : décalage angulaire d’origine en degrés, avec la même convention de signe.
 
 `NN` peut être entier ou décimal.
@@ -140,5 +139,5 @@ initial saute directement à la première branche ouverte.
 +a90-d40+b*a90
 ```
 
-Construit un arc de 90° à gauche, une droite de 40 dents, un bout arrondi, puis
+Construit un arc de 90° à gauche, une droite de 40 unités, un bout arrondi, puis
 poursuit sur la branche suivante avec un autre arc de 90°.

@@ -6,27 +6,26 @@ au cahier des charges suivant :
 - Une piste est décrite par une suite de blocs "lettre+nombre" séparés par les
   opérateurs "+", "-" ou "*". Un signe initial optionnel précise le côté vers
   lequel tourne la première pièce.
-- Les paramètres de référence (dents intérieures / extérieures et pas) sont
-  fournis par l'appelant, par défaut 144 dents intérieures, 96 dents
-  extérieures et le pas standard du Spirograph.
+- Les paramètres de référence (tailles intérieure / extérieure) sont fournis
+  par l'appelant, par défaut 144 unités intérieures et 96 unités extérieures.
 - La largeur de piste est la différence de rayon entre les deux cercles de
   référence ; elle est donc constante pour toutes les pièces.
 - Les pièces reconnues sont :
     * ``aNN`` : arc de NN degrés ; l'orientation est donnée par l'opérateur
       précédent (``+`` pour tourner à gauche, ``-`` pour tourner à droite).
-    * ``dNN`` : droite de NN dents.
+    * ``dNN`` : droite de NN unités de longueur.
     * ``b``   : bout arrondi (demi-cercle) reliant les deux côtés de la piste ;
       aucune longueur n'est indiquée après la lettre.
     * ``y``   : jonction triangulaire composée de trois arcs de 120° espacés de
-      la largeur de la piste. Les dents de ces arcs sont toujours évaluées avec
-      le nombre de dents intérieures de l'anneau de référence.
-    * ``nNN`` : décalage de l'origine en nombre de dents, appliqué dans la
+      la largeur de la piste. Les longueurs de ces arcs sont toujours évaluées
+      avec la taille intérieure de l'anneau de référence.
+    * ``nNN`` : décalage de l'origine en unités de longueur, appliqué dans la
       direction indiquée par le signe précédent (gauche = ``+``, droite = ``-``).
     * ``oNN`` : décalage angulaire de l'origine en degrés, avec le même
       convention de signe que ``n``.
 - L'opérateur ``*`` fait passer à la prochaine branche ouverte (issue d'un
   ``y`` ou d'un bout ``b`` qui laisse un côté libre).
-- À l'ajout de chaque pièce, les dents consommées sur les pistes gauche et
+- À l'ajout de chaque pièce, les longueurs consommées sur les pistes gauche et
   droite sont comptabilisées. Une fois la piste terminée, la piste la plus
   courte est considérée comme l'intérieur ; la plus longue, comme l'extérieur.
 
@@ -56,26 +55,23 @@ class ReferenceRing:
     toujours le plus petit rayon, conformément à la notion de "rayon intérieur".
     """
 
-    inner_teeth: float = 144.0
-    outer_teeth: float = 96.0
-    pitch_mm_per_tooth: float = 0.65
+    inner_size: float = 144.0
+    outer_size: float = 96.0
 
     def __post_init__(self) -> None:
-        if self.pitch_mm_per_tooth <= 0:
-            raise ValueError("pitch_mm_per_tooth doit être positif")
-        r_inner = (self.inner_teeth * self.pitch_mm_per_tooth) / (2.0 * math.pi)
-        r_outer = (self.outer_teeth * self.pitch_mm_per_tooth) / (2.0 * math.pi)
+        r_inner = self.inner_size / (2.0 * math.pi)
+        r_outer = self.outer_size / (2.0 * math.pi)
         if r_inner > r_outer:
             # on réordonne pour garantir r_inner <= r_outer
-            self.inner_teeth, self.outer_teeth = self.outer_teeth, self.inner_teeth
+            self.inner_size, self.outer_size = self.outer_size, self.inner_size
 
     @property
     def r_inner(self) -> float:
-        return (self.inner_teeth * self.pitch_mm_per_tooth) / (2.0 * math.pi)
+        return self.inner_size / (2.0 * math.pi)
 
     @property
     def r_outer(self) -> float:
-        return (self.outer_teeth * self.pitch_mm_per_tooth) / (2.0 * math.pi)
+        return self.outer_size / (2.0 * math.pi)
 
     @property
     def width(self) -> float:
@@ -103,7 +99,7 @@ class TrackBlock:
 @dataclass
 class ParsedTrack:
     blocks: List[TrackBlock]
-    origin_teeth_offset: float
+    origin_offset: float
     origin_angle_offset: float
     default_turn: int
 
@@ -133,12 +129,12 @@ class TrackBuildResult:
     points: List[Point]
     width: float
     half_width: float
-    left_teeth: float
-    right_teeth: float
-    inner_teeth: float
-    outer_teeth: float
+    left_length: float
+    right_length: float
+    inner_length: float
+    outer_length: float
     inner_side: str
-    origin_teeth_offset: float
+    origin_offset: float
     origin_angle_offset: float
     ring: ReferenceRing
 
@@ -153,8 +149,8 @@ class TrackRollBundle:
     centre: List[Point]
     contact: List[Point]
     marker0: List[Point]
-    wheel_teeth_indices: List[int]
-    track_teeth_indices: List[int]
+    wheel_marker_indices: List[int]
+    track_marker_indices: List[int]
     context: "TrackRollContext"
 
 
@@ -162,11 +158,10 @@ class TrackRollBundle:
 class TrackRollContext:
     half_width: float
     r_wheel: float
-    N_wheel: int
-    N_track: int
+    wheel_size: int
+    track_size: int
     track_length: float
     sign_side: float
-    pitch_mm_per_tooth: float
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +187,7 @@ def parse_track_notation(text: str) -> ParsedTrack:
 
     cleaned = text.replace(" ", "").lower()
     if not cleaned:
-        return ParsedTrack(blocks=[], origin_teeth_offset=0.0, origin_angle_offset=0.0, default_turn=1)
+        return ParsedTrack(blocks=[], origin_offset=0.0, origin_angle_offset=0.0, default_turn=1)
 
     blocks: List[TrackBlock] = []
     idx = 0
@@ -205,7 +200,7 @@ def parse_track_notation(text: str) -> ParsedTrack:
         return None, pos
 
     default_turn = 1
-    origin_teeth_offset = 0.0
+    origin_offset = 0.0
     origin_angle_offset = 0.0
 
     op, idx = _consume_operator(idx)
@@ -224,7 +219,7 @@ def parse_track_notation(text: str) -> ParsedTrack:
         value, idx = _parse_number(cleaned, idx)
         if value is not None:
             delta = value if implicit_op == "+" else -value
-            origin_teeth_offset += delta
+            origin_offset += delta
 
     while idx < n:
         op, idx = _consume_operator(idx)
@@ -243,7 +238,7 @@ def parse_track_notation(text: str) -> ParsedTrack:
             if value is None:
                 break
             delta = value if (pending_op or "+") == "+" else -value
-            origin_teeth_offset += delta
+            origin_offset += delta
             continue
 
         letter = cleaned[idx]
@@ -267,14 +262,14 @@ def parse_track_notation(text: str) -> ParsedTrack:
 
         if letter == "n":
             delta = value or 0.0
-            origin_teeth_offset += delta if operator == "+" else -delta
+            origin_offset += delta if operator == "+" else -delta
         if letter == "o":
             delta = value or 0.0
             origin_angle_offset += delta if operator == "+" else -delta
 
     return ParsedTrack(
         blocks=blocks,
-        origin_teeth_offset=origin_teeth_offset,
+        origin_offset=origin_offset,
         origin_angle_offset=origin_angle_offset,
         default_turn=default_turn,
     )
@@ -340,7 +335,7 @@ def _append_arc(
     ring: ReferenceRing,
     s_cursor: float,
     radius_override: Optional[float] = None,
-    teeth_for_both_sides: Optional[float] = None,
+    length_for_both_sides: Optional[float] = None,
 ) -> Tuple[TrackSegment, _Pose, float, float, float]:
     angle_rad = math.radians(angle_deg)
     if angle_rad == 0:
@@ -372,10 +367,9 @@ def _append_arc(
     length_left = abs(radius_left * angle_rad)
     length_right = abs(radius_right * angle_rad)
 
-    if teeth_for_both_sides is not None:
-        # Imposer les longueurs via la règle des dents explicitée
-        length_left = length_right = teeth_for_both_sides * ring.pitch_mm_per_tooth
-        length_center = length_left  # cohérence locale
+    if length_for_both_sides is not None:
+        length_left = length_right = length_for_both_sides
+        length_center = length_left
 
     x0, y0 = pose.point
     tx, ty = pose.tangent
@@ -455,8 +449,8 @@ def _segment_normal(seg: TrackSegment) -> Point:
 def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResult:
     pose = _Pose(point=(0.0, 0.0), tangent=(1.0, 0.0), normal=(0.0, 1.0))
     s_cursor = 0.0
-    left_teeth = 0.0
-    right_teeth = 0.0
+    left_length = 0.0
+    right_length = 0.0
     segments: List[TrackSegment] = []
     branch_queue: List[_BranchState] = []
 
@@ -475,11 +469,11 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
         turn_sign = 1 if block.operator == "+" else -1
 
         if block.kind == "d":
-            length_mm = (block.value or 0.0) * ring.pitch_mm_per_tooth
+            length_mm = block.value or 0.0
             seg, pose, len_left, len_right, s_cursor = _append_line(pose, length_mm, s_cursor)
             segments.append(seg)
-            left_teeth += len_left / ring.pitch_mm_per_tooth
-            right_teeth += len_right / ring.pitch_mm_per_tooth
+            left_length += len_left
+            right_length += len_right
             continue
 
         if block.kind == "a":
@@ -491,9 +485,8 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
                 s_cursor=s_cursor,
             )
             segments.append(seg)
-            # comptage des dents basé sur la longueur réelle des côtés
-            left_teeth += len_left / ring.pitch_mm_per_tooth
-            right_teeth += len_right / ring.pitch_mm_per_tooth
+            left_length += len_left
+            right_length += len_right
             continue
 
         if block.kind == "b":
@@ -506,8 +499,8 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
                 radius_override=ring.half_width,
             )
             segments.append(seg)
-            left_teeth += len_left / ring.pitch_mm_per_tooth
-            right_teeth += len_right / ring.pitch_mm_per_tooth
+            left_length += len_left
+            right_length += len_right
             # Le bout ouvre implicitement une branche libre
             branch_queue.append(_BranchState(pose=_Pose(point=pose.point, tangent=pose.tangent, normal=pose.normal)))
             continue
@@ -523,11 +516,11 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
                 ring=ring,
                 s_cursor=s_cursor,
                 radius_override=r_geo,
-                teeth_for_both_sides=ring.inner_teeth * (angle / 360.0),
+                length_for_both_sides=ring.inner_size * (angle / 360.0),
             )
             segments.append(seg0)
-            left_teeth += len_left / ring.pitch_mm_per_tooth
-            right_teeth += len_right / ring.pitch_mm_per_tooth
+            left_length += len_left
+            right_length += len_right
 
             heading = math.atan2(pose.tangent[1], pose.tangent[0])
             alpha0 = heading - turn_sign * (math.pi / 2.0)
@@ -551,7 +544,7 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
                     ring=ring,
                     s_cursor=0.0,
                     radius_override=r_geo,
-                    teeth_for_both_sides=ring.inner_teeth * (angle / 360.0),
+                    length_for_both_sides=ring.inner_size * (angle / 360.0),
                 )
                 branch_state = _BranchState(pose=branch_end_pose, pending_segments=[seg_branch])
                 branch_queue.append(branch_state)
@@ -563,17 +556,17 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
     segments = _apply_origin_offsets(
         segments,
         rotation_deg=parsed.origin_angle_offset,
-        offset_teeth=parsed.origin_teeth_offset,
+        offset_length=parsed.origin_offset,
         ring=ring,
     )
 
     points = list(_sample_segments(segments, max(200, len(segments) * 10)))
 
-    inner_teeth = min(left_teeth, right_teeth)
-    outer_teeth = max(left_teeth, right_teeth)
-    if math.isclose(inner_teeth, outer_teeth, rel_tol=1e-9, abs_tol=1e-9):
+    inner_length = min(left_length, right_length)
+    outer_length = max(left_length, right_length)
+    if math.isclose(inner_length, outer_length, rel_tol=1e-9, abs_tol=1e-9):
         inner_side = "both"
-    elif left_teeth <= right_teeth:
+    elif left_length <= right_length:
         inner_side = "left"
     else:
         inner_side = "right"
@@ -583,12 +576,12 @@ def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResul
         points=points,
         width=ring.width,
         half_width=ring.half_width,
-        left_teeth=left_teeth,
-        right_teeth=right_teeth,
-        inner_teeth=inner_teeth,
-        outer_teeth=outer_teeth,
+        left_length=left_length,
+        right_length=right_length,
+        inner_length=inner_length,
+        outer_length=outer_length,
         inner_side=inner_side,
-        origin_teeth_offset=parsed.origin_teeth_offset,
+        origin_offset=parsed.origin_offset,
         origin_angle_offset=parsed.origin_angle_offset,
         ring=ring,
     )
@@ -598,7 +591,7 @@ def _apply_origin_offsets(
     segments: List[TrackSegment],
     *,
     rotation_deg: float,
-    offset_teeth: float,
+    offset_length: float,
     ring: ReferenceRing,
 ) -> List[TrackSegment]:
     if not segments:
@@ -607,7 +600,7 @@ def _apply_origin_offsets(
     rot = math.radians(rotation_deg)
     cos_r = math.cos(rot)
     sin_r = math.sin(rot)
-    offset_mm = offset_teeth * ring.pitch_mm_per_tooth
+    offset_mm = offset_length
     # translation suivant la normale initiale (0, 1)
     dx = 0.0
     dy = offset_mm
@@ -787,13 +780,12 @@ def _make_side_segments(track: TrackBuildResult, side: str) -> List[TrackSegment
 
 def build_track_from_notation(
     notation: str,
-    inner_teeth: int = 144,
-    outer_teeth: int = 96,
-    pitch_mm_per_tooth: float = 0.65,
-    steps_per_tooth: int = 3,
+    inner_size: int = 144,
+    outer_size: int = 96,
+    steps_per_unit: int = 3,
 ) -> TrackBuildResult:
     parsed = parse_track_notation(notation)
-    ring = ReferenceRing(inner_teeth=float(inner_teeth), outer_teeth=float(outer_teeth), pitch_mm_per_tooth=pitch_mm_per_tooth)
+    ring = ReferenceRing(inner_size=float(inner_size), outer_size=float(outer_size))
     return _build_segments(parsed, ring)
 
 
@@ -815,14 +807,13 @@ def compute_track_polylines(
 
 def compute_track_lengths(
     track: TrackBuildResult,
-    inner_teeth: float,
-    outer_teeth: float,
-    pitch_mm_per_tooth: float,
+    inner_size: float,
+    outer_size: float,
 ) -> Tuple[float, float, float]:
-    del inner_teeth, outer_teeth  # déjà intégrés dans le TrackBuildResult
-    inner_length = track.inner_teeth * pitch_mm_per_tooth
-    outer_length = track.outer_teeth * pitch_mm_per_tooth
-    mid_length = 0.5 * (track.left_teeth + track.right_teeth) * pitch_mm_per_tooth
+    del inner_size, outer_size  # déjà intégrés dans le TrackBuildResult
+    inner_length = track.inner_length
+    outer_length = track.outer_length
+    mid_length = 0.5 * (track.left_length + track.right_length)
     return inner_length, mid_length, outer_length
 
 
@@ -842,22 +833,19 @@ def _select_side_for_relation(track: TrackBuildResult, relation: str) -> str:
 def build_track_and_bundle_from_notation(
     *,
     notation: str,
-    wheel_teeth: int,
-    hole_index: float,
-    hole_spacing_mm: float,
+    wheel_size: int,
+    hole_offset: float,
     steps: int,
     relation: str = "dedans",
-    wheel_phase_teeth: float = 0.0,
-    inner_teeth: int = 144,
-    outer_teeth: int = 96,
-    pitch_mm_per_tooth: float = 0.65,
+    phase_offset: float = 0.0,
+    inner_size: int = 144,
+    outer_size: int = 96,
 ) -> Tuple[TrackBuildResult, TrackRollBundle]:
     track = build_track_from_notation(
         notation,
-        inner_teeth=inner_teeth,
-        outer_teeth=outer_teeth,
-        pitch_mm_per_tooth=pitch_mm_per_tooth,
-        steps_per_tooth=3,
+        inner_size=inner_size,
+        outer_size=outer_size,
+        steps_per_unit=3,
     )
 
     if steps < 2:
@@ -870,29 +858,28 @@ def build_track_and_bundle_from_notation(
         empty_context = TrackRollContext(
             half_width=track.half_width,
             r_wheel=0.0,
-            N_wheel=max(1, int(wheel_teeth)),
-            N_track=max(1, int(round(track.left_teeth if side == "left" else track.right_teeth))),
+            wheel_size=max(1, int(wheel_size)),
+            track_size=max(1, int(round(track.left_length if side == "left" else track.right_length))),
             track_length=0.0,
             sign_side=1.0 if side == "left" else -1.0,
-            pitch_mm_per_tooth=pitch_mm_per_tooth,
         )
         empty = TrackRollBundle(
             stylo=[],
             centre=[],
             contact=[],
             marker0=[],
-            wheel_teeth_indices=[],
-            track_teeth_indices=[],
+            wheel_marker_indices=[],
+            track_marker_indices=[],
             context=empty_context,
         )
         return track, empty
 
-    wheel_teeth = max(1, int(wheel_teeth))
-    wheel_radius = (wheel_teeth * pitch_mm_per_tooth) / (2.0 * math.pi)
-    track_teeth_side = track.left_teeth if side == "left" else track.right_teeth
-    track_teeth_side = max(1, int(round(track_teeth_side)))
-    g = math.gcd(track_teeth_side, wheel_teeth)
-    laps = max(1, wheel_teeth // g)
+    wheel_size = max(1, int(wheel_size))
+    wheel_radius = wheel_size / (2.0 * math.pi)
+    track_size_side = track.left_length if side == "left" else track.right_length
+    track_size_side = max(1, int(round(track_size_side)))
+    g = math.gcd(track_size_side, wheel_size)
+    laps = max(1, wheel_size // g)
     s_max = side_length * laps
 
     sign_side = 1 if side == "left" else -1
@@ -911,26 +898,26 @@ def build_track_and_bundle_from_notation(
         cx = contact[0] + sign_side * normal[0] * wheel_radius
         cy = contact[1] + sign_side * normal[1] * wheel_radius
 
-        teeth_rolled = (s / pitch_mm_per_tooth) - float(wheel_phase_teeth) + track.origin_teeth_offset
+        distance_rolled = s + track.origin_offset
         angle_contact = math.atan2(contact[1] - cy, contact[0] - cx)
-        phi = angle_contact + roll_sign * 2.0 * math.pi * (teeth_rolled / float(wheel_teeth))
-        d = max(0.0, wheel_radius - hole_index * hole_spacing_mm)
+        phi = angle_contact + roll_sign * 2.0 * math.pi * ((distance_rolled / float(wheel_size)) - phase_offset)
+        d = max(0.0, wheel_radius - hole_offset)
 
         stylo_points.append((cx + d * math.cos(phi), cy + d * math.sin(phi)))
         centre_points.append((cx, cy))
         contact_points.append(contact)
         marker0.append((cx + wheel_radius * math.cos(angle_contact), cy + wheel_radius * math.sin(angle_contact)))
-        wheel_indices.append(int(math.floor((teeth_rolled % wheel_teeth + wheel_teeth) % wheel_teeth)))
-        track_indices.append(int(math.floor(((s / pitch_mm_per_tooth) + track.origin_teeth_offset) % track_teeth_side)))
+        roll_offset = (distance_rolled / float(wheel_size)) - phase_offset
+        wheel_indices.append(int(math.floor((roll_offset % 1.0) * wheel_size)))
+        track_indices.append(int(math.floor(((s + track.origin_offset) % track_size_side))))
 
     context = TrackRollContext(
         half_width=track.half_width,
         r_wheel=wheel_radius,
-        N_wheel=wheel_teeth,
-        N_track=track_teeth_side,
+        wheel_size=wheel_size,
+        track_size=track_size_side,
         track_length=side_length,
         sign_side=sign_side,
-        pitch_mm_per_tooth=pitch_mm_per_tooth,
     )
 
     bundle = TrackRollBundle(
@@ -938,8 +925,8 @@ def build_track_and_bundle_from_notation(
         centre=centre_points,
         contact=contact_points,
         marker0=marker0,
-        wheel_teeth_indices=wheel_indices,
-        track_teeth_indices=track_indices,
+        wheel_marker_indices=wheel_indices,
+        track_marker_indices=track_indices,
         context=context,
     )
     return track, bundle
@@ -947,28 +934,24 @@ def build_track_and_bundle_from_notation(
 
 def generate_track_base_points(
     notation: str,
-    wheel_teeth: int,
-    hole_index: float,
-    hole_spacing_mm: float,
+    wheel_size: int,
+    hole_offset: float,
     steps: int,
     relation: str = "dedans",
     output_mode: str = "stylo",
-    wheel_phase_teeth: float = 0.0,
-    inner_teeth: int = 144,
-    outer_teeth: int = 96,
-    pitch_mm_per_tooth: float = 0.65,
+    phase_offset: float = 0.0,
+    inner_size: int = 144,
+    outer_size: int = 96,
 ) -> List[Point]:
     track, bundle = build_track_and_bundle_from_notation(
         notation=notation,
-        wheel_teeth=wheel_teeth,
-        hole_index=hole_index,
-        hole_spacing_mm=hole_spacing_mm,
+        wheel_size=wheel_size,
+        hole_offset=hole_offset,
         steps=steps,
         relation=relation,
-        wheel_phase_teeth=wheel_phase_teeth,
-        inner_teeth=inner_teeth,
-        outer_teeth=outer_teeth,
-        pitch_mm_per_tooth=pitch_mm_per_tooth,
+        phase_offset=phase_offset,
+        inner_size=inner_size,
+        outer_size=outer_size,
     )
 
     mode = output_mode.lower()
