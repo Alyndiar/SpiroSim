@@ -306,6 +306,7 @@ TRANSLATIONS = {
         "menu_file_save_json": "Sauvegarder paramètres (JSON)…",
         "menu_file_export_svg": "Exporter en SVG…",
         "menu_file_export_png": "Exporter en PNG haute résolution…",
+        "menu_file_quit": "Quitter",
 
         "menu_options_canvas": "Taille du canevas et précision…",
 
@@ -422,6 +423,7 @@ TRANSLATIONS = {
         "menu_file_save_json": "Save settings (JSON)…",
         "menu_file_export_svg": "Export as SVG…",
         "menu_file_export_png": "Export as high-res PNG…",
+        "menu_file_quit": "Quit",
 
         "menu_options_canvas": "Canvas size and precision…",
 
@@ -2809,17 +2811,21 @@ class SpiroWindow(QWidget):
         self.act_save_json = QAction(menubar)
         self.act_export_svg = QAction(menubar)
         self.act_export_png = QAction(menubar)
+        self.act_quit = QAction(menubar)
 
         self.menu_file.addAction(self.act_load_json)
         self.menu_file.addAction(self.act_save_json)
         self.menu_file.addSeparator()
         self.menu_file.addAction(self.act_export_svg)
         self.menu_file.addAction(self.act_export_png)
+        self.menu_file.addSeparator()
+        self.menu_file.addAction(self.act_quit)
 
         self.act_load_json.triggered.connect(self.load_from_json)
         self.act_save_json.triggered.connect(self.save_to_json)
         self.act_export_svg.triggered.connect(self.export_svg)
         self.act_export_png.triggered.connect(self.export_png)
+        self.act_quit.triggered.connect(self.close)
 
         # Menu Couches
         self.menu_layers = QMenu(menubar)
@@ -3008,6 +3014,7 @@ class SpiroWindow(QWidget):
         self.act_save_json.setText(tr(self.language, "menu_file_save_json"))
         self.act_export_svg.setText(tr(self.language, "menu_file_export_svg"))
         self.act_export_png.setText(tr(self.language, "menu_file_export_png"))
+        self.act_quit.setText(tr(self.language, "menu_file_quit"))
 
         # Actions Options
         self.act_manage_layers.setText(tr(self.language, "menu_layers_manage"))
