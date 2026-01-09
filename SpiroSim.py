@@ -490,6 +490,31 @@ RELATIONS = [
     "dehors",        # gear outside (épitrochoïde)
 ]
 
+GEAR_TYPE_LABELS = {
+    "anneau": {"fr": "anneau", "en": "ring"},
+    "roue": {"fr": "roue", "en": "wheel"},
+    "triangle": {"fr": "triangle", "en": "triangle"},
+    "carré": {"fr": "carré", "en": "square"},
+    "barre": {"fr": "barre", "en": "bar"},
+    "croix": {"fr": "croix", "en": "cross"},
+    "oeil": {"fr": "oeil", "en": "eye"},
+    "modulaire": {"fr": "modulaire", "en": "modular"},
+}
+
+RELATION_LABELS = {
+    "stationnaire": {"fr": "stationnaire", "en": "stationary"},
+    "dedans": {"fr": "dedans", "en": "inside"},
+    "dehors": {"fr": "dehors", "en": "outside"},
+}
+
+
+def gear_type_label(gear_type: str, lang: str) -> str:
+    return GEAR_TYPE_LABELS.get(gear_type, {}).get(lang, gear_type)
+
+
+def relation_label(relation: str, lang: str) -> str:
+    return RELATION_LABELS.get(relation, {}).get(lang, relation)
+
 
 @dataclass
 class GearConfig:
@@ -1656,13 +1681,15 @@ class LayerEditDialog(QDialog):
             group_label = QLabel(tr(self.lang, "dlg_layer_gear_label").format(index=i + 1))
             gear_name_edit = QLineEdit()
             gear_type_combo = QComboBox()
-            gear_type_combo.addItems(GEAR_TYPES)
+            for gear_type in GEAR_TYPES:
+                gear_type_combo.addItem(gear_type_label(gear_type, self.lang), gear_type)
             teeth_spin = QSpinBox()
             teeth_spin.setRange(1, 10000)
             outer_spin = QSpinBox()
             outer_spin.setRange(0, 20000)
             rel_combo = QComboBox()
-            rel_combo.addItems(RELATIONS)
+            for relation in RELATIONS:
+                rel_combo.addItem(relation_label(relation, self.lang), relation)
 
             # Édition de la notation modulaire (visible seulement pour engrenage 1 + type "modulaire")
             modular_edit = QLineEdit()
@@ -1711,7 +1738,7 @@ class LayerEditDialog(QDialog):
 
             # Restreindre "modulaire" aux engrenages d'indice 0 uniquement
             if i > 0:
-                idx_mod = gear_type_combo.findText("modulaire")
+                idx_mod = gear_type_combo.findData("modulaire")
                 if idx_mod >= 0:
                     gear_type_combo.removeItem(idx_mod)
 
@@ -1763,9 +1790,8 @@ class LayerEditDialog(QDialog):
             if idx > 0 and gear_type == "modulaire":
                 gear_type = "roue"
 
-            try:
-                type_index = GEAR_TYPES.index(gear_type)
-            except ValueError:
+            type_index = gw["type_combo"].findData(gear_type)
+            if type_index < 0:
                 type_index = 0
             gw["type_combo"].setCurrentIndex(type_index)
 
@@ -1773,9 +1799,8 @@ class LayerEditDialog(QDialog):
             gw["outer_spin"].setValue(g.outer_teeth if g.outer_teeth > 0 else 0)
             gw["modular_edit"].setText(getattr(g, "modular_notation", "") or "")
 
-            try:
-                rel_index = RELATIONS.index(g.relation)
-            except ValueError:
+            rel_index = gw["rel_combo"].findData(g.relation)
+            if rel_index < 0:
                 rel_index = 0
             gw["rel_combo"].setCurrentIndex(rel_index)
             self._update_gear_widget_visibility(gw)
@@ -1794,7 +1819,7 @@ class LayerEditDialog(QDialog):
         layout.addRow(btn_box)
 
     def _update_gear_widget_visibility(self, gw: dict):
-        t = gw["type_combo"].currentText()
+        t = gw["type_combo"].currentData() or gw["type_combo"].currentText()
         idx = gw.get("index", 0)
 
         # "anneau" et "modulaire" ont des dents intérieures / extérieures
@@ -1811,7 +1836,7 @@ class LayerEditDialog(QDialog):
     def _open_modular_editor_from_widget(self, gw: dict):
         if gw.get("index", 0) != 0:
             return
-        if gw["type_combo"].currentText() != "modulaire":
+        if (gw["type_combo"].currentData() or gw["type_combo"].currentText()) != "modulaire":
             return
 
         notation = gw["modular_edit"].text().strip()
@@ -1839,7 +1864,7 @@ class LayerEditDialog(QDialog):
         for i in range(num_gears):
             gw = self.gear_widgets[i]
             name = gw["name_edit"].text().strip() or tr(self.lang, "default_gear_name").format(index=i + 1)
-            gear_type = gw["type_combo"].currentText()
+            gear_type = gw["type_combo"].currentData() or gw["type_combo"].currentText()
 
             # Sécurité : on n’autorise "modulaire" que pour le premier engrenage
             if i > 0 and gear_type == "modulaire":
@@ -1848,7 +1873,7 @@ class LayerEditDialog(QDialog):
             teeth = gw["teeth_spin"].value()
             outer_teeth = gw["outer_spin"].value() if gear_type in ("anneau", "modulaire") else 0
 
-            rel = gw["rel_combo"].currentText()
+            rel = gw["rel_combo"].currentData() or gw["rel_combo"].currentText()
             if i == 0:
                 rel = "stationnaire"
 
@@ -2204,20 +2229,22 @@ class LayerManagerDialog(QDialog):
 
     def _layer_summary(self, layer: LayerConfig) -> str:
         parts = []
-        parts.append(f"{len(layer.gears)} engr., zoom {layer.zoom:g}")
+        gears_label = "engr." if self.lang == "fr" else "gears"
+        parts.append(f"{len(layer.gears)} {gears_label}, zoom {layer.zoom:g}")
         gear_descs = []
         for i, g in enumerate(layer.gears):
+            type_name = gear_type_label(g.gear_type, self.lang)
             if i == 0:
-                type_name = g.gear_type.capitalize()
+                type_name = type_name.capitalize()
             else:
-                type_name = g.gear_type.lower()
+                type_name = type_name.lower()
 
             if g.gear_type in ("anneau", "modulaire") and g.outer_teeth > 0:
                 tooth_str = f"{g.outer_teeth}/{g.teeth}"
             else:
                 tooth_str = f"{g.teeth}"
 
-            rel = "stat" if g.relation == "stationnaire" else g.relation
+            rel = relation_label(g.relation, self.lang)
             gear_descs.append(f"{type_name} {tooth_str} {rel}")
         if gear_descs:
             parts.append(", ".join(gear_descs))

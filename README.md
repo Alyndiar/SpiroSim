@@ -1,5 +1,7 @@
 # SpiroSim
 
+**English** | [Français](README.fr.md)
+
 A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, multiple traces per layers, "Super Spirograph"-inspired custom tracks. Configurable number of teeth per gear, tooth spacing, hole spacing, colors. Save/export designs to JSON, PNG and SVG.
 
 ## Installation
@@ -76,17 +78,15 @@ configure:
 
 - **Name**: label displayed in the manager.
 - **Type**:
-  - `anneau` (ring)
-  - `roue` (wheel)
-  - `triangle`, `carré`, `barre`, `croix`, `oeil`
-  - `modulaire` (modular track base, only allowed for Gear 1)
+  - `ring`, `wheel`, `triangle`, `square`, `bar`, `cross`, `eye`
+  - `modular` (modular track base, only allowed for Gear 1)
 - **Teeth (wheel / inner ring)**: tooth count for the wheel or inner ring.
 - **Outer teeth (ring)**: outer tooth count for ring-type gears.
 - **Relation**:
-  - `stationnaire`: only valid for Gear 1 (fixed in place).
-  - `dedans`: wheel rolls inside the ring (hypotrochoid).
-  - `dehors`: wheel rolls outside the ring (epitrochoid).
-- **Modular track (notation)**: only shown for Gear 1 when type is `modulaire`.
+  - `stationary`: only valid for Gear 1 (fixed in place).
+  - `inside`: wheel rolls inside the ring (hypotrochoid).
+  - `outside`: wheel rolls outside the ring (epitrochoid).
+- **Modular track (notation)**: only shown for Gear 1 when type is `modular`.
   This uses the custom track notation described below.
 
 ### Path (trace) settings
