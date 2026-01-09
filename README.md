@@ -49,7 +49,6 @@ The main window renders the drawing and exposes the following menus and dialogs.
 ### Options menu
 
 - **Background color**: set the canvas background (CSS4 name or hex).
-- **Modular track editor**: edit and preview a modular track notation string.
 
 ### Regenerate menu
 

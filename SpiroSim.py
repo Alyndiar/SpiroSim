@@ -3025,11 +3025,6 @@ class SpiroWindow(QWidget):
         self.act_lang_fr.triggered.connect(lambda: self.set_language("fr"))
         self.act_lang_en.triggered.connect(lambda: self.set_language("en"))
 
-        act_modular_editor = QAction(
-            tr(self.language, "menu_modular_editor"), self,
-        )
-        act_modular_editor.triggered.connect(self.open_modular_track_editor)
-        self.menu_options.addAction(act_modular_editor)
 
         # Menu Régénérer
         self.menu_regen = QMenu(menubar)

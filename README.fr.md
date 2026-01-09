@@ -49,7 +49,6 @@ La fenêtre principale affiche le dessin et propose les menus et dialogues suiva
 ### Menu Options
 
 - **Couleur de fond** : définir la couleur d’arrière-plan (nom CSS4 ou hex).
-- **Éditeur de piste modulaire** : éditer et prévisualiser une notation de piste modulaire.
 
 ### Menu Régénérer
 
