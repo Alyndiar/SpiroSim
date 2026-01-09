@@ -1349,7 +1349,6 @@ def layers_to_svg(
                     layer_track_points = centerline
                     layer_track_width_mm = (half_w * 2.0) * layer_zoom
         layer_paths = []
-        layer_trace_points = []
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
                 layer,
@@ -1361,21 +1360,17 @@ def layers_to_svg(
             path_zoom = getattr(path, "zoom", 1.0)
             zoom = layer_zoom * path_zoom
             pts_zoomed = [(x * zoom, y * zoom) for (x, y) in pts]
-            layer_paths.append((path, pts_zoomed, path_zoom))
-            layer_trace_points.extend(pts_zoomed)
-
-        if layer_trace_points:
-            layer_cx = sum(p[0] for p in layer_trace_points) / len(layer_trace_points)
-            layer_cy = sum(p[1] for p in layer_trace_points) / len(layer_trace_points)
-        else:
-            layer_cx = 0.0
-            layer_cy = 0.0
+            if pts_zoomed:
+                path_cx = sum(p[0] for p in pts_zoomed) / len(pts_zoomed)
+                path_cy = sum(p[1] for p in pts_zoomed) / len(pts_zoomed)
+            else:
+                path_cx = 0.0
+                path_cy = 0.0
+            shifted_points = [(x - path_cx, y - path_cy) for (x, y) in pts_zoomed]
+            layer_paths.append((path, shifted_points, path_zoom))
 
         if layer_paths:
-            for path_cfg, pts_zoomed, path_zoom in layer_paths:
-                shifted_points = [
-                    (x - layer_cx, y - layer_cy) for (x, y) in pts_zoomed
-                ]
+            for path_cfg, shifted_points, path_zoom in layer_paths:
                 rendered_paths.append(
                     (layer.name, layer_zoom, path_cfg, shifted_points, path_zoom)
                 )
@@ -1386,7 +1381,13 @@ def layers_to_svg(
             track_zoomed = [
                 (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
             ]
-            shifted_track = [(x - layer_cx, y - layer_cy) for (x, y) in track_zoomed]
+            if track_zoomed:
+                track_cx = sum(p[0] for p in track_zoomed) / len(track_zoomed)
+                track_cy = sum(p[1] for p in track_zoomed) / len(track_zoomed)
+            else:
+                track_cx = 0.0
+                track_cy = 0.0
+            shifted_track = [(x - track_cx, y - track_cy) for (x, y) in track_zoomed]
             render_tracks.append(
                 {
                     "layer_name": layer.name,
