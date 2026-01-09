@@ -97,7 +97,7 @@ Each path defines how the pen is placed on the moving gear:
 
 - **Name**: label displayed in the manager and exports.
 - **Hole offset**: radial hole offset on the moving gear (distance from center).
-- **Phase offset (turns)**: phase shift applied to the pen position.
+- **Phase offset (offset/size)**: phase shift applied to the pen position.
 - **Color**: CSS4 name or `#RRGGBB` hex.
 - **Stroke width**: line width in the preview and exports.
 - **Path zoom**: scales only this path (multiplicative with layer zoom).

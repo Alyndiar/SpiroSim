@@ -639,7 +639,8 @@ def generate_track_base_points(
       - "contact" : renvoie le point de contact (centre de la piste).
       - "centre" : renvoie la position du centre de la roue.
     phase_offset :
-      - décalage initial (en tours) de la roue par rapport au point 0 de la piste.
+      - décalage initial (en unités) de la roue par rapport au point 0 de la piste,
+        converti en tours par phase_offset / wheel_size.
     relation :
       - "dedans" : la roue roule côté intérieur de la piste.
       - "dehors" : la roue roule côté extérieur.
@@ -736,6 +737,8 @@ def generate_track_base_points(
     key = (first_piece_sign or "-", relation_effective)
     phase_sign = phase_sign_table.get(key, 1.0)
 
+    phase_turns = float(phase_offset) / float(wt)
+
     for i in range(steps):
         s = s_max * i / (steps - 1)
         x_track, y_track, theta = _interpolate_on_track(s, track.points, cum, tangents)
@@ -752,7 +755,7 @@ def generate_track_base_points(
             base_points.append((cx, cy))
             continue
 
-        roll_turns = (s / float(wt)) - float(phase_offset)
+        roll_turns = (s / float(wt)) - phase_turns
 
         # orientation du vecteur centre->contact, pour une phase cohérente
         angle_contact = math.atan2(y_track - cy, x_track - cx)

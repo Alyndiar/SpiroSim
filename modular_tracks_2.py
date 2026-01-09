@@ -892,6 +892,8 @@ def build_track_and_bundle_from_notation(
     wheel_indices: List[int] = []
     track_indices: List[int] = []
 
+    phase_turns = phase_offset / float(wheel_size)
+
     for i in range(steps):
         s = s_max * i / (steps - 1)
         contact, theta, normal = _interpolate_on_segments(s % side_length, side_segments)
@@ -900,14 +902,14 @@ def build_track_and_bundle_from_notation(
 
         distance_rolled = s + track.origin_offset
         angle_contact = math.atan2(contact[1] - cy, contact[0] - cx)
-        phi = angle_contact + roll_sign * 2.0 * math.pi * ((distance_rolled / float(wheel_size)) - phase_offset)
+        phi = angle_contact + roll_sign * 2.0 * math.pi * ((distance_rolled / float(wheel_size)) - phase_turns)
         d = max(0.0, wheel_radius - hole_offset)
 
         stylo_points.append((cx + d * math.cos(phi), cy + d * math.sin(phi)))
         centre_points.append((cx, cy))
         contact_points.append(contact)
         marker0.append((cx + wheel_radius * math.cos(angle_contact), cy + wheel_radius * math.sin(angle_contact)))
-        roll_offset = (distance_rolled / float(wheel_size)) - phase_offset
+        roll_offset = (distance_rolled / float(wheel_size)) - phase_turns
         wheel_indices.append(int(math.floor((roll_offset % 1.0) * wheel_size)))
         track_indices.append(int(math.floor(((s + track.origin_offset) % track_size_side))))
 

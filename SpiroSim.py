@@ -281,7 +281,7 @@ TRANSLATIONS = {
         "dlg_path_edit_title": "Éditer le tracé",
         "dlg_path_name": "Nom du tracé :",
         "dlg_path_hole_index": "Décalage du trou :",
-        "dlg_path_phase": "Décalage de phase (tours) :",
+        "dlg_path_phase": "Décalage de phase (offset/size) :",
         "dlg_path_color": "Couleur (nom CSS4 ou #hex) :",
         "dlg_path_width": "Largeur de trait :",
         "dlg_path_zoom": "Zoom du tracé :",
@@ -398,7 +398,7 @@ TRANSLATIONS = {
         "dlg_path_edit_title": "Edit path",
         "dlg_path_name": "Path name:",
         "dlg_path_hole_index": "Hole offset:",
-        "dlg_path_phase": "Phase offset (turns):",
+        "dlg_path_phase": "Phase offset (offset/size):",
         "dlg_path_color": "Color (CSS4 name or #hex):",
         "dlg_path_width": "Stroke width:",
         "dlg_path_zoom": "Path zoom:",
@@ -562,6 +562,15 @@ def contact_size_for_relation(gear: GearConfig, relation: str) -> int:
     return gear.size
 
 
+def phase_offset_turns(offset: float, size: int) -> float:
+    """
+    Convertit un décalage en unités (O) vers une fraction de tour (O/S).
+    """
+    if size <= 0:
+        return 0.0
+    return float(offset) / float(size)
+
+
 def contact_radius_for_relation(gear: GearConfig, relation: str) -> float:
     """
     Rayon de contact pour un engrenage donné, selon la relation.
@@ -624,7 +633,8 @@ def generate_trochoid_points_for_layer_path(
     # Pas assez d’engrenages : cercle simple + rotation
     if len(layer.gears) < 2:
         base_points = generate_simple_circle_for_index(hole_offset, steps)
-        total_angle = math.pi / 2.0 - (2.0 * math.pi * path.phase_offset)
+        phase_turns = phase_offset_turns(path.phase_offset, 1)
+        total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
@@ -670,7 +680,8 @@ def generate_trochoid_points_for_layer_path(
 
     if R <= 0 or r <= 0:
         base_points = generate_simple_circle_for_index(hole_offset, steps)
-        total_angle = math.pi / 2.0 - (2.0 * math.pi * path.phase_offset)
+        phase_turns = phase_offset_turns(path.phase_offset, max(1, T1))
+        total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
@@ -728,7 +739,8 @@ def generate_trochoid_points_for_layer_path(
         base_points.append((x, y))
 
     # Rotation globale selon le décalage de phase.
-    angle_from_phase = 2.0 * math.pi * path.phase_offset
+    phase_turns = phase_offset_turns(path.phase_offset, max(1, T1))
+    angle_from_phase = 2.0 * math.pi * phase_turns
     # 0 => motif pointant vers le haut (π/2),
     # positif => tourne vers la droite (horaire),
     # négatif => vers la gauche (anti-horaire).
@@ -1781,7 +1793,7 @@ class PathEditDialog(QDialog):
     """
     Path :
       - hole_offset (float, positif ou négatif)
-      - décalage de phase (tours)
+      - décalage de phase (offset/size)
       - couleur (CSS4 ou hex) avec validation X11/CSS4/hex
       - largeur de trait
       - zoom
