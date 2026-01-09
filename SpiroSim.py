@@ -1302,6 +1302,7 @@ def layers_to_svg(
     l'animation (points déjà transformés en pixels).
     """
     all_points = []
+    trace_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
     render_paths = []
     render_tracks = []
@@ -1360,6 +1361,7 @@ def layers_to_svg(
             pts_zoomed = [(x * zoom, y * zoom) for (x, y) in pts]
             rendered_paths.append((layer.name, layer_zoom, path, pts_zoomed, path_zoom))
             all_points.extend(pts_zoomed)
+            trace_points.extend(pts_zoomed)
 
         if show_tracks and layer_track_points:
             track_zoomed = [
@@ -1398,8 +1400,10 @@ def layers_to_svg(
         dy = 1
 
     scale = 0.8 * min(width / dx, height / dy)
-    cx = (min_x + max_x) / 2.0
-    cy = (min_y + max_y) / 2.0
+    centroid_points = trace_points or all_points
+    total_points = len(centroid_points)
+    cx = sum(p[0] for p in centroid_points) / total_points
+    cy = sum(p[1] for p in centroid_points) / total_points
 
     def transform(p):
         x, y = p
