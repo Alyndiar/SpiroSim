@@ -306,6 +306,7 @@ TRANSLATIONS = {
         "menu_file_save_json": "Sauvegarder paramètres (JSON)…",
         "menu_file_export_svg": "Exporter en SVG…",
         "menu_file_export_png": "Exporter en PNG haute résolution…",
+        "menu_file_quit": "Quitter",
 
         "menu_options_canvas": "Taille du canevas et précision…",
 
@@ -422,6 +423,7 @@ TRANSLATIONS = {
         "menu_file_save_json": "Save settings (JSON)…",
         "menu_file_export_svg": "Export as SVG…",
         "menu_file_export_png": "Export as high-res PNG…",
+        "menu_file_quit": "Quit",
 
         "menu_options_canvas": "Canvas size and precision…",
 
@@ -1302,6 +1304,7 @@ def layers_to_svg(
     l'animation (points déjà transformés en pixels).
     """
     all_points = []
+    trace_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
     render_paths = []
     render_tracks = []
@@ -1347,6 +1350,7 @@ def layers_to_svg(
                     )
                     layer_track_points = centerline
                     layer_track_width_mm = (half_w * 2.0) * layer_zoom
+        layer_paths = []
         for path in layer.paths:
             pts = generate_trochoid_points_for_layer_path(
                 layer,
@@ -1358,21 +1362,42 @@ def layers_to_svg(
             path_zoom = getattr(path, "zoom", 1.0)
             zoom = layer_zoom * path_zoom
             pts_zoomed = [(x * zoom, y * zoom) for (x, y) in pts]
-            rendered_paths.append((layer.name, layer_zoom, path, pts_zoomed, path_zoom))
-            all_points.extend(pts_zoomed)
+            if pts_zoomed:
+                path_cx = sum(p[0] for p in pts_zoomed) / len(pts_zoomed)
+                path_cy = sum(p[1] for p in pts_zoomed) / len(pts_zoomed)
+            else:
+                path_cx = 0.0
+                path_cy = 0.0
+            shifted_points = [(x - path_cx, y - path_cy) for (x, y) in pts_zoomed]
+            layer_paths.append((path, shifted_points, path_zoom))
+
+        if layer_paths:
+            for path_cfg, shifted_points, path_zoom in layer_paths:
+                rendered_paths.append(
+                    (layer.name, layer_zoom, path_cfg, shifted_points, path_zoom)
+                )
+                all_points.extend(shifted_points)
+                trace_points.extend(shifted_points)
 
         if show_tracks and layer_track_points:
             track_zoomed = [
                 (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
             ]
+            if track_zoomed:
+                track_cx = sum(p[0] for p in track_zoomed) / len(track_zoomed)
+                track_cy = sum(p[1] for p in track_zoomed) / len(track_zoomed)
+            else:
+                track_cx = 0.0
+                track_cy = 0.0
+            shifted_track = [(x - track_cx, y - track_cy) for (x, y) in track_zoomed]
             render_tracks.append(
                 {
                     "layer_name": layer.name,
-                    "points": track_zoomed,
+                    "points": shifted_track,
                     "stroke_width_mm": layer_track_width_mm,
                 }
             )
-            all_points.extend(track_zoomed)
+            all_points.extend(shifted_track)
 
     if not all_points:
         svg_empty = f'''<?xml version="1.0" standalone="no"?>
@@ -1398,8 +1423,10 @@ def layers_to_svg(
         dy = 1
 
     scale = 0.8 * min(width / dx, height / dy)
-    cx = (min_x + max_x) / 2.0
-    cy = (min_y + max_y) / 2.0
+    centroid_points = trace_points or all_points
+    total_points = len(centroid_points)
+    cx = sum(p[0] for p in centroid_points) / total_points
+    cy = sum(p[1] for p in centroid_points) / total_points
 
     def transform(p):
         x, y = p
@@ -2784,17 +2811,21 @@ class SpiroWindow(QWidget):
         self.act_save_json = QAction(menubar)
         self.act_export_svg = QAction(menubar)
         self.act_export_png = QAction(menubar)
+        self.act_quit = QAction(menubar)
 
         self.menu_file.addAction(self.act_load_json)
         self.menu_file.addAction(self.act_save_json)
         self.menu_file.addSeparator()
         self.menu_file.addAction(self.act_export_svg)
         self.menu_file.addAction(self.act_export_png)
+        self.menu_file.addSeparator()
+        self.menu_file.addAction(self.act_quit)
 
         self.act_load_json.triggered.connect(self.load_from_json)
         self.act_save_json.triggered.connect(self.save_to_json)
         self.act_export_svg.triggered.connect(self.export_svg)
         self.act_export_png.triggered.connect(self.export_png)
+        self.act_quit.triggered.connect(self.close)
 
         # Menu Couches
         self.menu_layers = QMenu(menubar)
@@ -2983,6 +3014,7 @@ class SpiroWindow(QWidget):
         self.act_save_json.setText(tr(self.language, "menu_file_save_json"))
         self.act_export_svg.setText(tr(self.language, "menu_file_export_svg"))
         self.act_export_png.setText(tr(self.language, "menu_file_export_png"))
+        self.act_quit.setText(tr(self.language, "menu_file_quit"))
 
         # Actions Options
         self.act_manage_layers.setText(tr(self.language, "menu_layers_manage"))
