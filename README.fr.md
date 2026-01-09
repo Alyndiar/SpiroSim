@@ -12,6 +12,11 @@ Un simulateur/banc d’essai pour des dessins inspirés du Spirographe. Plusieur
    python -m venv .venv
    source .venv/bin/activate
    ```
+   Ou avec Conda/Miniconda :
+   ```bash
+   conda create -n spirosim python=3.10
+   conda activate spirosim
+   ```
 3. Installez la dépendance graphique :
    ```bash
    python -m pip install PySide6
@@ -23,12 +28,6 @@ Lancez l’application principale :
 
 ```bash
 python SpiroSim.py
-```
-
-Pour lancer la démo autonome des pistes modulaires :
-
-```bash
-python modular_tracks_2_demo.py
 ```
 
 ## Vue d’ensemble de l’interface
@@ -48,11 +47,16 @@ La fenêtre principale affiche le dessin et propose les menus et dialogues suiva
 
 ### Menu Options
 
+- **Espacement radial / pas des dents** : régler l’espacement radial des trous et le pas des dents.
 - **Couleur de fond** : définir la couleur d’arrière-plan (nom CSS4 ou hex).
+- **Taille du canevas et précision** : régler largeur/hauteur et points par tracé.
+- **Langue** : basculer l’interface en français ou en anglais.
 
 ### Menu Régénérer
 
+- **Animation** : activer/désactiver les contrôles d’animation sous le canevas.
 - **Afficher la piste** : activer/désactiver l’affichage des lignes centrales de piste.
+- **Régénérer le dessin** : recalculer et rafraîchir le rendu.
 
 ## Couches et tracés
 

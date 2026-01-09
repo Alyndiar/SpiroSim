@@ -12,6 +12,11 @@ A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, mult
    python -m venv .venv
    source .venv/bin/activate
    ```
+   Or with Conda/Miniconda:
+   ```bash
+   conda create -n spirosim python=3.10
+   conda activate spirosim
+   ```
 3. Install the GUI dependency:
    ```bash
    python -m pip install PySide6
@@ -23,12 +28,6 @@ Launch the main application:
 
 ```bash
 python SpiroSim.py
-```
-
-To run the standalone modular-track demo:
-
-```bash
-python modular_tracks_2_demo.py
 ```
 
 ## GUI overview
@@ -48,11 +47,16 @@ The main window renders the drawing and exposes the following menus and dialogs.
 
 ### Options menu
 
+- **Hole spacing / tooth pitch**: set the radial hole spacing and tooth pitch.
 - **Background color**: set the canvas background (CSS4 name or hex).
+- **Canvas size and precision**: set output width/height and points per path.
+- **Language**: switch the UI between French and English.
 
 ### Regenerate menu
 
+- **Animation**: toggle the animation controls below the canvas.
 - **Show track**: toggle rendering of modular track centerlines in the preview.
+- **Regenerate drawing**: recompute and refresh the drawing.
 
 ## Layers and traces (paths)
 
