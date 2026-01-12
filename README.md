@@ -4,6 +4,12 @@
 
 A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, multiple traces per layers, "Super Spirograph"-inspired custom tracks. Configurable gear sizes, path offsets, colors. Save/export designs to JSON, PNG and SVG.
 
+## Localisation
+
+SpiroSim ships with a localisation system for UI strings. Use **Options → Language** to
+switch languages, and see [`localisation.md`](localisation.md) for the translation file
+format plus instructions on adding a new language to the program and repository.
+
 ## Installation
 
 1. Ensure you have Python 3.10+ installed.
@@ -40,6 +46,7 @@ The main window renders the drawing and exposes the following menus and dialogs.
 - **Save settings (JSON)**: export the current configuration.
 - **Export as SVG**: save vector output of all visible layers.
 - **Export as high-res PNG**: save a raster export at a specified resolution.
+- **Quit**: exit the application.
 
 ### Layers menu
 
@@ -47,7 +54,7 @@ The main window renders the drawing and exposes the following menus and dialogs.
 
 ### Options menu
 
-- **Background color**: set the canvas background (CSS4 name or hex).
+- **Background color**: set the canvas background (CSS4 name, hex, or HSL tuple).
 - **Canvas size and precision**: set output width/height and points per path.
 - **Language**: switch the UI between French and English.
 
@@ -56,6 +63,16 @@ The main window renders the drawing and exposes the following menus and dialogs.
 - **Animation**: toggle the animation controls below the canvas.
 - **Show track**: toggle rendering of modular track centerlines in the preview.
 - **Regenerate drawing**: recompute and refresh the drawing.
+
+### Help menu
+
+- **Manual**: open the localized README for the current language.
+- **About**: show version and license details.
+
+### Animation controls
+
+When animation is enabled, controls below the canvas allow you to start/pause/reset the
+preview and change the animation speed (points per second, including instant mode).
 
 ## Layers and traces (paths)
 
@@ -70,6 +87,7 @@ When you edit a layer in the manager, you can configure:
 - **Name**: label used in exports and the layer list.
 - **Visible**: toggle whether the layer is rendered.
 - **Layer zoom**: scales all paths in the layer together.
+- **Layer translate/rotate**: offset and rotate the entire layer.
 - **Number of gears (2 or 3)**: choose between a 2-gear or 3-gear system.
 
 ### Gear settings
@@ -90,6 +108,7 @@ configure:
   - `outside`: wheel rolls outside the ring (epitrochoid).
 - **Modular track (notation)**: only shown for Gear 1 when type is `modular`.
   This uses the custom track notation described below.
+  Use the **…** button to open the modular track editor.
 
 ### Path (trace) settings
 
@@ -98,14 +117,20 @@ Each path defines how the pen is placed on the moving gear:
 - **Name**: label displayed in the manager and exports.
 - **Hole offset**: radial hole offset on the moving gear (distance from center).
 - **Phase offset (track units)**: phase shift applied to the pen position.
-- **Color**: CSS4 name or `#RRGGBB` hex.
+- **Color**: CSS4 name, `#RRGGBB` hex, or `(H, S, L)` HSL tuple.
 - **Stroke width**: line width in the preview and exports.
 - **Path zoom**: scales only this path (multiplicative with layer zoom).
+- **Path translate/rotate**: offset and rotate the path relative to the layer.
 
 ### Track testing
 
 If Gear 1 is a modular track with a valid notation, the manager enables
 **Test path** to preview the track geometry and wheel motion.
+
+### Layer manager actions
+
+The layer manager lets you add, edit, reorder, enable/disable, and remove layers or paths.
+It also includes bulk enable/disable for all paths in a layer.
 
 ## Custom track notation
 
