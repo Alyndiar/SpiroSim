@@ -6,6 +6,7 @@ import re
 import colorsys
 import time
 import os
+import subprocess
 from html import escape  # <-- AJOUT ICI
 from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
@@ -3381,13 +3382,32 @@ class SpiroWindow(QWidget):
 
         return available_width, available_height
 
+    def _resolve_repo_info(self) -> Tuple[str, Optional[str]]:
+        repo_root = os.path.dirname(os.path.abspath(__file__))
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except Exception:
+            return GITHUB_REPO_URL, None
+        branch = result.stdout.strip()
+        if not branch or branch == "HEAD":
+            return GITHUB_REPO_URL, None
+        return f"{GITHUB_REPO_URL}/tree/{branch}", branch
+
     def open_manual(self):
         readme = "README.fr.md" if self.language == "fr" else "README.md"
-        url = f"{GITHUB_REPO_URL}/blob/main/{readme}"
+        _repo_url, branch = self._resolve_repo_info()
+        ref = branch or "main"
+        url = f"{GITHUB_REPO_URL}/blob/{ref}/{readme}"
         QDesktopServices.openUrl(QUrl(url))
 
     def show_about(self):
-        url = GITHUB_REPO_URL
+        url, _branch = self._resolve_repo_info()
         text = (
             "<p><b>Spiro Sim</b></p>"
             "<p>Créé par Alyndiar</p>"
