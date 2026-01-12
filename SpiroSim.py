@@ -3098,8 +3098,8 @@ class SpiroWindow(QWidget):
 
     def open_manual(self):
         readme_path = localisation.resolve_readme_path(self.language)
-        repo_root = os.path.dirname(os.path.abspath(__file__))
-        readme = os.path.relpath(readme_path, repo_root)
+        repo_root = Path(os.path.abspath(__file__)).parent
+        readme = readme_path.relative_to(repo_root).as_posix()
         _repo_url, branch = self._resolve_repo_info()
         ref = branch or "main"
         url = f"{GITHUB_REPO_URL}/blob/{ref}/{readme}"
