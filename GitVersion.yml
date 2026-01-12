@@ -1,0 +1,18 @@
+mode: Mainline
+branches:
+  main:
+    regex: ^main$
+    increment: Minor
+  feature:
+    regex: ^(?!main$|hotfix[/-]).+
+    increment: Patch
+    source-branches:
+      - main
+      - feature
+  hotfix:
+    regex: ^hotfix[/-]
+    increment: Patch
+    source-branches:
+      - main
+ignore:
+  sha: []

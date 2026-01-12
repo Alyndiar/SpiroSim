@@ -1,3 +1,5 @@
+import importlib
+import importlib.util
 import sys
 import math
 import copy
@@ -73,7 +75,15 @@ from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
 # Les tailles et distances sont désormais exprimées en unités abstraites,
 # sans conversion réelle.
 UNIT_LENGTH = 1.0
-APP_VERSION = "0.1.0"
+def _load_app_version() -> str:
+    spec = importlib.util.find_spec("spirosim._version")
+    if spec is None:
+        return "0.0.0-dev"
+    version_module = importlib.import_module("spirosim._version")
+    return getattr(version_module, "__version__", "0.0.0-dev")
+
+
+APP_VERSION = _load_app_version()
 GITHUB_REPO_URL = "https://github.com/alyndiar/SpiroSim"
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
