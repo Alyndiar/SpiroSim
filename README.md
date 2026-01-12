@@ -1,6 +1,6 @@
 # SpiroSim
 
-**Languages:** English | [Français](localisation/fr/README.md)
+**Languages:** English | [Français](localisation/fr/README.md) | [All languages](LANGUAGES.md)
 
 A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, multiple traces per layers, "Super Spirograph"-inspired custom tracks. Configurable gear sizes, path offsets, colors. Save/export designs to JSON, PNG and SVG.
 
