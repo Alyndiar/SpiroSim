@@ -69,7 +69,7 @@ from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
 # Les tailles et distances sont désormais exprimées en unités abstraites,
 # sans conversion réelle.
 UNIT_LENGTH = 1.0
-GITHUB_REPO_URL = "https://github.com/danylamontagne/SpiroSim"
+GITHUB_REPO_URL = "https://github.com/alyndiar/SpiroSim"
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
     """
@@ -3390,7 +3390,7 @@ class SpiroWindow(QWidget):
         url = GITHUB_REPO_URL
         text = (
             "<p><b>Spiro Sim</b></p>"
-            "<p>Créé par Dany Lamontagne</p>"
+            "<p>Créé par Alyndiar</p>"
             "<p>Version 0.1.0</p>"
             "<p>CC-BY-SA 4.0</p>"
             f'<p><a href="{url}">{url}</a></p>'
