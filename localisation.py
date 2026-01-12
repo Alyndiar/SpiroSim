@@ -101,6 +101,23 @@ def language_display_name(lang: str) -> str:
     return normalized or "en"
 
 
+def resolve_readme_path(lang: str) -> Path:
+    normalized = normalize_language(lang)
+    base = language_base(normalized)
+    candidates = []
+    for code in (normalized, base):
+        if code:
+            candidates.append(LOCALISATION_DIR / code / "README.md")
+    for code in (normalized, base):
+        if code:
+            candidates.append(LOCALISATION_DIR.parent / f"README.{code}.md")
+    candidates.append(LOCALISATION_DIR.parent / "README.md")
+    for path in candidates:
+        if path.exists():
+            return path
+    return LOCALISATION_DIR.parent / "README.md"
+
+
 @lru_cache(maxsize=None)
 def _missing_string_keys(lang: str) -> List[str]:
     normalized = normalize_language(lang)
