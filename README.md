@@ -8,8 +8,7 @@ A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, mult
 
 SpiroSim ships with a localisation system for UI strings. Use **Options → Language** to
 switch languages, and see [`localisation.md`](localisation.md) for the translation file
-format plus instructions on adding a new language to the program and repository. A
-partial Spanish localisation is included to exercise fallback behavior.
+format plus instructions on adding a new language to the program and repository.
 
 ## Installation
 

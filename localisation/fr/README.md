@@ -9,8 +9,7 @@ Un simulateur/banc d’essai pour des dessins inspirés du Spirographe. Plusieur
 SpiroSim intègre un système de localisation pour les textes de l’interface. Utilisez
 **Options → Langue** pour changer de langue et consultez
 [`localisation.md`](../../localisation.md) pour le format des fichiers et les instructions
-d’ajout d’une nouvelle langue au programme et au dépôt. Une localisation espagnole
-partielle est incluse pour tester le mécanisme de repli.
+d’ajout d’une nouvelle langue au programme et au dépôt.
 
 ## Installation
 
