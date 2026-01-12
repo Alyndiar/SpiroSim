@@ -48,6 +48,7 @@ from PySide6.QtGui import (
     QIcon,
     QFont,
     QPixmap,
+    QDesktopServices,
     QPen,   # <-- AJOUT ICI
 )
 from PySide6.QtCore import (
@@ -57,6 +58,7 @@ from PySide6.QtCore import (
     QPoint,
     QPointF,
     QSize,
+    QUrl,
     QTimer,
     QStandardPaths,
 )
@@ -67,6 +69,7 @@ from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
 # Les tailles et distances sont désormais exprimées en unités abstraites,
 # sans conversion réelle.
 UNIT_LENGTH = 1.0
+GITHUB_REPO_URL = "https://github.com/danylamontagne/SpiroSim"
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
     """
@@ -230,6 +233,9 @@ TRANSLATIONS = {
         "menu_layers_manage": "Gérer les couches et les tracés…",
         "menu_options_bgcolor": "Couleur de fond…",
         "menu_options_language": "Langue",
+        "menu_help": "Aide",
+        "menu_help_manual": "Manuel",
+        "menu_help_about": "À propos",
         "menu_lang_fr": "Français",
         "menu_lang_en": "English",
         "menu_regen_animation": "Animation",
@@ -286,6 +292,7 @@ TRANSLATIONS = {
 
         "dlg_ok": "OK",
         "dlg_cancel": "Annuler",
+        "dlg_about_title": "À propos",
 
         "dlg_path_edit_title": "Éditer le tracé",
         "dlg_path_name": "Nom du tracé :",
@@ -358,6 +365,9 @@ TRANSLATIONS = {
         "menu_layers_manage": "Manage layers and paths…",
         "menu_options_bgcolor": "Background color…",
         "menu_options_language": "Language",
+        "menu_help": "Help",
+        "menu_help_manual": "Manual",
+        "menu_help_about": "About",
         "menu_lang_fr": "Français",
         "menu_lang_en": "English",
         "menu_regen_animation": "Animation",
@@ -414,6 +424,7 @@ TRANSLATIONS = {
 
         "dlg_ok": "OK",
         "dlg_cancel": "Cancel",
+        "dlg_about_title": "About",
 
         "dlg_path_edit_title": "Edit path",
         "dlg_path_name": "Path name:",
@@ -3169,6 +3180,16 @@ class SpiroWindow(QWidget):
         self.act_regen.triggered.connect(self.update_svg)
         self.menu_regen.addAction(self.act_regen)
 
+        # Menu Aide
+        self.menu_help = QMenu(menubar)
+        menubar.addMenu(self.menu_help)
+        self.act_help_manual = QAction(menubar)
+        self.act_help_about = QAction(menubar)
+        self.menu_help.addAction(self.act_help_manual)
+        self.menu_help.addAction(self.act_help_about)
+        self.act_help_manual.triggered.connect(self.open_manual)
+        self.act_help_about.triggered.connect(self.show_about)
+
         main_layout.addWidget(menubar)
 
         self.svg_widget = QSvgWidget()
@@ -3298,6 +3319,7 @@ class SpiroWindow(QWidget):
         self.menu_layers.setTitle(tr(self.language, "menu_layers"))
         self.menu_options.setTitle(tr(self.language, "menu_options"))
         self.menu_regen.setTitle(tr(self.language, "menu_regen"))
+        self.menu_help.setTitle(tr(self.language, "menu_help"))
 
         # Actions Fichier
         self.act_load_json.setText(tr(self.language, "menu_file_load_json"))
@@ -3316,6 +3338,8 @@ class SpiroWindow(QWidget):
         self.act_animation_enabled.setText(tr(self.language, "menu_regen_animation"))
         self.act_show_track.setText(tr(self.language, "menu_regen_show_track"))
         self.act_regen.setText(tr(self.language, "menu_regen_draw"))
+        self.act_help_manual.setText(tr(self.language, "menu_help_manual"))
+        self.act_help_about.setText(tr(self.language, "menu_help_about"))
 
         self._refresh_animation_texts()
 
@@ -3356,6 +3380,28 @@ class SpiroWindow(QWidget):
             )
 
         return available_width, available_height
+
+    def open_manual(self):
+        readme = "README.fr.md" if self.language == "fr" else "README.md"
+        url = f"{GITHUB_REPO_URL}/blob/main/{readme}"
+        QDesktopServices.openUrl(QUrl(url))
+
+    def show_about(self):
+        url = GITHUB_REPO_URL
+        text = (
+            "<p><b>Spiro Sim</b></p>"
+            "<p>Créé par Dany Lamontagne</p>"
+            "<p>Version 0.1.0</p>"
+            "<p>CC-BY-SA 4.0</p>"
+            f'<p><a href="{url}">{url}</a></p>'
+        )
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle(tr(self.language, "dlg_about_title"))
+        dlg.setTextFormat(Qt.RichText)
+        dlg.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        dlg.setText(text)
+        dlg.setStandardButtons(QMessageBox.Ok)
+        dlg.exec()
 
     def _update_svg_size(self):
         available_width, available_height = self._available_svg_space()
