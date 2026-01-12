@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QSlider,          # <-- AJOUT
     QListWidget,      # <-- AJOUT
     QListWidgetItem,  # <-- AJOUT
+    QStyle,
     QSizePolicy,
 )
 from PySide6.QtGui import (
@@ -253,6 +254,10 @@ TRANSLATIONS = {
         "dlg_layers_move_down": "↓ Descendre",
         "dlg_layers_test_track": "Test du tracé",
         "dlg_layers_remove": "Supprimer",
+        "dlg_layers_enable_layer": "Activer la couche",
+        "dlg_layers_disable_layer": "Désactiver la couche",
+        "dlg_layers_enable_path": "Activer le tracé",
+        "dlg_layers_disable_path": "Désactiver le tracé",
         "dlg_layers_ok": "OK",
         "dlg_layers_cancel": "Annuler",
         "dlg_layers_must_keep_layer_title": "Impossible",
@@ -264,8 +269,10 @@ TRANSLATIONS = {
 
         "dlg_layer_edit_title": "Éditer la couche",
         "dlg_layer_name": "Nom de la couche :",
-        "dlg_layer_visible": "Visible",
         "dlg_layer_zoom": "Zoom de la couche :",
+        "dlg_layer_translate_x": "Translation X de la couche :",
+        "dlg_layer_translate_y": "Translation Y de la couche :",
+        "dlg_layer_rotate": "Rotation de la couche (°) :",
         "dlg_layer_num_gears": "Nombre d'engrenages (2 ou 3) :",
         "dlg_layer_gear_label": "Engrenage {index}",
         "dlg_layer_gear_name": "Nom :",
@@ -285,6 +292,9 @@ TRANSLATIONS = {
         "dlg_path_color": "Couleur (nom CSS4 ou #hex) :",
         "dlg_path_width": "Largeur de trait :",
         "dlg_path_zoom": "Zoom du tracé :",
+        "dlg_path_translate_x": "Translation X du tracé :",
+        "dlg_path_translate_y": "Translation Y du tracé :",
+        "dlg_path_rotate": "Rotation du tracé (°) :",
 
         "bgcolor_dialog_title": "Couleur de fond",
         "bgcolor_label": "Couleur de fond (nom CSS4 ou #hex) :",
@@ -370,6 +380,10 @@ TRANSLATIONS = {
         "dlg_layers_move_down": "↓ Move down",
         "dlg_layers_test_track": "Test path",
         "dlg_layers_remove": "Remove",
+        "dlg_layers_enable_layer": "Enable layer",
+        "dlg_layers_disable_layer": "Disable layer",
+        "dlg_layers_enable_path": "Enable path",
+        "dlg_layers_disable_path": "Disable path",
         "dlg_layers_ok": "OK",
         "dlg_layers_cancel": "Cancel",
         "dlg_layers_must_keep_layer_title": "Impossible",
@@ -381,8 +395,10 @@ TRANSLATIONS = {
 
         "dlg_layer_edit_title": "Edit layer",
         "dlg_layer_name": "Layer name:",
-        "dlg_layer_visible": "Visible",
         "dlg_layer_zoom": "Layer zoom:",
+        "dlg_layer_translate_x": "Layer translate X:",
+        "dlg_layer_translate_y": "Layer translate Y:",
+        "dlg_layer_rotate": "Layer rotation (°):",
         "dlg_layer_num_gears": "Number of gears (2 or 3):",
         "dlg_layer_gear_label": "Gear {index}",
         "dlg_layer_gear_name": "Name:",
@@ -402,6 +418,9 @@ TRANSLATIONS = {
         "dlg_path_color": "Color (CSS4 name or #hex):",
         "dlg_path_width": "Stroke width:",
         "dlg_path_zoom": "Path zoom:",
+        "dlg_path_translate_x": "Path translate X:",
+        "dlg_path_translate_y": "Path translate Y:",
+        "dlg_path_rotate": "Path rotation (°):",
 
         "bgcolor_dialog_title": "Background color",
         "bgcolor_label": "Background color (CSS4 name or #hex):",
@@ -519,19 +538,26 @@ class GearConfig:
 @dataclass
 class PathConfig:
     name: str = "Tracé"
+    enable: bool = True
     hole_offset: float = 1.0
     phase_offset: float = 0.0
     color: str = "blue"            # chaîne telle que saisie / affichée
     color_norm: Optional[str] = None  # valeur normalisée (#rrggbb) pour le dessin
     stroke_width: float = 1.2
     zoom: float = 1.0
+    translate_x: float = 0.0
+    translate_y: float = 0.0
+    rotate_deg: float = 0.0
 
 
 @dataclass
 class LayerConfig:
     name: str = "Couche"
-    visible: bool = True
+    enable: bool = True
     zoom: float = 1.0                         # zoom de la couche
+    translate_x: float = 0.0
+    translate_y: float = 0.0
+    rotate_deg: float = 0.0
     gears: List[GearConfig] = field(default_factory=list)  # 2 ou 3 engrenages
     paths: List[PathConfig] = field(default_factory=list)
 
@@ -1310,11 +1336,30 @@ def layers_to_svg(
 ) -> str:
     """
     Convertit une liste de LayerConfig -> SVG string.
-    Chaque layer visible devient un <g>, chaque path un <path>.
+    Chaque layer activé devient un <g>, chaque path un <path>.
     On applique le zoom de la couche et du tracé avant le centrage/scaling global.
     Quand return_render_data=True, renvoie aussi une structure réutilisable pour
     l'animation (points déjà transformés en pixels).
     """
+    def apply_transform(points, rotate_deg: float, translate_x: float, translate_y: float):
+        if not points:
+            return points
+        if (
+            abs(rotate_deg) < 1e-9
+            and abs(translate_x) < 1e-9
+            and abs(translate_y) < 1e-9
+        ):
+            return points
+        angle = math.radians(rotate_deg)
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        return [
+            (
+                (x * cos_a - y * sin_a) + translate_x,
+                (x * sin_a + y * cos_a) + translate_y,
+            )
+            for (x, y) in points
+        ]
     all_points = []
     trace_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
@@ -1322,9 +1367,12 @@ def layers_to_svg(
     render_tracks = []
 
     for layer in layers:
-        if not layer.visible:
+        if not layer.enable:
             continue
         layer_zoom = getattr(layer, "zoom", 1.0)
+        layer_rotate = getattr(layer, "rotate_deg", 0.0)
+        layer_tx = getattr(layer, "translate_x", 0.0)
+        layer_ty = getattr(layer, "translate_y", 0.0)
 
         layer_track_points = None
         layer_track_width_mm = None
@@ -1364,6 +1412,8 @@ def layers_to_svg(
                     layer_track_width_mm = (half_w * 2.0) * layer_zoom
         layer_paths = []
         for path in layer.paths:
+            if not path.enable:
+                continue
             pts = generate_trochoid_points_for_layer_path(
                 layer,
                 path,
@@ -1381,7 +1431,16 @@ def layers_to_svg(
                 path_cx = 0.0
                 path_cy = 0.0
             shifted_points = [(x - path_cx, y - path_cy) for (x, y) in pts_zoomed]
-            layer_paths.append((path, shifted_points, path_zoom))
+            path_rotate = getattr(path, "rotate_deg", 0.0)
+            path_tx = getattr(path, "translate_x", 0.0)
+            path_ty = getattr(path, "translate_y", 0.0)
+            path_transformed = apply_transform(
+                shifted_points, path_rotate, path_tx, path_ty
+            )
+            layer_transformed = apply_transform(
+                path_transformed, layer_rotate, layer_tx, layer_ty
+            )
+            layer_paths.append((path, layer_transformed, path_zoom))
 
         if layer_paths:
             for path_cfg, shifted_points, path_zoom in layer_paths:
@@ -1402,14 +1461,17 @@ def layers_to_svg(
                 track_cx = 0.0
                 track_cy = 0.0
             shifted_track = [(x - track_cx, y - track_cy) for (x, y) in track_zoomed]
+            transformed_track = apply_transform(
+                shifted_track, layer_rotate, layer_tx, layer_ty
+            )
             render_tracks.append(
                 {
                     "layer_name": layer.name,
-                    "points": shifted_track,
+                    "points": transformed_track,
                     "stroke_width_mm": layer_track_width_mm,
                 }
             )
-            all_points.extend(shifted_track)
+            all_points.extend(transformed_track)
 
     if not all_points:
         svg_empty = f'''<?xml version="1.0" standalone="no"?>
@@ -1456,7 +1518,7 @@ def layers_to_svg(
     tracks_out = []
 
     for layer in layers:
-        if not layer.visible:
+        if not layer.enable:
             continue
         layer_paths = [rp for rp in rendered_paths if rp[0] == layer.name]
         layer_tracks = [rt for rt in render_tracks if rt["layer_name"] == layer.name]
@@ -1530,8 +1592,8 @@ class LayerEditDialog(QDialog):
     """
     Édition d’un layer :
       - nom
-      - visible
       - zoom
+      - translation / rotation
       - 2 ou 3 engrenages (type, tailles, relation)
       - pour un anneau : tailles extérieures / intérieures
     """
@@ -1550,13 +1612,25 @@ class LayerEditDialog(QDialog):
         layout = QFormLayout(self)
 
         self.name_edit = QLineEdit(self.layer.name)
-        self.visible_check = QCheckBox(tr(self.lang, "dlg_layer_visible"))
-        self.visible_check.setChecked(self.layer.visible)
-
         self.zoom_spin = QDoubleSpinBox()
         self.zoom_spin.setRange(0.01, 100.0)
         self.zoom_spin.setDecimals(3)
         self.zoom_spin.setValue(getattr(self.layer, "zoom", 1.0))
+
+        self.translate_x_spin = QDoubleSpinBox()
+        self.translate_x_spin.setRange(-10000.0, 10000.0)
+        self.translate_x_spin.setDecimals(3)
+        self.translate_x_spin.setValue(getattr(self.layer, "translate_x", 0.0))
+
+        self.translate_y_spin = QDoubleSpinBox()
+        self.translate_y_spin.setRange(-10000.0, 10000.0)
+        self.translate_y_spin.setDecimals(3)
+        self.translate_y_spin.setValue(getattr(self.layer, "translate_y", 0.0))
+
+        self.rotate_spin = QDoubleSpinBox()
+        self.rotate_spin.setRange(-360.0, 360.0)
+        self.rotate_spin.setDecimals(3)
+        self.rotate_spin.setValue(getattr(self.layer, "rotate_deg", 0.0))
 
         self.num_gears_spin = QSpinBox()
         self.num_gears_spin.setRange(2, 3)
@@ -1564,8 +1638,10 @@ class LayerEditDialog(QDialog):
         self.num_gears_spin.setValue(current_gears)
 
         layout.addRow(tr(self.lang, "dlg_layer_name"), self.name_edit)
-        layout.addRow(self.visible_check)
         layout.addRow(tr(self.lang, "dlg_layer_zoom"), self.zoom_spin)
+        layout.addRow(tr(self.lang, "dlg_layer_translate_x"), self.translate_x_spin)
+        layout.addRow(tr(self.lang, "dlg_layer_translate_y"), self.translate_y_spin)
+        layout.addRow(tr(self.lang, "dlg_layer_rotate"), self.rotate_spin)
         layout.addRow(tr(self.lang, "dlg_layer_num_gears"), self.num_gears_spin)
 
         self.gear_widgets = []
@@ -1747,8 +1823,10 @@ class LayerEditDialog(QDialog):
 
     def accept(self):
         self.layer.name = self.name_edit.text().strip() or tr(self.lang, "default_layer_name")
-        self.layer.visible = self.visible_check.isChecked()
         self.layer.zoom = self.zoom_spin.value()
+        self.layer.translate_x = self.translate_x_spin.value()
+        self.layer.translate_y = self.translate_y_spin.value()
+        self.layer.rotate_deg = self.rotate_spin.value()
         num_gears = self.num_gears_spin.value()
 
         new_gears: List[GearConfig] = []
@@ -1797,6 +1875,7 @@ class PathEditDialog(QDialog):
       - couleur (CSS4 ou hex) avec validation X11/CSS4/hex
       - largeur de trait
       - zoom
+      - translation / rotation
     """
 
     def __init__(self, path: PathConfig, lang: str = "fr", parent=None):
@@ -1838,12 +1917,30 @@ class PathEditDialog(QDialog):
         self.zoom_spin.setDecimals(3)
         self.zoom_spin.setValue(getattr(self.path, "zoom", 1.0))
 
+        self.translate_x_spin = QDoubleSpinBox()
+        self.translate_x_spin.setRange(-10000.0, 10000.0)
+        self.translate_x_spin.setDecimals(3)
+        self.translate_x_spin.setValue(getattr(self.path, "translate_x", 0.0))
+
+        self.translate_y_spin = QDoubleSpinBox()
+        self.translate_y_spin.setRange(-10000.0, 10000.0)
+        self.translate_y_spin.setDecimals(3)
+        self.translate_y_spin.setValue(getattr(self.path, "translate_y", 0.0))
+
+        self.rotate_spin = QDoubleSpinBox()
+        self.rotate_spin.setRange(-360.0, 360.0)
+        self.rotate_spin.setDecimals(3)
+        self.rotate_spin.setValue(getattr(self.path, "rotate_deg", 0.0))
+
         layout.addRow(tr(self.lang, "dlg_path_name"), self.name_edit)
         layout.addRow(tr(self.lang, "dlg_path_hole_index"), self.hole_spin)
         layout.addRow(tr(self.lang, "dlg_path_phase"), self.phase_spin)
         layout.addRow(tr(self.lang, "dlg_path_color"), color_row)
         layout.addRow(tr(self.lang, "dlg_path_width"), self.stroke_spin)
         layout.addRow(tr(self.lang, "dlg_path_zoom"), self.zoom_spin)
+        layout.addRow(tr(self.lang, "dlg_path_translate_x"), self.translate_x_spin)
+        layout.addRow(tr(self.lang, "dlg_path_translate_y"), self.translate_y_spin)
+        layout.addRow(tr(self.lang, "dlg_path_rotate"), self.rotate_spin)
 
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
@@ -1881,6 +1978,9 @@ class PathEditDialog(QDialog):
         self.path.color_norm = norm_color
         self.path.stroke_width = self.stroke_spin.value()
         self.path.zoom = self.zoom_spin.value()
+        self.path.translate_x = self.translate_x_spin.value()
+        self.path.translate_y = self.translate_y_spin.value()
+        self.path.rotate_deg = self.rotate_spin.value()
         super().accept()
 
 
@@ -2068,6 +2168,7 @@ class LayerManagerDialog(QDialog):
         self.btn_add_layer = QPushButton(tr(self.lang, "dlg_layers_add_layer"))
         self.btn_add_path = QPushButton(tr(self.lang, "dlg_layers_add_path"))
         self.btn_edit = QPushButton(tr(self.lang, "dlg_layers_edit"))
+        self.btn_toggle_enable = QPushButton()
         self.btn_move_up = QPushButton(tr(self.lang, "dlg_layers_move_up"))
         self.btn_move_down = QPushButton(tr(self.lang, "dlg_layers_move_down"))
         self.btn_test_track = QPushButton(tr(self.lang, "dlg_layers_test_track"))
@@ -2075,6 +2176,7 @@ class LayerManagerDialog(QDialog):
         btn_layout.addWidget(self.btn_add_layer)
         btn_layout.addWidget(self.btn_add_path)
         btn_layout.addWidget(self.btn_edit)
+        btn_layout.addWidget(self.btn_toggle_enable)
         btn_layout.addWidget(self.btn_move_up)
         btn_layout.addWidget(self.btn_move_down)
         btn_layout.addWidget(self.btn_test_track)
@@ -2095,6 +2197,7 @@ class LayerManagerDialog(QDialog):
         self.btn_move_down.clicked.connect(self.on_move_down)
         self.btn_test_track.clicked.connect(self.on_test_track)
         self.btn_remove.clicked.connect(self.on_remove)
+        self.btn_toggle_enable.clicked.connect(self.on_toggle_enable)
         self.btn_ok.clicked.connect(self.accept)
         self.btn_cancel.clicked.connect(self.reject)
 
@@ -2151,7 +2254,12 @@ class LayerManagerDialog(QDialog):
         enabled = False
         if kind == "path":
             layer = self.find_parent_layer(obj)
-            enabled = self._layer_allows_test(layer)
+            enabled = (
+                self._layer_allows_test(layer)
+                and layer is not None
+                and layer.enable
+                and obj.enable
+            )
         self.btn_test_track.setEnabled(enabled)
 
     def _update_move_buttons_state(self):
@@ -2173,6 +2281,60 @@ class LayerManagerDialog(QDialog):
         self.btn_move_up.setEnabled(can_move_up)
         self.btn_move_down.setEnabled(can_move_down)
 
+    def _visibility_icon(self, enabled: bool) -> QIcon:
+        icon_name = "visibility" if enabled else "visibility-off"
+        icon = QIcon.fromTheme(icon_name)
+        if icon.isNull():
+            fallback = QStyle.SP_DialogYesButton if enabled else QStyle.SP_DialogNoButton
+            icon = self.style().standardIcon(fallback)
+        return icon
+
+    def _enabled_layers_count(self) -> int:
+        return sum(1 for layer in self.layers if layer.enable)
+
+    def _enabled_paths_count(self, layer: LayerConfig) -> int:
+        return sum(1 for path in layer.paths if path.enable)
+
+    def _is_last_enabled_layer(self, layer: LayerConfig) -> bool:
+        return layer.enable and self._enabled_layers_count() == 1
+
+    def _is_last_enabled_path_in_last_layer(
+        self, layer: LayerConfig, path: PathConfig
+    ) -> bool:
+        return (
+            path.enable
+            and layer.enable
+            and self._enabled_layers_count() == 1
+            and self._enabled_paths_count(layer) == 1
+        )
+
+    def _update_enable_button_state(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            self.btn_toggle_enable.setEnabled(False)
+            self.btn_toggle_enable.setText("")
+            return
+        if kind == "layer":
+            if obj.enable:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_disable_layer"))
+                self.btn_toggle_enable.setEnabled(not self._is_last_enabled_layer(obj))
+            else:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_layer"))
+                self.btn_toggle_enable.setEnabled(True)
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                self.btn_toggle_enable.setEnabled(False)
+                return
+            if obj.enable:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_disable_path"))
+                self.btn_toggle_enable.setEnabled(
+                    not self._is_last_enabled_path_in_last_layer(layer, obj)
+                )
+            else:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_path"))
+                self.btn_toggle_enable.setEnabled(True)
+
     def refresh_tree(self):
         self.tree.clear()
         current_item_to_select = None
@@ -2182,6 +2344,7 @@ class LayerManagerDialog(QDialog):
                 [layer.name, tr(self.lang, "tree_type_layer"), self._layer_summary(layer)]
             )
             layer_item.setData(0, Qt.UserRole, layer)
+            layer_item.setIcon(0, self._visibility_icon(layer.enable))
             self.tree.addTopLevelItem(layer_item)
 
             if li == self.selected_layer_idx and self.selected_path_idx is None:
@@ -2192,6 +2355,7 @@ class LayerManagerDialog(QDialog):
                     [path.name, tr(self.lang, "tree_type_path"), self._path_summary(path)]
                 )
                 path_item.setData(0, Qt.UserRole, path)
+                path_item.setIcon(0, self._visibility_icon(path.enable))
                 layer_item.addChild(path_item)
 
                 if (
@@ -2214,6 +2378,8 @@ class LayerManagerDialog(QDialog):
             self.tree.setCurrentItem(current_item_to_select)
         self._update_test_button_state()
         self._update_move_buttons_state()
+        self._update_enable_button_state()
+        self._update_enable_button_state()
 
     def get_selected_object(self):
         item = self.tree.currentItem()
@@ -2243,6 +2409,7 @@ class LayerManagerDialog(QDialog):
             self.btn_test_track.setEnabled(False)
             self.btn_move_up.setEnabled(False)
             self.btn_move_down.setEnabled(False)
+            self._update_enable_button_state()
             return
 
         obj = current.data(0, Qt.UserRole)
@@ -2285,10 +2452,17 @@ class LayerManagerDialog(QDialog):
         )
         new_layer = LayerConfig(
             name=f"{tr(self.lang, 'default_layer_name')} {len(self.layers) + 1}",
-            visible=True,
+            enable=True,
             zoom=1.0,
             gears=[g0, g1],
-            paths=[PathConfig(name=f"{tr(self.lang, 'default_path_name')} 1", hole_offset=1.0, zoom=1.0)],
+            paths=[
+                PathConfig(
+                    name=f"{tr(self.lang, 'default_path_name')} 1",
+                    hole_offset=1.0,
+                    zoom=1.0,
+                    enable=True,
+                )
+            ],
         )
         self.layers.append(new_layer)
 
@@ -2313,6 +2487,7 @@ class LayerManagerDialog(QDialog):
             name=f"{tr(self.lang, 'default_path_name')} {len(layer.paths) + 1}",
             hole_offset=1.0,
             zoom=1.0,
+            enable=layer.enable,
         )
         layer.paths.append(new_path)
 
@@ -2337,6 +2512,37 @@ class LayerManagerDialog(QDialog):
             dlg = PathEditDialog(obj, lang=self.lang, parent=self)
         if dlg.exec() == QDialog.Accepted:
             self.refresh_tree()
+
+    def on_toggle_enable(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+        if kind == "layer":
+            if obj.enable:
+                if self._is_last_enabled_layer(obj):
+                    return
+                obj.enable = False
+                for path in obj.paths:
+                    path.enable = False
+            else:
+                obj.enable = True
+                for path in obj.paths:
+                    path.enable = True
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                return
+            if obj.enable:
+                if self._is_last_enabled_path_in_last_layer(layer, obj):
+                    return
+                obj.enable = False
+                if not any(path.enable for path in layer.paths):
+                    layer.enable = False
+            else:
+                obj.enable = True
+                if not layer.enable:
+                    layer.enable = True
+        self.refresh_tree()
 
     def on_move_up(self):
         obj, kind = self.get_selected_object()
@@ -2447,6 +2653,11 @@ class LayerManagerDialog(QDialog):
                 else:
                     self.selected_layer_idx = li
                     self.selected_path_idx = None
+
+        if self.layers and not any(layer.enable for layer in self.layers):
+            self.layers[0].enable = True
+            for path in self.layers[0].paths:
+                path.enable = True
 
         self.refresh_tree()
 
@@ -2968,12 +3179,13 @@ class SpiroWindow(QWidget):
         )
         base_layer = LayerConfig(
             name=f"{tr(self.language, 'default_layer_name')} 1",
-            visible=True,
+            enable=True,
             zoom=1.0,
             gears=[g0, g1],
             paths=[
                 PathConfig(
                     name=f"{tr(self.language, 'default_path_name')} 1",
+                    enable=True,
                     hole_offset=1.0,
                     phase_offset=0.0,
                     color="red",
@@ -2982,6 +3194,7 @@ class SpiroWindow(QWidget):
                 ),
                 PathConfig(
                     name=f"{tr(self.language, 'default_path_name')} 2",
+                    enable=True,
                     hole_offset=2.0,
                     phase_offset=0.25,
                     color="#0000aa",
@@ -3388,8 +3601,11 @@ class SpiroWindow(QWidget):
         for layer in self.layers:
             data_layer = {
                 "name": layer.name,
-                "visible": layer.visible,
+                "enable": layer.enable,
                 "zoom": getattr(layer, "zoom", 1.0),
+                "translate_x": getattr(layer, "translate_x", 0.0),
+                "translate_y": getattr(layer, "translate_y", 0.0),
+                "rotate_deg": getattr(layer, "rotate_deg", 0.0),
                 "gears": [],
                 "paths": [],
             }
@@ -3405,12 +3621,16 @@ class SpiroWindow(QWidget):
             for p in layer.paths:
                 data_layer["paths"].append({
                     "name": p.name,
+                    "enable": p.enable,
                     "hole_offset": p.hole_offset,
                     "phase_offset": p.phase_offset,
                     "color": p.color,  # ce que tu as tapé
                     "color_norm": getattr(p, "color_norm", None),  # peut être None
                     "stroke_width": p.stroke_width,
                     "zoom": getattr(p, "zoom", 1.0),
+                    "translate_x": getattr(p, "translate_x", 0.0),
+                    "translate_y": getattr(p, "translate_y", 0.0),
+                    "rotate_deg": getattr(p, "rotate_deg", 0.0),
                 })
             data_layers.append(data_layer)
         return data_layers
@@ -3441,23 +3661,41 @@ class SpiroWindow(QWidget):
                 paths.append(
                     PathConfig(
                         name=pd.get("name", "Tracé"),
+                        enable=bool(pd.get("enable", True)),
                         hole_offset=float(pd.get("hole_offset", pd.get("hole_index", 1.0))),
                         phase_offset=float(pd.get("phase_offset", 0.0)),
                         color=color_input,
                         color_norm=color_norm,
                         stroke_width=float(pd.get("stroke_width", 1.0)),
                         zoom=float(pd.get("zoom", 1.0)),
+                        translate_x=float(pd.get("translate_x", 0.0)),
+                        translate_y=float(pd.get("translate_y", 0.0)),
+                        rotate_deg=float(pd.get("rotate_deg", 0.0)),
                     )
                 )
+            enable = bool(ld.get("enable", ld.get("visible", True)))
+            if not enable:
+                for path in paths:
+                    path.enable = False
+            elif paths and not any(path.enable for path in paths):
+                for path in paths:
+                    path.enable = True
             layers.append(
                 LayerConfig(
                     name=ld.get("name", "Couche"),
-                    visible=bool(ld.get("visible", True)),
+                    enable=enable,
                     zoom=float(ld.get("zoom", 1.0)),
+                    translate_x=float(ld.get("translate_x", 0.0)),
+                    translate_y=float(ld.get("translate_y", 0.0)),
+                    rotate_deg=float(ld.get("rotate_deg", 0.0)),
                     gears=gears,
                     paths=paths,
                 )
             )
+        if layers and not any(layer.enable for layer in layers):
+            layers[0].enable = True
+            for path in layers[0].paths:
+                path.enable = True
         return layers
 
     def _config_file_path(self) -> str:
