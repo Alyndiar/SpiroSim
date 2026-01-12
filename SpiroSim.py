@@ -7,6 +7,7 @@ import colorsys
 import time
 import os
 import subprocess
+from pathlib import Path
 from html import escape  # <-- AJOUT ICI
 from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
