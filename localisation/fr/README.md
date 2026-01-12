@@ -4,6 +4,14 @@
 
 Un simulateur/banc d’essai pour des dessins inspirés du Spirographe. Plusieurs couches d’engrenages, plusieurs tracés par couche, pistes personnalisées façon « Super Spirograph ». Tailles des engrenages, décalages de tracé et couleurs configurables. Export en JSON, PNG et SVG.
 
+## Localisation
+
+SpiroSim intègre un système de localisation pour les textes de l’interface. Utilisez
+**Options → Langue** pour changer de langue et consultez
+[`localisation.md`](../../localisation.md) pour le format des fichiers et les instructions
+d’ajout d’une nouvelle langue au programme et au dépôt. Une localisation espagnole
+partielle est incluse pour tester le mécanisme de repli.
+
 ## Installation
 
 1. Assurez-vous d’avoir Python 3.10+ installé.
@@ -40,6 +48,7 @@ La fenêtre principale affiche le dessin et propose les menus et dialogues suiva
 - **Sauvegarder paramètres (JSON)** : exporter la configuration actuelle.
 - **Exporter en SVG** : sauvegarder un export vectoriel des couches visibles.
 - **Exporter en PNG haute résolution** : sauvegarder un export raster à une résolution spécifiée.
+- **Quitter** : fermer l’application.
 
 ### Menu Couches
 
@@ -47,7 +56,7 @@ La fenêtre principale affiche le dessin et propose les menus et dialogues suiva
 
 ### Menu Options
 
-- **Couleur de fond** : définir la couleur d’arrière-plan (nom CSS4 ou hex).
+- **Couleur de fond** : définir la couleur d’arrière-plan (nom CSS4, hex ou tuple HSL).
 - **Taille du canevas et précision** : régler largeur/hauteur et points par tracé.
 - **Langue** : basculer l’interface en français ou en anglais.
 
@@ -56,6 +65,17 @@ La fenêtre principale affiche le dessin et propose les menus et dialogues suiva
 - **Animation** : activer/désactiver les contrôles d’animation sous le canevas.
 - **Afficher la piste** : activer/désactiver l’affichage des lignes centrales de piste.
 - **Régénérer le dessin** : recalculer et rafraîchir le rendu.
+
+### Menu Aide
+
+- **Manuel** : ouvrir le README localisé correspondant à la langue active.
+- **À propos** : afficher la version et la licence.
+
+### Contrôles d’animation
+
+Quand l’animation est activée, des contrôles sous le canevas permettent de démarrer,
+mettre en pause, réinitialiser l’aperçu et régler la vitesse (points par seconde,
+avec un mode instantané).
 
 ## Couches et tracés
 
@@ -70,6 +90,7 @@ Dans l’éditeur de couche, vous pouvez régler :
 - **Nom** : libellé utilisé dans les exports et la liste des couches.
 - **Visible** : afficher/masquer la couche.
 - **Zoom de couche** : met à l’échelle tous les tracés de la couche.
+- **Translation/rotation de couche** : déplacer et faire pivoter toute la couche.
 - **Nombre d’engrenages (2 ou 3)** : choisir un système à 2 ou 3 engrenages.
 
 ### Paramètres des engrenages
@@ -90,6 +111,7 @@ engrenage, vous pouvez configurer :
   - `dehors` : la roue roule à l’extérieur de l’anneau (épitrochoïde).
 - **Piste modulaire (notation)** : visible uniquement pour l’engrenage 1 en type
   `modulaire`. Utilise la notation décrite ci-dessous.
+  Utilisez le bouton **…** pour ouvrir l’éditeur de piste modulaire.
 
 ### Paramètres d’un tracé
 
@@ -97,15 +119,21 @@ Chaque tracé définit la position du stylo sur la roue mobile :
 
 - **Nom** : libellé affiché dans le gestionnaire et dans les exports.
 - **Décalage du trou** : décalage radial du trou sur l’engrenage (distance au centre).
-- **Décalage de phase (tours)** : déphasage appliqué à la position du stylo.
-- **Couleur** : nom CSS4 ou hex `#RRGGBB`.
+- **Décalage de phase (unités de piste)** : déphasage appliqué à la position du stylo.
+- **Couleur** : nom CSS4, hex `#RRGGBB` ou tuple HSL `(H, S, L)`.
 - **Largeur de trait** : épaisseur dans l’aperçu et les exports.
 - **Zoom du tracé** : échelle appliquée uniquement à ce tracé (multipliée par le zoom de couche).
+- **Translation/rotation du tracé** : déplacer et faire pivoter le tracé par rapport à la couche.
 
 ### Test de piste
 
 Si l’engrenage 1 est une piste modulaire avec une notation valide, le gestionnaire
 active **Test du tracé** pour prévisualiser la piste et le mouvement de la roue.
+
+### Actions du gestionnaire
+
+Le gestionnaire permet d’ajouter, modifier, réordonner, activer/désactiver et supprimer
+des couches ou des tracés, ainsi que d’activer/désactiver tous les tracés d’une couche.
 
 ## Notation des pistes modulaires
 

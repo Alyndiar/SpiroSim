@@ -1,0 +1,22 @@
+{
+  "strings": {
+    "app_title": "Spiro / Wild Gears - Visor",
+    "language_name": "Español",
+    "menu_file": "Archivo",
+    "menu_layers": "Capas",
+    "menu_options": "Opciones",
+    "menu_regen": "Regenerar",
+    "menu_help": "Ayuda",
+    "menu_layers_manage": "Gestionar capas y trazos…",
+    "menu_options_bgcolor": "Color de fondo…",
+    "menu_options_language": "Idioma",
+    "menu_regen_animation": "Animación",
+    "menu_regen_show_track": "Mostrar pista",
+    "menu_regen_draw": "Regenerar dibujo",
+    "menu_file_load_json": "Cargar ajustes (JSON)…",
+    "menu_file_save_json": "Guardar ajustes (JSON)…",
+    "menu_file_export_svg": "Exportar como SVG…",
+    "menu_file_export_png": "Exportar como PNG de alta resolución…",
+    "menu_file_quit": "Salir"
+  }
+}
