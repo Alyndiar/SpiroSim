@@ -1,6 +1,6 @@
 # SpiroSim
 
-[English](README.md) | **Français**
+**Langues :** [English](../../README.md) | Français | [Toutes les langues](../../LANGUAGES.md)
 
 Un simulateur/banc d’essai pour des dessins inspirés du Spirographe. Plusieurs couches d’engrenages, plusieurs tracés par couche, pistes personnalisées façon « Super Spirograph ». Tailles des engrenages, décalages de tracé et couleurs configurables. Export en JSON, PNG et SVG.
 

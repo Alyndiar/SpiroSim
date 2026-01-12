@@ -7,13 +7,16 @@ import colorsys
 import time
 import os
 import subprocess
+from pathlib import Path
 from html import escape  # <-- AJOUT ICI
 from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import modular_tracks_2 as modular_tracks
 import modular_tracks_2_demo as modular_track_demo
+import localisation
+from localisation import gear_type_label, relation_label, tr
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -223,280 +226,6 @@ def kelvin_to_rgb(temp_k: float) -> Tuple[int, int, int]:
 
     return (r, g, b)
 
-# ---------- 0) Traductions ----------
-
-TRANSLATIONS = {
-    "fr": {
-        "app_title": "Spiro / Wild Gears - Visionneuse",
-
-        "menu_layers": "Couches",
-        "menu_options": "Options",
-        "menu_regen": "Régénérer",
-        "menu_layers_manage": "Gérer les couches et les tracés…",
-        "menu_options_bgcolor": "Couleur de fond…",
-        "menu_options_language": "Langue",
-        "menu_help": "Aide",
-        "menu_help_manual": "Manuel",
-        "menu_help_about": "À propos",
-        "menu_lang_fr": "Français",
-        "menu_lang_en": "English",
-        "menu_regen_animation": "Animation",
-        "menu_regen_show_track": "Afficher la piste",
-        "menu_regen_draw": "Régénérer le dessin",
-
-        "anim_start": "Démarrer l'animation",
-        "anim_pause": "Mettre en pause",
-        "anim_reset": "Remettre à zéro",
-        "anim_speed_label": "Vitesse (points/s) :",
-        "anim_speed_infinite": "∞ (instantané)",
-        "anim_speed_suffix": " pts/s",
-
-        "dlg_layers_title": "Gérer les couches et les tracés",
-        "dlg_layers_col_name": "Nom",
-        "dlg_layers_col_type": "Type",
-        "dlg_layers_col_details": "Détails",
-        "dlg_layers_add_layer": "Ajouter une couche",
-        "dlg_layers_add_path": "Ajouter un tracé",
-        "dlg_layers_edit": "Éditer",
-        "dlg_layers_move_up": "↑ Monter",
-        "dlg_layers_move_down": "↓ Descendre",
-        "dlg_layers_test_track": "Test du tracé",
-        "dlg_layers_remove": "Supprimer",
-        "dlg_layers_enable_layer": "Activer la couche",
-        "dlg_layers_disable_layer": "Désactiver la couche",
-        "dlg_layers_enable_path": "Activer le tracé",
-        "dlg_layers_disable_path": "Désactiver le tracé",
-        "dlg_layers_enable_all_paths": "Activer tous les tracés",
-        "dlg_layers_disable_all_paths": "Désactiver tous les tracés",
-        "dlg_layers_ok": "OK",
-        "dlg_layers_cancel": "Annuler",
-        "dlg_layers_must_keep_layer_title": "Impossible",
-        "dlg_layers_must_keep_layer_text": "Il doit rester au moins une couche.",
-        "dlg_layers_remove_last_path_title": "Supprimer le dernier tracé ?",
-        "dlg_layers_remove_last_path_text": "Cette couche n'aura plus aucun tracé. Continuer ?",
-        "dlg_layers_need_layer_title": "Aucune couche",
-        "dlg_layers_need_layer_text": "Sélectionne une couche (ou un tracé d'une couche) avant d'ajouter un tracé.",
-
-        "dlg_layer_edit_title": "Éditer la couche",
-        "dlg_layer_name": "Nom de la couche :",
-        "dlg_layer_zoom": "Zoom de la couche :",
-        "dlg_layer_translate_x": "Translation X de la couche :",
-        "dlg_layer_translate_y": "Translation Y de la couche :",
-        "dlg_layer_rotate": "Rotation de la couche (°) :",
-        "dlg_layer_num_gears": "Nombre d'engrenages (2 ou 3) :",
-        "dlg_layer_gear_label": "Engrenage {index}",
-        "dlg_layer_gear_name": "Nom :",
-        "dlg_layer_gear_type": "Type :",
-        "dlg_layer_gear_size": "Taille (roue / int. anneau) :",
-        "dlg_layer_gear_outer": "Taille ext. (anneau) :",
-        "dlg_layer_gear_relation": "Relation :",
-        "dlg_layer_gear_modular_notation": "Piste modulaire (notation) :",
-
-        "dlg_ok": "OK",
-        "dlg_cancel": "Annuler",
-        "dlg_about_title": "À propos",
-
-        "dlg_path_edit_title": "Éditer le tracé",
-        "dlg_path_name": "Nom du tracé :",
-        "dlg_path_hole_index": "Décalage du trou :",
-        "dlg_path_phase": "Décalage de phase (unités le long de la piste) :",
-        "dlg_path_color": "Couleur (nom CSS4 ou #hex) :",
-        "dlg_path_width": "Largeur de trait :",
-        "dlg_path_zoom": "Zoom du tracé :",
-        "dlg_path_translate_x": "Translation X du tracé :",
-        "dlg_path_translate_y": "Translation Y du tracé :",
-        "dlg_path_rotate": "Rotation du tracé (°) :",
-
-        "bgcolor_dialog_title": "Couleur de fond",
-        "bgcolor_label": "Couleur de fond (nom CSS4 ou #hex) :",
-
-        "color_invalid_title": "Couleur invalide",
-        "color_invalid_text": "La couleur saisie n'est pas une couleur X11/CSS4 ou hexadécimale valide.",
-
-        "tree_type_layer": "Couche",
-        "tree_type_path": "Tracé",
-
-        "default_layer_name": "Couche",
-        "default_path_name": "Tracé",
-        "default_gear_name": "Engrenage {index}",
-        "default_ring_name": "Anneau",
-        "default_wheel_name": "Roue",
-
-        "menu_file": "Fichier",
-        "menu_file_load_json": "Charger paramètres (JSON)…",
-        "menu_file_save_json": "Sauvegarder paramètres (JSON)…",
-        "menu_file_export_svg": "Exporter en SVG…",
-        "menu_file_export_png": "Exporter en PNG haute résolution…",
-        "menu_file_quit": "Quitter",
-
-        "menu_options_canvas": "Taille du canevas et précision…",
-
-        "export_png_dialog_title": "Exporter en PNG",
-        "export_png_width": "Largeur (px) :",
-        "export_png_height": "Hauteur (px) :",
-
-        "canvas_dialog_title": "Taille du canevas et précision",
-        "canvas_label_width": "Largeur du canevas (px) :",
-        "canvas_label_height": "Hauteur du canevas (px) :",
-        "canvas_label_points": "Points par tracé :",
-
-        "menu_modular_editor": "Éditeur de piste modulaire…",
-
-        "mod_editor_title": "Éditeur de piste modulaire",
-        "mod_editor_notation_label": "Notation :",
-        "mod_editor_inner_size": "Taille intérieure :",
-        "mod_editor_outer_size": "Taille extérieure :",
-        "mod_editor_info_no_piece": "Aucune pièce valide dans la notation.",
-        "mod_editor_info_error": "Erreur : {error}",
-        "mod_editor_info_empty": "Notation valide, mais piste vide.",
-        "mod_editor_info_ok": "Longueur ~ {length:.1f} unités",
-        "mod_editor_summary_inner": "Piste intérieure : {length:.1f} unités",
-        "mod_editor_summary_mid": "Piste médiane : {length:.1f} unités",
-        "mod_editor_summary_outer": "Piste extérieure : {length:.1f} unités",
-
-        "dlg_close": "Fermer",
-        "track_test_title": "Test du tracé modulaire",
-        "track_test_unavailable": "Sélectionne un tracé associé à une piste modulaire complète.",
-    },
-    "en": {
-        "app_title": "Spiro / Wild Gears - Viewer",
-
-        "menu_layers": "Layers",
-        "menu_options": "Options",
-        "menu_regen": "Regenerate",
-        "menu_layers_manage": "Manage layers and paths…",
-        "menu_options_bgcolor": "Background color…",
-        "menu_options_language": "Language",
-        "menu_help": "Help",
-        "menu_help_manual": "Manual",
-        "menu_help_about": "About",
-        "menu_lang_fr": "Français",
-        "menu_lang_en": "English",
-        "menu_regen_animation": "Animation",
-        "menu_regen_show_track": "Show track",
-        "menu_regen_draw": "Regenerate drawing",
-
-        "anim_start": "Start animation",
-        "anim_pause": "Pause",
-        "anim_reset": "Reset",
-        "anim_speed_label": "Speed (points/s):",
-        "anim_speed_infinite": "∞ (instant)",
-        "anim_speed_suffix": " pts/s",
-
-        "dlg_layers_title": "Manage layers and paths",
-        "dlg_layers_col_name": "Name",
-        "dlg_layers_col_type": "Type",
-        "dlg_layers_col_details": "Details",
-        "dlg_layers_add_layer": "Add layer",
-        "dlg_layers_add_path": "Add path",
-        "dlg_layers_edit": "Edit",
-        "dlg_layers_move_up": "↑ Move up",
-        "dlg_layers_move_down": "↓ Move down",
-        "dlg_layers_test_track": "Test path",
-        "dlg_layers_remove": "Remove",
-        "dlg_layers_enable_layer": "Enable layer",
-        "dlg_layers_disable_layer": "Disable layer",
-        "dlg_layers_enable_path": "Enable path",
-        "dlg_layers_disable_path": "Disable path",
-        "dlg_layers_enable_all_paths": "Enable all paths",
-        "dlg_layers_disable_all_paths": "Disable all paths",
-        "dlg_layers_ok": "OK",
-        "dlg_layers_cancel": "Cancel",
-        "dlg_layers_must_keep_layer_title": "Impossible",
-        "dlg_layers_must_keep_layer_text": "At least one layer must remain.",
-        "dlg_layers_remove_last_path_title": "Remove last path?",
-        "dlg_layers_remove_last_path_text": "This layer will have no paths left. Continue?",
-        "dlg_layers_need_layer_title": "No layer",
-        "dlg_layers_need_layer_text": "Select a layer (or one of its paths) before adding a path.",
-
-        "dlg_layer_edit_title": "Edit layer",
-        "dlg_layer_name": "Layer name:",
-        "dlg_layer_zoom": "Layer zoom:",
-        "dlg_layer_translate_x": "Layer translate X:",
-        "dlg_layer_translate_y": "Layer translate Y:",
-        "dlg_layer_rotate": "Layer rotation (°):",
-        "dlg_layer_num_gears": "Number of gears (2 or 3):",
-        "dlg_layer_gear_label": "Gear {index}",
-        "dlg_layer_gear_name": "Name:",
-        "dlg_layer_gear_type": "Type:",
-        "dlg_layer_gear_size": "Size (wheel / inner ring):",
-        "dlg_layer_gear_outer": "Outer size (ring):",
-        "dlg_layer_gear_relation": "Relation:",
-        "dlg_layer_gear_modular_notation": "Modular track (notation):",
-
-        "dlg_ok": "OK",
-        "dlg_cancel": "Cancel",
-        "dlg_about_title": "About",
-
-        "dlg_path_edit_title": "Edit path",
-        "dlg_path_name": "Path name:",
-        "dlg_path_hole_index": "Hole offset:",
-        "dlg_path_phase": "Phase offset (track units):",
-        "dlg_path_color": "Color (CSS4 name or #hex):",
-        "dlg_path_width": "Stroke width:",
-        "dlg_path_zoom": "Path zoom:",
-        "dlg_path_translate_x": "Path translate X:",
-        "dlg_path_translate_y": "Path translate Y:",
-        "dlg_path_rotate": "Path rotation (°):",
-
-        "bgcolor_dialog_title": "Background color",
-        "bgcolor_label": "Background color (CSS4 name or #hex):",
-
-        "color_invalid_title": "Invalid color",
-        "color_invalid_text": "The color you entered is not a valid X11/CSS4 or hexadecimal color.",
-
-        "tree_type_layer": "Layer",
-        "tree_type_path": "Path",
-
-        "default_layer_name": "Layer",
-        "default_path_name": "Path",
-        "default_gear_name": "Gear {index}",
-        "default_ring_name": "Ring",
-        "default_wheel_name": "Wheel",
-
-        "menu_file": "File",
-        "menu_file_load_json": "Load settings (JSON)…",
-        "menu_file_save_json": "Save settings (JSON)…",
-        "menu_file_export_svg": "Export as SVG…",
-        "menu_file_export_png": "Export as high-res PNG…",
-        "menu_file_quit": "Quit",
-
-        "menu_options_canvas": "Canvas size and precision…",
-
-        "export_png_dialog_title": "Export PNG",
-        "export_png_width": "Width (px):",
-        "export_png_height": "Height (px):",
-
-        "canvas_dialog_title": "Canvas size and precision",
-        "canvas_label_width": "Canvas width (px):",
-        "canvas_label_height": "Canvas height (px):",
-        "canvas_label_points": "Points per path:",
-
-        "menu_modular_editor": "Modular track editor…",
-
-        "mod_editor_title": "Modular track editor",
-        "mod_editor_notation_label": "Notation:",
-        "mod_editor_inner_size": "Inner size:",
-        "mod_editor_outer_size": "Outer size:",
-        "mod_editor_info_no_piece": "No valid piece found in notation.",
-        "mod_editor_info_error": "Error: {error}",
-        "mod_editor_info_empty": "Notation is valid, but track is empty.",
-        "mod_editor_info_ok": "Length ~ {length:.1f} units",
-        "mod_editor_summary_inner": "Inner track: {length:.1f} units",
-        "mod_editor_summary_mid": "Center track: {length:.1f} units",
-        "mod_editor_summary_outer": "Outer track: {length:.1f} units",
-
-        "dlg_close": "Close",
-        "track_test_title": "Modular track test",
-        "track_test_unavailable": "Select a path linked to a complete modular track.",
-    },
-}
-
-
-def tr(lang: str, key: str) -> str:
-    return TRANSLATIONS.get(lang, TRANSLATIONS["fr"]).get(key, key)
-
-
 # ---------- 1) Modèle de données : engrenages & paths ----------
 
 GEAR_TYPES = [
@@ -515,32 +244,6 @@ RELATIONS = [
     "dedans",        # gear inside (hypotrochoïde)
     "dehors",        # gear outside (épitrochoïde)
 ]
-
-GEAR_TYPE_LABELS = {
-    "anneau": {"fr": "anneau", "en": "ring"},
-    "roue": {"fr": "roue", "en": "wheel"},
-    "triangle": {"fr": "triangle", "en": "triangle"},
-    "carré": {"fr": "carré", "en": "square"},
-    "barre": {"fr": "barre", "en": "bar"},
-    "croix": {"fr": "croix", "en": "cross"},
-    "oeil": {"fr": "oeil", "en": "eye"},
-    "modulaire": {"fr": "modulaire", "en": "modular"},
-}
-
-RELATION_LABELS = {
-    "stationnaire": {"fr": "stationnaire", "en": "stationary"},
-    "dedans": {"fr": "dedans", "en": "inside"},
-    "dehors": {"fr": "dehors", "en": "outside"},
-}
-
-
-def gear_type_label(gear_type: str, lang: str) -> str:
-    return GEAR_TYPE_LABELS.get(gear_type, {}).get(lang, gear_type)
-
-
-def relation_label(relation: str, lang: str) -> str:
-    return RELATION_LABELS.get(relation, {}).get(lang, relation)
-
 
 @dataclass
 class GearConfig:
@@ -939,8 +642,8 @@ class ColorPickerDialog(QDialog):
 
     def __init__(self, initial_text: str = "", lang: str = "fr", parent=None):
         super().__init__(parent)
-        self.lang = lang
-        self.setWindowTitle("Choisir une couleur" if lang == "fr" else "Pick a color")
+        self.lang = localisation.normalize_language(lang) or "fr"
+        self.setWindowTitle(tr(self.lang, "color_picker_title"))
         self.resize(820, 460)
 
         self._updating = False
@@ -974,7 +677,7 @@ class ColorPickerDialog(QDialog):
         self.preview_label.setAutoFillBackground(True)
 
         self.text_edit = QLineEdit()
-        self.text_edit.setPlaceholderText("Nom, #hex ou (H, S, L)")
+        self.text_edit.setPlaceholderText(tr(self.lang, "color_picker_text_placeholder"))
         prev_layout.addWidget(self.preview_label)
         prev_layout.addWidget(self.text_edit, 1)
 
@@ -1030,16 +733,18 @@ class ColorPickerDialog(QDialog):
         harmony_layout = QVBoxLayout()
 
         scheme_row = QHBoxLayout()
-        scheme_label = QLabel("Harmonie" if lang == "fr" else "Harmony")
+        scheme_label = QLabel(tr(self.lang, "color_picker_harmony_label"))
         self.scheme_combo = QComboBox()
-        self.scheme_combo.addItems([
-            "Aucune" if lang == "fr" else "None",
-            "Complémentaire" if lang == "fr" else "Complementary",
-            "Analogues" if lang == "fr" else "Analogous",
-            "Triadique" if lang == "fr" else "Triadic",
-            "Tétradique" if lang == "fr" else "Tetradic",
-            "Tints & Shades",
-        ])
+        scheme_options = [
+            ("none", tr(self.lang, "color_picker_scheme_none")),
+            ("complementary", tr(self.lang, "color_picker_scheme_complementary")),
+            ("analogous", tr(self.lang, "color_picker_scheme_analogous")),
+            ("triadic", tr(self.lang, "color_picker_scheme_triadic")),
+            ("tetradic", tr(self.lang, "color_picker_scheme_tetradic")),
+            ("tints_shades", tr(self.lang, "color_picker_scheme_tints_shades")),
+        ]
+        for key, label in scheme_options:
+            self.scheme_combo.addItem(label, key)
         scheme_row.addWidget(scheme_label)
         scheme_row.addWidget(self.scheme_combo, 1)
 
@@ -1064,8 +769,8 @@ class ColorPickerDialog(QDialog):
         right_layout = QVBoxLayout()
         search_layout = QHBoxLayout()
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search" if lang == "en" else "Recherche")
-        btn_clear = QPushButton("Clear")
+        self.search_edit.setPlaceholderText(tr(self.lang, "color_picker_search_placeholder"))
+        btn_clear = QPushButton(tr(self.lang, "color_picker_clear"))
         btn_clear.clicked.connect(self.search_edit.clear)
         search_layout.addWidget(self.search_edit, 1)
         search_layout.addWidget(btn_clear)
@@ -1079,8 +784,8 @@ class ColorPickerDialog(QDialog):
 
         # --- boutons OK / Annuler ---
         btn_layout = QHBoxLayout()
-        btn_ok = QPushButton("OK")
-        btn_cancel = QPushButton("Cancel" if lang == "en" else "Annuler")
+        btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
+        btn_cancel = QPushButton(tr(self.lang, "dlg_cancel"))
         btn_ok.clicked.connect(self.accept)
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addStretch(1)
@@ -1137,15 +842,7 @@ class ColorPickerDialog(QDialog):
     # -------- Harmonies --------
 
     def update_scheme_palette(self, _index: int = 0):
-        scheme = self.scheme_combo.currentText()
-        if self.lang == "en":
-            scheme = {
-                "None": "Aucune",
-                "Complementary": "Complémentaire",
-                "Analogous": "Analogues",
-                "Triadic": "Triadique",
-                "Tetradic": "Tétradique",
-            }.get(scheme, scheme)
+        scheme = self.scheme_combo.currentData()
 
         c = QColor()
         c.setHsvF(self._h, self._s, self._v)
@@ -1161,25 +858,25 @@ class ColorPickerDialog(QDialog):
             cc.setHsvF(h, s, v)
             colors.append(f"#{cc.red():02x}{cc.green():02x}{cc.blue():02x}")
 
-        if scheme.startswith("Aucune"):
+        if scheme == "none":
             colors = []
-        elif scheme.startswith("Complémentaire"):
+        elif scheme == "complementary":
             add_h_offset(0)
             add_h_offset(180)
-        elif scheme.startswith("Analogues"):
+        elif scheme == "analogous":
             add_h_offset(-30)
             add_h_offset(0)
             add_h_offset(30)
-        elif scheme.startswith("Triadique"):
+        elif scheme == "triadic":
             add_h_offset(0)
             add_h_offset(120)
             add_h_offset(240)
-        elif scheme.startswith("Tétradique"):
+        elif scheme == "tetradic":
             add_h_offset(0)
             add_h_offset(90)
             add_h_offset(180)
             add_h_offset(270)
-        elif "Tints" in scheme:
+        elif scheme == "tints_shades":
             for v_mult in (1.2, 1.0, 0.8, 0.6, 0.4):
                 v = max(0.0, min(1.0, base_v * v_mult))
                 cc = QColor()
@@ -2230,8 +1927,8 @@ class LayerManagerDialog(QDialog):
 
     def _layer_summary(self, layer: LayerConfig) -> str:
         parts = []
-        gears_label = "engr." if self.lang == "fr" else "gears"
-        parts.append(f"{len(layer.gears)} {gears_label}, zoom {layer.zoom:g}")
+        gears_label = tr(self.lang, "layer_summary_gears_short")
+        parts.append(f"{len(layer.gears)} {gears_label}, {tr(self.lang, 'layer_summary_zoom')} {layer.zoom:g}")
         gear_descs = []
         for i, g in enumerate(layer.gears):
             type_name = gear_type_label(g.gear_type, self.lang)
@@ -3079,7 +2776,7 @@ class SpiroWindow(QWidget):
         super().__init__()
 
         # Langue par défaut : français
-        self.language = "fr"
+        self.language = localisation.resolve_language("fr")
 
         # Indicateur de restauration de géométrie
         self._geometry_restored = False
@@ -3150,16 +2847,8 @@ class SpiroWindow(QWidget):
         # Sous-menu Langue
         self.menu_lang = QMenu(menubar)
         self.menu_options.addMenu(self.menu_lang)
-
-        self.act_lang_fr = QAction(menubar)
-        self.act_lang_fr.setCheckable(True)
-        self.act_lang_en = QAction(menubar)
-        self.act_lang_en.setCheckable(True)
-        self.menu_lang.addAction(self.act_lang_fr)
-        self.menu_lang.addAction(self.act_lang_en)
-
-        self.act_lang_fr.triggered.connect(lambda: self.set_language("fr"))
-        self.act_lang_en.triggered.connect(lambda: self.set_language("en"))
+        self.language_actions: Dict[str, QAction] = {}
+        self._build_language_menu(menubar)
 
 
         # Menu Régénérer
@@ -3308,9 +2997,7 @@ class SpiroWindow(QWidget):
     # ----- Langue -----
 
     def set_language(self, lang: str):
-        if lang not in TRANSLATIONS:
-            lang = "fr"
-        self.language = lang
+        self.language = localisation.resolve_language(lang or "fr")
         self.apply_language()
 
     def apply_language(self):
@@ -3335,8 +3022,6 @@ class SpiroWindow(QWidget):
         self.act_bg_color.setText(tr(self.language, "menu_options_bgcolor"))
         self.act_canvas.setText(tr(self.language, "menu_options_canvas"))
         self.menu_lang.setTitle(tr(self.language, "menu_options_language"))
-        self.act_lang_fr.setText(tr(self.language, "menu_lang_fr"))
-        self.act_lang_en.setText(tr(self.language, "menu_lang_en"))
         self.act_animation_enabled.setText(tr(self.language, "menu_regen_animation"))
         self.act_show_track.setText(tr(self.language, "menu_regen_show_track"))
         self.act_regen.setText(tr(self.language, "menu_regen_draw"))
@@ -3346,8 +3031,9 @@ class SpiroWindow(QWidget):
         self._refresh_animation_texts()
 
         # Checkmarks langue
-        self.act_lang_fr.setChecked(self.language == "fr")
-        self.act_lang_en.setChecked(self.language == "en")
+        for code, action in self.language_actions.items():
+            action.setText(localisation.language_display_name(code))
+            action.setChecked(code == self.language)
 
     def _available_svg_space(self) -> Tuple[int, int]:
         layout = self.layout()
@@ -3383,6 +3069,17 @@ class SpiroWindow(QWidget):
 
         return available_width, available_height
 
+    def _build_language_menu(self, menubar: QMenuBar):
+        self.menu_lang.clear()
+        self.language_actions.clear()
+        for code in localisation.available_languages():
+            action = QAction(menubar)
+            action.setCheckable(True)
+            action.setData(code)
+            action.triggered.connect(lambda _checked=False, lang=code: self.set_language(lang))
+            self.menu_lang.addAction(action)
+            self.language_actions[code] = action
+
     def _resolve_repo_info(self) -> Tuple[str, Optional[str]]:
         repo_root = os.path.dirname(os.path.abspath(__file__))
         try:
@@ -3401,7 +3098,9 @@ class SpiroWindow(QWidget):
         return f"{GITHUB_REPO_URL}/tree/{branch}", branch
 
     def open_manual(self):
-        readme = "README.fr.md" if self.language == "fr" else "README.md"
+        readme_path = localisation.resolve_readme_path(self.language)
+        repo_root = Path(os.path.abspath(__file__)).parent
+        readme = readme_path.relative_to(repo_root).as_posix()
         _repo_url, branch = self._resolve_repo_info()
         ref = branch or "main"
         url = f"{GITHUB_REPO_URL}/blob/{ref}/{readme}"
@@ -3869,7 +3568,7 @@ class SpiroWindow(QWidget):
         return data
 
     def _apply_state_dict(self, data, *, apply_window: bool, refresh: bool):
-        self.language = data.get("language", self.language)
+        self.language = localisation.resolve_language(data.get("language", self.language))
         self.bg_color = data.get("bg_color", self.bg_color)
         self.canvas_width = int(data.get("canvas_width", self.canvas_width))
         self.canvas_height = int(data.get("canvas_height", self.canvas_height))
