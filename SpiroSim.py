@@ -258,6 +258,8 @@ TRANSLATIONS = {
         "dlg_layers_disable_layer": "Désactiver la couche",
         "dlg_layers_enable_path": "Activer le tracé",
         "dlg_layers_disable_path": "Désactiver le tracé",
+        "dlg_layers_enable_all_paths": "Activer tous les tracés",
+        "dlg_layers_disable_all_paths": "Désactiver tous les tracés",
         "dlg_layers_ok": "OK",
         "dlg_layers_cancel": "Annuler",
         "dlg_layers_must_keep_layer_title": "Impossible",
@@ -384,6 +386,8 @@ TRANSLATIONS = {
         "dlg_layers_disable_layer": "Disable layer",
         "dlg_layers_enable_path": "Enable path",
         "dlg_layers_disable_path": "Disable path",
+        "dlg_layers_enable_all_paths": "Enable all paths",
+        "dlg_layers_disable_all_paths": "Disable all paths",
         "dlg_layers_ok": "OK",
         "dlg_layers_cancel": "Cancel",
         "dlg_layers_must_keep_layer_title": "Impossible",
@@ -2169,6 +2173,7 @@ class LayerManagerDialog(QDialog):
         self.btn_add_path = QPushButton(tr(self.lang, "dlg_layers_add_path"))
         self.btn_edit = QPushButton(tr(self.lang, "dlg_layers_edit"))
         self.btn_toggle_enable = QPushButton()
+        self.btn_toggle_paths = QPushButton()
         self.btn_move_up = QPushButton(tr(self.lang, "dlg_layers_move_up"))
         self.btn_move_down = QPushButton(tr(self.lang, "dlg_layers_move_down"))
         self.btn_test_track = QPushButton(tr(self.lang, "dlg_layers_test_track"))
@@ -2177,6 +2182,7 @@ class LayerManagerDialog(QDialog):
         btn_layout.addWidget(self.btn_add_path)
         btn_layout.addWidget(self.btn_edit)
         btn_layout.addWidget(self.btn_toggle_enable)
+        btn_layout.addWidget(self.btn_toggle_paths)
         btn_layout.addWidget(self.btn_move_up)
         btn_layout.addWidget(self.btn_move_down)
         btn_layout.addWidget(self.btn_test_track)
@@ -2198,6 +2204,7 @@ class LayerManagerDialog(QDialog):
         self.btn_test_track.clicked.connect(self.on_test_track)
         self.btn_remove.clicked.connect(self.on_remove)
         self.btn_toggle_enable.clicked.connect(self.on_toggle_enable)
+        self.btn_toggle_paths.clicked.connect(self.on_toggle_paths)
         self.btn_ok.clicked.connect(self.accept)
         self.btn_cancel.clicked.connect(self.reject)
 
@@ -2335,6 +2342,39 @@ class LayerManagerDialog(QDialog):
                 self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_path"))
                 self.btn_toggle_enable.setEnabled(True)
 
+    def _update_paths_toggle_button_state(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            self.btn_toggle_paths.setEnabled(False)
+            self.btn_toggle_paths.setText("")
+            return
+        if kind == "layer":
+            layer = obj
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                self.btn_toggle_paths.setEnabled(False)
+                return
+        else:
+            self.btn_toggle_paths.setEnabled(False)
+            return
+        if not layer.paths:
+            self.btn_toggle_paths.setEnabled(False)
+            self.btn_toggle_paths.setText("")
+            return
+
+        any_disabled = any(not path.enable for path in layer.paths)
+        if any_disabled:
+            self.btn_toggle_paths.setText(tr(self.lang, "dlg_layers_enable_all_paths"))
+            self.btn_toggle_paths.setEnabled(True)
+            return
+
+        self.btn_toggle_paths.setText(tr(self.lang, "dlg_layers_disable_all_paths"))
+        if self._is_last_enabled_layer(layer):
+            self.btn_toggle_paths.setEnabled(False)
+            return
+        self.btn_toggle_paths.setEnabled(True)
+
     def refresh_tree(self):
         self.tree.clear()
         current_item_to_select = None
@@ -2379,7 +2419,7 @@ class LayerManagerDialog(QDialog):
         self._update_test_button_state()
         self._update_move_buttons_state()
         self._update_enable_button_state()
-        self._update_enable_button_state()
+        self._update_paths_toggle_button_state()
 
     def get_selected_object(self):
         item = self.tree.currentItem()
@@ -2410,6 +2450,7 @@ class LayerManagerDialog(QDialog):
             self.btn_move_up.setEnabled(False)
             self.btn_move_down.setEnabled(False)
             self._update_enable_button_state()
+            self._update_paths_toggle_button_state()
             return
 
         obj = current.data(0, Qt.UserRole)
@@ -2430,6 +2471,8 @@ class LayerManagerDialog(QDialog):
             self.selected_path_idx = pi
         self._update_test_button_state()
         self._update_move_buttons_state()
+        self._update_enable_button_state()
+        self._update_paths_toggle_button_state()
 
     def on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
         self.on_edit()
@@ -2522,12 +2565,8 @@ class LayerManagerDialog(QDialog):
                 if self._is_last_enabled_layer(obj):
                     return
                 obj.enable = False
-                for path in obj.paths:
-                    path.enable = False
             else:
                 obj.enable = True
-                for path in obj.paths:
-                    path.enable = True
         elif kind == "path":
             layer = self.find_parent_layer(obj)
             if not layer:
@@ -2540,8 +2579,34 @@ class LayerManagerDialog(QDialog):
                     layer.enable = False
             else:
                 obj.enable = True
-                if not layer.enable:
-                    layer.enable = True
+        self.refresh_tree()
+
+    def on_toggle_paths(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+        if kind == "layer":
+            layer = obj
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+        else:
+            return
+        if not layer:
+            return
+        if not layer.paths:
+            return
+
+        any_disabled = any(not path.enable for path in layer.paths)
+        if any_disabled:
+            for path in layer.paths:
+                path.enable = True
+        else:
+            if self._is_last_enabled_layer(layer):
+                return
+            for path in layer.paths:
+                path.enable = False
+            if not any(path.enable for path in layer.paths):
+                layer.enable = False
         self.refresh_tree()
 
     def on_move_up(self):
