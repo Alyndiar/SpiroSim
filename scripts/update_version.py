@@ -8,9 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from spirosim.versioning import write_version_file
-
-
 def _repo_root() -> Path:
     result = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
@@ -19,6 +16,11 @@ def _repo_root() -> Path:
         text=True,
     )
     return Path(result.stdout.strip())
+
+
+def _ensure_repo_on_path(repo_root: Path) -> None:
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
 
 
 def _run_gitversion(repo_root: Path) -> dict[str, str] | None:
@@ -61,6 +63,9 @@ def main() -> int:
     except subprocess.CalledProcessError:
         print("Unable to locate git repository root.", file=sys.stderr)
         return 1
+
+    _ensure_repo_on_path(repo_root)
+    from spirosim.versioning import write_version_file
 
     metadata = _run_gitversion(repo_root)
     if not metadata:
