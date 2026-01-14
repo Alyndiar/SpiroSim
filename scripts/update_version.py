@@ -25,10 +25,11 @@ def _ensure_repo_on_path(repo_root: Path) -> None:
 
 def _extract_json(output: str) -> dict[str, str] | None:
     start = output.find("{")
-    if start == -1:
+    end = output.rfind("}")
+    if start == -1 or end == -1 or end <= start:
         return None
     try:
-        return json.loads(output[start:])
+        return json.loads(output[start : end + 1])
     except json.JSONDecodeError:
         return None
 
