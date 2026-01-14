@@ -33,7 +33,7 @@ def _run_gitversion(repo_root: Path) -> dict[str, str] | None:
                 "dotnet",
                 "tool",
                 "run",
-                "gitversion",
+                "dotnet-gitversion",
                 "--tool-manifest",
                 str(repo_root / ".config" / "dotnet-tools.json"),
             ]
