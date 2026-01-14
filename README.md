@@ -138,6 +138,20 @@ Tracks are defined by a compact algebraic notation made of blocks, written as
 `letter + number` pieces separated by operators `+`, `-`, or `*`. Whitespace is
 ignored, and the entire string is case-insensitive.
 
+## Local GitVersion metadata
+
+To keep `spirosim/_version.py` in sync after each pull, checkout, or rebase,
+install the GitVersion tool and enable the repository hooks:
+
+```bash
+dotnet tool restore --tool-manifest .config/dotnet-tools.json
+python scripts/setup_git_hooks.py
+```
+
+The hooks run `python scripts/update_version.py` automatically, which calls
+GitVersion and rewrites `spirosim/_version.py` with the latest `fullSemVer`
+and `shortSha` values.
+
 ### Operators
 
 - `+` / `-`: sets the turn direction (left/right) for the next piece.

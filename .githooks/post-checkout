@@ -1,0 +1,2 @@
+#!/bin/sh
+python scripts/update_version.py
