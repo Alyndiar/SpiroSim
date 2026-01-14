@@ -23,6 +23,16 @@ def _ensure_repo_on_path(repo_root: Path) -> None:
         sys.path.insert(0, str(repo_root))
 
 
+def _extract_json(output: str) -> dict[str, str] | None:
+    start = output.find("{")
+    if start == -1:
+        return None
+    try:
+        return json.loads(output[start:])
+    except json.JSONDecodeError:
+        return None
+
+
 def _run_gitversion(repo_root: Path) -> dict[str, str] | None:
     commands = []
     if shutil.which("gitversion"):
@@ -51,10 +61,9 @@ def _run_gitversion(repo_root: Path) -> dict[str, str] | None:
             )
         except (subprocess.CalledProcessError, FileNotFoundError):
             continue
-        try:
-            return json.loads(result.stdout)
-        except json.JSONDecodeError:
-            continue
+        metadata = _extract_json(result.stdout) or _extract_json(result.stderr)
+        if metadata:
+            return metadata
     return None
 
 
