@@ -36,6 +36,7 @@ def _run_gitversion(repo_root: Path) -> dict[str, str] | None:
                 "dotnet-gitversion",
                 "--tool-manifest",
                 str(repo_root / ".config" / "dotnet-tools.json"),
+                "--",
             ]
         )
 
@@ -57,6 +58,12 @@ def _run_gitversion(repo_root: Path) -> dict[str, str] | None:
     return None
 
 
+def _read_version_fields(metadata: dict[str, str]) -> tuple[str, str]:
+    version = metadata.get("FullSemVer") or metadata.get("fullSemVer") or "0.0.0-dev"
+    sha = metadata.get("ShortSha") or metadata.get("shortSha") or "unknown"
+    return version, sha
+
+
 def main() -> int:
     try:
         repo_root = _repo_root()
@@ -75,8 +82,7 @@ def main() -> int:
         )
         return 0
 
-    version = metadata.get("fullSemVer") or "0.0.0-dev"
-    sha = metadata.get("shortSha") or "unknown"
+    version, sha = _read_version_fields(metadata)
     version_path = repo_root / "spirosim" / "_version.py"
     write_version_file(version_path, version, sha)
     return 0
