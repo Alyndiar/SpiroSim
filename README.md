@@ -1,8 +1,14 @@
 # SpiroSim
 
-**English** | [Français](README.fr.md)
+**Languages:** English | [Français](localisation/fr/README.md) | [All languages](LANGUAGES.md)
 
-A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, multiple traces per layers, "Super Spirograph"-inspired custom tracks. Configurable number of teeth per gear, tooth spacing, hole spacing, colors. Save/export designs to JSON, PNG and SVG.
+A simulator/testbed for Spirograph inspired drawings. Multiple gear layers, multiple traces per layers, "Super Spirograph"-inspired custom tracks. Configurable gear sizes, path offsets, colors. Save/export designs to JSON, PNG and SVG.
+
+## Localisation
+
+SpiroSim ships with a localisation system for UI strings. Use **Options → Language** to
+switch languages, and see [`localisation.md`](localisation.md) for the translation file
+format plus instructions on adding a new language to the program and repository.
 
 ## Installation
 
@@ -40,6 +46,7 @@ The main window renders the drawing and exposes the following menus and dialogs.
 - **Save settings (JSON)**: export the current configuration.
 - **Export as SVG**: save vector output of all visible layers.
 - **Export as high-res PNG**: save a raster export at a specified resolution.
+- **Quit**: exit the application.
 
 ### Layers menu
 
@@ -47,8 +54,7 @@ The main window renders the drawing and exposes the following menus and dialogs.
 
 ### Options menu
 
-- **Hole spacing / tooth pitch**: set the radial hole spacing and tooth pitch.
-- **Background color**: set the canvas background (CSS4 name or hex).
+- **Background color**: set the canvas background (CSS4 name, hex, or HSL tuple).
 - **Canvas size and precision**: set output width/height and points per path.
 - **Language**: switch the UI between French and English.
 
@@ -57,6 +63,16 @@ The main window renders the drawing and exposes the following menus and dialogs.
 - **Animation**: toggle the animation controls below the canvas.
 - **Show track**: toggle rendering of modular track centerlines in the preview.
 - **Regenerate drawing**: recompute and refresh the drawing.
+
+### Help menu
+
+- **Manual**: open the localized README for the current language.
+- **About**: show version and license details.
+
+### Animation controls
+
+When animation is enabled, controls below the canvas allow you to start/pause/reset the
+preview and change the animation speed (points per second, including instant mode).
 
 ## Layers and traces (paths)
 
@@ -71,6 +87,7 @@ When you edit a layer in the manager, you can configure:
 - **Name**: label used in exports and the layer list.
 - **Visible**: toggle whether the layer is rendered.
 - **Layer zoom**: scales all paths in the layer together.
+- **Layer translate/rotate**: offset and rotate the entire layer.
 - **Number of gears (2 or 3)**: choose between a 2-gear or 3-gear system.
 
 ### Gear settings
@@ -83,30 +100,37 @@ configure:
 - **Type**:
   - `ring`, `wheel`, `triangle`, `square`, `bar`, `cross`, `eye`
   - `modular` (modular track base, only allowed for Gear 1)
-- **Teeth (wheel / inner ring)**: tooth count for the wheel or inner ring.
-- **Outer teeth (ring)**: outer tooth count for ring-type gears.
+- **Size (wheel / inner ring)**: size for the wheel or inner ring.
+- **Outer size (ring)**: outer size for ring-type gears.
 - **Relation**:
   - `stationary`: only valid for Gear 1 (fixed in place).
   - `inside`: wheel rolls inside the ring (hypotrochoid).
   - `outside`: wheel rolls outside the ring (epitrochoid).
 - **Modular track (notation)**: only shown for Gear 1 when type is `modular`.
   This uses the custom track notation described below.
+  Use the **…** button to open the modular track editor.
 
 ### Path (trace) settings
 
 Each path defines how the pen is placed on the moving gear:
 
 - **Name**: label displayed in the manager and exports.
-- **Hole index**: radial hole index on the moving gear (distance from center).
-- **Phase offset (teeth)**: phase shift applied to the pen position.
-- **Color**: CSS4 name or `#RRGGBB` hex.
+- **Hole offset**: radial hole offset on the moving gear (distance from center).
+- **Phase offset (track units)**: phase shift applied to the pen position.
+- **Color**: CSS4 name, `#RRGGBB` hex, or `(H, S, L)` HSL tuple.
 - **Stroke width**: line width in the preview and exports.
 - **Path zoom**: scales only this path (multiplicative with layer zoom).
+- **Path translate/rotate**: offset and rotate the path relative to the layer.
 
 ### Track testing
 
 If Gear 1 is a modular track with a valid notation, the manager enables
 **Test path** to preview the track geometry and wheel motion.
+
+### Layer manager actions
+
+The layer manager lets you add, edit, reorder, enable/disable, and remove layers or paths.
+It also includes bulk enable/disable for all paths in a layer.
 
 ## Custom track notation
 
@@ -125,11 +149,11 @@ piece. A leading `*` jumps to the first open branch.
 ### Pieces
 
 - `aNN`: arc of `NN` degrees. The sign (`+`/`-`) determines left/right turn.
-- `dNN`: straight segment of `NN` teeth.
+- `dNN`: straight segment of `NN` units.
 - `b`: rounded end (half-circle) connecting the two sides of the track.
 - `y`: triangular junction composed of three 120° arcs spaced by the track
   width.
-- `nNN`: origin offset in teeth, applied in the direction of the current sign.
+- `nNN`: origin offset in units, applied in the direction of the current sign.
 - `oNN`: origin angular offset in degrees, applied with the same sign
   convention.
 
@@ -141,5 +165,5 @@ piece. A leading `*` jumps to the first open branch.
 +a90-d40+b*a90
 ```
 
-This builds a 90° left arc, a 40-tooth straight, a rounded end, then continues
+This builds a 90° left arc, a 40-unit straight, a rounded end, then continues
 on the next branch with another 90° left arc.

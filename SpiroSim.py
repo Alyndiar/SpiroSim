@@ -1,3 +1,5 @@
+import importlib
+import importlib.util
 import sys
 import math
 import copy
@@ -6,13 +8,17 @@ import re
 import colorsys
 import time
 import os
+import subprocess
+from pathlib import Path
 from html import escape  # <-- AJOUT ICI
 from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import modular_tracks_2 as modular_tracks
 import modular_tracks_2_demo as modular_track_demo
+import localisation
+from localisation import gear_type_label, relation_label, tr
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -37,6 +43,7 @@ from PySide6.QtWidgets import (
     QSlider,          # <-- AJOUT
     QListWidget,      # <-- AJOUT
     QListWidgetItem,  # <-- AJOUT
+    QStyle,
     QSizePolicy,
 )
 from PySide6.QtGui import (
@@ -47,6 +54,7 @@ from PySide6.QtGui import (
     QIcon,
     QFont,
     QPixmap,
+    QDesktopServices,
     QPen,   # <-- AJOUT ICI
 )
 from PySide6.QtCore import (
@@ -56,16 +64,27 @@ from PySide6.QtCore import (
     QPoint,
     QPointF,
     QSize,
+    QUrl,
     QTimer,
     QStandardPaths,
 )
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
 
-# ----- Constante : pas par dent (approximation Spirograph) -----
-# On suppose que chaque dent sur le cercle de pas correspond à ~0,65 mm
-# de longueur d'arc. Le rayon (en mm) = (pas * dents) / (2π).
-PITCH_MM_PER_TOOTH = 0.65
+# ----- Constante : unités normalisées -----
+# Les tailles et distances sont désormais exprimées en unités abstraites,
+# sans conversion réelle.
+UNIT_LENGTH = 1.0
+def _load_app_version() -> str:
+    spec = importlib.util.find_spec("spirosim._version")
+    if spec is None:
+        return "0.0.0-dev"
+    version_module = importlib.import_module("spirosim._version")
+    return getattr(version_module, "__version__", "0.0.0-dev")
+
+
+APP_VERSION = _load_app_version()
+GITHUB_REPO_URL = "https://github.com/alyndiar/SpiroSim"
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
     """
@@ -217,260 +236,6 @@ def kelvin_to_rgb(temp_k: float) -> Tuple[int, int, int]:
 
     return (r, g, b)
 
-# ---------- 0) Traductions ----------
-
-TRANSLATIONS = {
-    "fr": {
-        "app_title": "Spiro / Wild Gears - Visionneuse",
-
-        "menu_layers": "Couches",
-        "menu_options": "Options",
-        "menu_regen": "Régénérer",
-        "menu_layers_manage": "Gérer les couches et les tracés…",
-        "menu_options_spacing": "Espacement radial des trous / pas des dents…",
-        "menu_options_bgcolor": "Couleur de fond…",
-        "menu_options_language": "Langue",
-        "menu_lang_fr": "Français",
-        "menu_lang_en": "English",
-        "menu_regen_animation": "Animation",
-        "menu_regen_show_track": "Afficher la piste",
-        "menu_regen_draw": "Régénérer le dessin",
-
-        "anim_start": "Démarrer l'animation",
-        "anim_pause": "Mettre en pause",
-        "anim_reset": "Remettre à zéro",
-        "anim_speed_label": "Vitesse (points/s) :",
-        "anim_speed_infinite": "∞ (instantané)",
-        "anim_speed_suffix": " pts/s",
-
-        "dlg_layers_title": "Gérer les couches et les tracés",
-        "dlg_layers_col_name": "Nom",
-        "dlg_layers_col_type": "Type",
-        "dlg_layers_col_details": "Détails",
-        "dlg_layers_add_layer": "Ajouter une couche",
-        "dlg_layers_add_path": "Ajouter un tracé",
-        "dlg_layers_edit": "Éditer",
-        "dlg_layers_move_up": "↑ Monter",
-        "dlg_layers_move_down": "↓ Descendre",
-        "dlg_layers_test_track": "Test du tracé",
-        "dlg_layers_remove": "Supprimer",
-        "dlg_layers_ok": "OK",
-        "dlg_layers_cancel": "Annuler",
-        "dlg_layers_must_keep_layer_title": "Impossible",
-        "dlg_layers_must_keep_layer_text": "Il doit rester au moins une couche.",
-        "dlg_layers_remove_last_path_title": "Supprimer le dernier tracé ?",
-        "dlg_layers_remove_last_path_text": "Cette couche n'aura plus aucun tracé. Continuer ?",
-        "dlg_layers_need_layer_title": "Aucune couche",
-        "dlg_layers_need_layer_text": "Sélectionne une couche (ou un tracé d'une couche) avant d'ajouter un tracé.",
-
-        "dlg_layer_edit_title": "Éditer la couche",
-        "dlg_layer_name": "Nom de la couche :",
-        "dlg_layer_visible": "Visible",
-        "dlg_layer_zoom": "Zoom de la couche :",
-        "dlg_layer_num_gears": "Nombre d'engrenages (2 ou 3) :",
-        "dlg_layer_gear_label": "Engrenage {index}",
-        "dlg_layer_gear_name": "Nom :",
-        "dlg_layer_gear_type": "Type :",
-        "dlg_layer_gear_teeth": "Dents (roue / int. anneau) :",
-        "dlg_layer_gear_outer": "Dents ext. (anneau) :",
-        "dlg_layer_gear_relation": "Relation :",
-        "dlg_layer_gear_modular_notation": "Piste modulaire (notation) :",
-
-        "dlg_ok": "OK",
-        "dlg_cancel": "Annuler",
-
-        "dlg_path_edit_title": "Éditer le tracé",
-        "dlg_path_name": "Nom du tracé :",
-        "dlg_path_hole_index": "Trou (index, float) :",
-        "dlg_path_phase": "Décalage (en dents) :",
-        "dlg_path_color": "Couleur (nom CSS4 ou #hex) :",
-        "dlg_path_width": "Largeur de trait :",
-        "dlg_path_zoom": "Zoom du tracé :",
-
-        "spacing_dialog_title": "Espacement radial des trous",
-        "spacing_label": "Espacement (en mm) :",
-        "teeth_spacing_label": "Pas des dents (mm/dent) :",
-
-        "bgcolor_dialog_title": "Couleur de fond",
-        "bgcolor_label": "Couleur de fond (nom CSS4 ou #hex) :",
-
-        "color_invalid_title": "Couleur invalide",
-        "color_invalid_text": "La couleur saisie n'est pas une couleur X11/CSS4 ou hexadécimale valide.",
-
-        "tree_type_layer": "Couche",
-        "tree_type_path": "Tracé",
-
-        "default_layer_name": "Couche",
-        "default_path_name": "Tracé",
-        "default_gear_name": "Engrenage {index}",
-        "default_ring_name": "Anneau",
-        "default_wheel_name": "Roue",
-
-        "menu_file": "Fichier",
-        "menu_file_load_json": "Charger paramètres (JSON)…",
-        "menu_file_save_json": "Sauvegarder paramètres (JSON)…",
-        "menu_file_export_svg": "Exporter en SVG…",
-        "menu_file_export_png": "Exporter en PNG haute résolution…",
-
-        "menu_options_canvas": "Taille du canevas et précision…",
-
-        "export_png_dialog_title": "Exporter en PNG",
-        "export_png_width": "Largeur (px) :",
-        "export_png_height": "Hauteur (px) :",
-
-        "canvas_dialog_title": "Taille du canevas et précision",
-        "canvas_label_width": "Largeur du canevas (px) :",
-        "canvas_label_height": "Hauteur du canevas (px) :",
-        "canvas_label_points": "Points par tracé :",
-
-        "menu_modular_editor": "Éditeur de piste modulaire…",
-
-        "mod_editor_title": "Éditeur de piste modulaire",
-        "mod_editor_notation_label": "Notation :",
-        "mod_editor_inner_teeth": "Dents intérieures :",
-        "mod_editor_outer_teeth": "Dents extérieures :",
-        "mod_editor_pitch": "Pas (mm/dent) :",
-        "mod_editor_info_no_piece": "Aucune pièce valide dans la notation.",
-        "mod_editor_info_error": "Erreur : {error}",
-        "mod_editor_info_empty": "Notation valide, mais piste vide.",
-        "mod_editor_info_ok": "Longueur ~ {length:.1f} mm, équivalent ~ {teeth:.1f} dents",
-        "mod_editor_summary_inner": "Piste intérieure : {length:.1f} mm (~{teeth:.1f} dents)",
-        "mod_editor_summary_mid": "Piste médiane : {length:.1f} mm (~{teeth:.1f} dents)",
-        "mod_editor_summary_outer": "Piste extérieure : {length:.1f} mm (~{teeth:.1f} dents)",
-
-        "dlg_close": "Fermer",
-        "track_test_title": "Test du tracé modulaire",
-        "track_test_unavailable": "Sélectionne un tracé associé à une piste modulaire complète.",
-    },
-    "en": {
-        "app_title": "Spiro / Wild Gears - Viewer",
-
-        "menu_layers": "Layers",
-        "menu_options": "Options",
-        "menu_regen": "Regenerate",
-        "menu_layers_manage": "Manage layers and paths…",
-        "menu_options_spacing": "Hole radial spacing / tooth pitch…",
-        "menu_options_bgcolor": "Background color…",
-        "menu_options_language": "Language",
-        "menu_lang_fr": "Français",
-        "menu_lang_en": "English",
-        "menu_regen_animation": "Animation",
-        "menu_regen_show_track": "Show track",
-        "menu_regen_draw": "Regenerate drawing",
-
-        "anim_start": "Start animation",
-        "anim_pause": "Pause",
-        "anim_reset": "Reset",
-        "anim_speed_label": "Speed (points/s):",
-        "anim_speed_infinite": "∞ (instant)",
-        "anim_speed_suffix": " pts/s",
-
-        "dlg_layers_title": "Manage layers and paths",
-        "dlg_layers_col_name": "Name",
-        "dlg_layers_col_type": "Type",
-        "dlg_layers_col_details": "Details",
-        "dlg_layers_add_layer": "Add layer",
-        "dlg_layers_add_path": "Add path",
-        "dlg_layers_edit": "Edit",
-        "dlg_layers_move_up": "↑ Move up",
-        "dlg_layers_move_down": "↓ Move down",
-        "dlg_layers_test_track": "Test path",
-        "dlg_layers_remove": "Remove",
-        "dlg_layers_ok": "OK",
-        "dlg_layers_cancel": "Cancel",
-        "dlg_layers_must_keep_layer_title": "Impossible",
-        "dlg_layers_must_keep_layer_text": "At least one layer must remain.",
-        "dlg_layers_remove_last_path_title": "Remove last path?",
-        "dlg_layers_remove_last_path_text": "This layer will have no paths left. Continue?",
-        "dlg_layers_need_layer_title": "No layer",
-        "dlg_layers_need_layer_text": "Select a layer (or one of its paths) before adding a path.",
-
-        "dlg_layer_edit_title": "Edit layer",
-        "dlg_layer_name": "Layer name:",
-        "dlg_layer_visible": "Visible",
-        "dlg_layer_zoom": "Layer zoom:",
-        "dlg_layer_num_gears": "Number of gears (2 or 3):",
-        "dlg_layer_gear_label": "Gear {index}",
-        "dlg_layer_gear_name": "Name:",
-        "dlg_layer_gear_type": "Type:",
-        "dlg_layer_gear_teeth": "Teeth (wheel / inner ring):",
-        "dlg_layer_gear_outer": "Outer teeth (ring):",
-        "dlg_layer_gear_relation": "Relation:",
-        "dlg_layer_gear_modular_notation": "Modular track (notation):",
-
-        "dlg_ok": "OK",
-        "dlg_cancel": "Cancel",
-
-        "dlg_path_edit_title": "Edit path",
-        "dlg_path_name": "Path name:",
-        "dlg_path_hole_index": "Hole (index, float):",
-        "dlg_path_phase": "Offset (in teeth):",
-        "dlg_path_color": "Color (CSS4 name or #hex):",
-        "dlg_path_width": "Stroke width:",
-        "dlg_path_zoom": "Path zoom:",
-
-        "spacing_dialog_title": "Hole radial spacing",
-        "spacing_label": "Spacing (mm):",
-        "teeth_spacing_label": "Tooth spacing (mm/tooth):",
-
-        "bgcolor_dialog_title": "Background color",
-        "bgcolor_label": "Background color (CSS4 name or #hex):",
-
-        "color_invalid_title": "Invalid color",
-        "color_invalid_text": "The color you entered is not a valid X11/CSS4 or hexadecimal color.",
-
-        "tree_type_layer": "Layer",
-        "tree_type_path": "Path",
-
-        "default_layer_name": "Layer",
-        "default_path_name": "Path",
-        "default_gear_name": "Gear {index}",
-        "default_ring_name": "Ring",
-        "default_wheel_name": "Wheel",
-
-        "menu_file": "File",
-        "menu_file_load_json": "Load settings (JSON)…",
-        "menu_file_save_json": "Save settings (JSON)…",
-        "menu_file_export_svg": "Export as SVG…",
-        "menu_file_export_png": "Export as high-res PNG…",
-
-        "menu_options_canvas": "Canvas size and precision…",
-
-        "export_png_dialog_title": "Export PNG",
-        "export_png_width": "Width (px):",
-        "export_png_height": "Height (px):",
-
-        "canvas_dialog_title": "Canvas size and precision",
-        "canvas_label_width": "Canvas width (px):",
-        "canvas_label_height": "Canvas height (px):",
-        "canvas_label_points": "Points per path:",
-
-        "menu_modular_editor": "Modular track editor…",
-
-        "mod_editor_title": "Modular track editor",
-        "mod_editor_notation_label": "Notation:",
-        "mod_editor_inner_teeth": "Inner teeth:",
-        "mod_editor_outer_teeth": "Outer teeth:",
-        "mod_editor_pitch": "Pitch (mm/tooth):",
-        "mod_editor_info_no_piece": "No valid piece found in notation.",
-        "mod_editor_info_error": "Error: {error}",
-        "mod_editor_info_empty": "Notation is valid, but track is empty.",
-        "mod_editor_info_ok": "Length ~ {length:.1f} mm, equivalent ~ {teeth:.1f} teeth",
-        "mod_editor_summary_inner": "Inner track: {length:.1f} mm (~{teeth:.1f} teeth)",
-        "mod_editor_summary_mid": "Center track: {length:.1f} mm (~{teeth:.1f} teeth)",
-        "mod_editor_summary_outer": "Outer track: {length:.1f} mm (~{teeth:.1f} teeth)",
-
-        "dlg_close": "Close",
-        "track_test_title": "Modular track test",
-        "track_test_unavailable": "Select a path linked to a complete modular track.",
-    },
-}
-
-
-def tr(lang: str, key: str) -> str:
-    return TRANSLATIONS.get(lang, TRANSLATIONS["fr"]).get(key, key)
-
-
 # ---------- 1) Modèle de données : engrenages & paths ----------
 
 GEAR_TYPES = [
@@ -490,38 +255,12 @@ RELATIONS = [
     "dehors",        # gear outside (épitrochoïde)
 ]
 
-GEAR_TYPE_LABELS = {
-    "anneau": {"fr": "anneau", "en": "ring"},
-    "roue": {"fr": "roue", "en": "wheel"},
-    "triangle": {"fr": "triangle", "en": "triangle"},
-    "carré": {"fr": "carré", "en": "square"},
-    "barre": {"fr": "barre", "en": "bar"},
-    "croix": {"fr": "croix", "en": "cross"},
-    "oeil": {"fr": "oeil", "en": "eye"},
-    "modulaire": {"fr": "modulaire", "en": "modular"},
-}
-
-RELATION_LABELS = {
-    "stationnaire": {"fr": "stationnaire", "en": "stationary"},
-    "dedans": {"fr": "dedans", "en": "inside"},
-    "dehors": {"fr": "dehors", "en": "outside"},
-}
-
-
-def gear_type_label(gear_type: str, lang: str) -> str:
-    return GEAR_TYPE_LABELS.get(gear_type, {}).get(lang, gear_type)
-
-
-def relation_label(relation: str, lang: str) -> str:
-    return RELATION_LABELS.get(relation, {}).get(lang, relation)
-
-
 @dataclass
 class GearConfig:
     name: str = "Engrenage"
     gear_type: str = "anneau"   # anneau, roue, triangle, carré, barre, croix, oeil, modulaire
-    teeth: int = 96             # roues, dents int. anneau / anneau modulaire
-    outer_teeth: int = 144      # anneau : dents ext. (ex: 150/105) / anneau modulaire
+    size: int = 96              # taille de la roue / taille intérieure de l'anneau
+    outer_size: int = 144       # anneau : taille extérieure / anneau modulaire
     relation: str = "stationnaire"  # stationnaire / dedans / dehors
     modular_notation: Optional[str] = None  # notation de piste si gear_type == "modulaire"
 
@@ -529,64 +268,75 @@ class GearConfig:
 @dataclass
 class PathConfig:
     name: str = "Tracé"
-    hole_index: float = 1.0
-    phase_offset_teeth: float = 0.0
+    enable: bool = True
+    hole_offset: float = 1.0
+    phase_offset: float = 0.0
     color: str = "blue"            # chaîne telle que saisie / affichée
     color_norm: Optional[str] = None  # valeur normalisée (#rrggbb) pour le dessin
     stroke_width: float = 1.2
     zoom: float = 1.0
+    translate_x: float = 0.0
+    translate_y: float = 0.0
+    rotate_deg: float = 0.0
 
 
 @dataclass
 class LayerConfig:
     name: str = "Couche"
-    visible: bool = True
+    enable: bool = True
     zoom: float = 1.0                         # zoom de la couche
+    translate_x: float = 0.0
+    translate_y: float = 0.0
+    rotate_deg: float = 0.0
     gears: List[GearConfig] = field(default_factory=list)  # 2 ou 3 engrenages
     paths: List[PathConfig] = field(default_factory=list)
 
 
 # ---------- 2) GÉOMÉTRIE ----------
 
-def radius_from_teeth(teeth: int, pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH) -> float:
+def radius_from_size(size: int) -> float:
     """
-    Calcule le rayon (en mm) d’un cercle de pas ayant 'teeth' dents,
-    en supposant un pas configurable (par défaut 0,65 mm par dent).
+    Calcule le rayon d’un cercle de pas ayant une taille donnée.
     """
-    if teeth <= 0:
+    if size <= 0:
         return 0.0
-    return (pitch_mm_per_tooth * float(teeth)) / (2.0 * math.pi)
+    return float(size) / (2.0 * math.pi)
 
 
-def contact_teeth_for_relation(gear: GearConfig, relation: str) -> int:
+def contact_size_for_relation(gear: GearConfig, relation: str) -> int:
     """
-    Nombre de dents utilisé pour le contact, selon la relation.
-    - anneau + 'dedans' : on utilise les dents intérieures (gear.teeth)
-    - anneau + 'dehors' : on utilise les dents extérieures (gear.outer_teeth)
-    - roue / autres : gear.teeth
+    Taille utilisée pour le contact, selon la relation.
+    - anneau + 'dedans' : on utilise la taille intérieure (gear.size)
+    - anneau + 'dehors' : on utilise la taille extérieure (gear.outer_size)
+    - roue / autres : gear.size
     """
     if gear.gear_type == "anneau":
         if relation == "dehors":
-            return gear.outer_teeth or gear.teeth
+            return gear.outer_size or gear.size
         else:
-            return gear.teeth
-    return gear.teeth
+            return gear.size
+    return gear.size
 
 
-def contact_radius_for_relation(
-    gear: GearConfig, relation: str, pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH
-) -> float:
+def phase_offset_turns(offset: float, size: int) -> float:
     """
-    Rayon de contact des dents pour un engrenage donné, selon la relation,
-    en mm (via radius_from_teeth).
+    Convertit un décalage en unités (O) en fraction de tour (O/S).
     """
-    t = contact_teeth_for_relation(gear, relation)
-    return radius_from_teeth(t, pitch_mm_per_tooth=pitch_mm_per_tooth)
+    if size <= 0:
+        return 0.0
+    return float(offset) / float(size)
+
+
+def contact_radius_for_relation(gear: GearConfig, relation: str) -> float:
+    """
+    Rayon de contact pour un engrenage donné, selon la relation.
+    """
+    size = contact_size_for_relation(gear, relation)
+    return radius_from_size(size)
 
 
 def generate_simple_circle_for_index(
-    hole_index: float,
-    hole_spacing_mm: float,
+    hole_offset: float,
     steps: int,
 ):
     """
@@ -594,11 +344,11 @@ def generate_simple_circle_for_index(
     dont le rayon dépend du trou indexé.
     On prend un rayon "référence" R_tip = 50 mm.
     Trou 0 : rayon = R_tip
-    Trou n : R = R_tip - n * hole_spacing_mm  (n peut être float et négatif)
+    Trou n : R = R_tip - n
     R est clampé à >= 0.
     """
     R_tip = 50.0
-    d = R_tip - hole_index * hole_spacing_mm
+    d = R_tip - hole_offset
     if d < 0:
         d = 0.0
 
@@ -615,8 +365,6 @@ def generate_trochoid_points_for_layer_path(
     layer: LayerConfig,
     path: PathConfig,
     steps: int = 5000,
-    hole_spacing_mm: float = 0.65,
-    pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
 ):
     """
     Génère la courbe pour un path donné, en utilisant la configuration
@@ -626,26 +374,23 @@ def generate_trochoid_points_for_layer_path(
       - Le PREMIER engrenage de la couche (gears[0]) est stationnaire
         et centré en (0, 0).
       - Le DEUXIÈME engrenage (gears[1]) est mobile et porte les trous du path.
-      - path.hole_index est un float, peut être négatif.
+      - path.hole_offset est un float, peut être négatif.
 
     Si le premier engrenage est de type "modulaire", il représente une
     piste virtuelle SuperSpirograph, définie par :
-      - g0.teeth        => dents intérieures de l’anneau de base
-      - g0.outer_teeth  => dents extérieures de l’anneau de base
+      - g0.size        => taille intérieure de l’anneau de base
+      - g0.outer_size  => taille extérieure de l’anneau de base
       - g0.modular_notation => notation de pièce (ex: "+a60+d144-b*d72")
     Dans ce cas, on délègue à modular_tracks.generate_track_base_points.
     """
 
-    hole_index = float(path.hole_index)
+    hole_offset = float(path.hole_offset)
 
     # Pas assez d’engrenages : cercle simple + rotation
     if len(layer.gears) < 2:
-        base_points = generate_simple_circle_for_index(
-            hole_index, hole_spacing_mm, steps
-        )
-        teeth_moving = 1
-        angle_from_teeth = 2.0 * math.pi * (path.phase_offset_teeth / teeth_moving)
-        total_angle = math.pi / 2.0 - angle_from_teeth
+        base_points = generate_simple_circle_for_index(hole_offset, steps)
+        phase_turns = phase_offset_turns(path.phase_offset, 1)
+        total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
@@ -661,43 +406,38 @@ def generate_trochoid_points_for_layer_path(
 
     relation = g1.relation
 
-    # Nombre de dents de contact pour chaque engrenage
-    T0 = max(1, contact_teeth_for_relation(g0, relation))
-    T1 = max(1, contact_teeth_for_relation(g1, relation))
+    # Taille de contact pour chaque engrenage
+    T0 = max(1, contact_size_for_relation(g0, relation))
+    T1 = max(1, contact_size_for_relation(g1, relation))
 
     # --- Cas 1 : piste modulaire comme premier engrenage ---
     if g0.gear_type == "modulaire" and g0.modular_notation:
-        inner_teeth = g0.teeth if g0.teeth > 0 else 1
-        outer_teeth = g0.outer_teeth if g0.outer_teeth > 0 else inner_teeth
+        inner_size = g0.size if g0.size > 0 else 1
+        outer_size = g0.outer_size if g0.outer_size > 0 else inner_size
 
         _, bundle = modular_tracks.build_track_and_bundle_from_notation(
             notation=g0.modular_notation,
-            wheel_teeth=T1,
-            hole_index=hole_index,
-            hole_spacing_mm=hole_spacing_mm,
+            wheel_size=T1,
+            hole_offset=hole_offset,
             steps=steps,
             relation=relation,
-            wheel_phase_teeth=path.phase_offset_teeth,
-            inner_teeth=inner_teeth,
-            outer_teeth=outer_teeth,
-            pitch_mm_per_tooth=pitch_mm_per_tooth,
+            phase_offset=path.phase_offset,
+            inner_size=inner_size,
+            outer_size=outer_size,
         )
 
         return bundle.stylo
 
     # --- Cas 2 : comportement standard (anneau / roue ... ) ---
 
-    # Rayons de contact en mm
-    R = contact_radius_for_relation(g0, relation, pitch_mm_per_tooth)
-    r = contact_radius_for_relation(g1, relation, pitch_mm_per_tooth)
+    # Rayons de contact
+    R = contact_radius_for_relation(g0, relation)
+    r = contact_radius_for_relation(g1, relation)
 
     if R <= 0 or r <= 0:
-        base_points = generate_simple_circle_for_index(
-            hole_index, hole_spacing_mm, steps
-        )
-        teeth_moving = max(1, T1)
-        angle_from_teeth = 2.0 * math.pi * (path.phase_offset_teeth / teeth_moving)
-        total_angle = math.pi / 2.0 - angle_from_teeth
+        base_points = generate_simple_circle_for_index(hole_offset, steps)
+        phase_turns = phase_offset_turns(path.phase_offset, max(1, T0))
+        total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
@@ -709,18 +449,18 @@ def generate_trochoid_points_for_layer_path(
             rotated_points.append((xr, yr))
         return rotated_points
 
-    # Distance du stylo au centre de l’engrenage mobile (d, en mm)
+    # Distance du stylo au centre de l’engrenage mobile
     if g1.gear_type == "anneau":
-        R_tip_teeth = g1.outer_teeth or g1.teeth
+        R_tip_size = g1.outer_size or g1.size
     else:
-        R_tip_teeth = g1.teeth
+        R_tip_size = g1.size
 
-    R_tip = radius_from_teeth(R_tip_teeth, pitch_mm_per_tooth=pitch_mm_per_tooth)
-    d = R_tip - hole_index * hole_spacing_mm
+    R_tip = radius_from_size(R_tip_size)
+    d = R_tip - hole_offset
     if d < 0:
         d = 0.0
 
-    # Durée t_max pour "fermer" la courbe (basée sur le ratio des dents)
+    # Durée t_max pour "fermer" la courbe (basée sur le ratio des tailles)
     if T0 >= 1 and T1 >= 1:
         g = math.gcd(int(T0), int(T1))
         # La période correcte dépend du petit engrenage (mobile) :
@@ -754,14 +494,13 @@ def generate_trochoid_points_for_layer_path(
 
         base_points.append((x, y))
 
-    # Rotation globale selon le décalage en dents
-    # On utilise les dents de contact de l’engrenage mobile pour l’offset.
-    teeth_moving = max(1, T1)
-    angle_from_teeth = 2.0 * math.pi * (path.phase_offset_teeth / teeth_moving)
+    # Rotation globale selon le décalage de phase.
+    phase_turns = phase_offset_turns(path.phase_offset, max(1, T0))
+    angle_from_phase = 2.0 * math.pi * phase_turns
     # 0 => motif pointant vers le haut (π/2),
     # positif => tourne vers la droite (horaire),
     # négatif => vers la gauche (anti-horaire).
-    total_angle = math.pi / 2.0 - angle_from_teeth
+    total_angle = math.pi / 2.0 - angle_from_phase
 
     cos_a = math.cos(total_angle)
     sin_a = math.sin(total_angle)
@@ -901,112 +640,6 @@ class ColorSquare(QWidget):
             pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
             self._update_from_pos(pos)
 
-def paintEvent(self, event):
-    painter = QPainter(self)
-    try:
-        painter.setRenderHint(QPainter.Antialiasing, True)
-
-        w = self.width()
-        h = self.height()
-
-        painter.fillRect(self.rect(), self.palette().window())
-
-        if not self.have_track or not self.points:
-            painter.setPen(Qt.gray)
-            # on pourrait afficher un texte, mais souvent on laisse vide
-            return
-
-        # Échelle et transform pour centrer autour de (0,0) et inverser Y
-        scale = self._compute_scale(w, h)
-        painter.translate(w / 2.0, h / 2.0)
-        painter.scale(scale, -scale)
-
-        # Largeur réelle de la piste (en mm)
-        inner_r = (self.pitch_mm * float(self.inner_teeth)) / (2.0 * math.pi)
-        outer_r = (self.pitch_mm * float(self.outer_teeth)) / (2.0 * math.pi)
-        width_mm = max(outer_r - inner_r, self.pitch_mm)
-        half_w = width_mm / 2.0
-
-        # 1) polyline centrale
-        pen_center = QPen(QColor("#606060"))
-        pen_center.setWidthF(0)  # ligne "cosmétique"
-        painter.setPen(pen_center)
-
-        for i in range(len(self.points) - 1):
-            x0, y0 = self.points[i]
-            x1, y1 = self.points[i + 1]
-            painter.drawLine(QPointF(x0, y0), QPointF(x1, y1))
-
-        # 2) bords de la piste (inner/outer approximatifs)
-        pen_border = QPen(QColor("#808080"))
-        pen_border.setWidthF(0)
-        painter.setPen(pen_border)
-
-        for i in range(len(self.points) - 1):
-            x0, y0 = self.points[i]
-            x1, y1 = self.points[i + 1]
-            dx = x1 - x0
-            dy = y1 - y0
-            seg_len = math.hypot(dx, dy) or 1.0
-            nx = -dy / seg_len
-            ny = dx / seg_len
-
-            ix0 = x0 - nx * half_w
-            iy0 = y0 - ny * half_w
-            ix1 = x1 - nx * half_w
-            iy1 = y1 - ny * half_w
-
-            ox0 = x0 + nx * half_w
-            oy0 = y0 + ny * half_w
-            ox1 = x1 + nx * half_w
-            oy1 = y1 + ny * half_w
-
-            painter.drawLine(QPointF(ix0, iy0), QPointF(ix1, iy1))
-            painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
-
-        # 3) dents (petits ticks côté "outer")
-        L = self.total_length if self.have_track else 0.0
-        segments = getattr(self, "segments", [])
-
-        if L > 0.0 and segments and self.pitch_mm > 0:
-            pen_teeth = QPen(QColor("#404040"))
-            pen_teeth.setWidthF(0)
-            painter.setPen(pen_teeth)
-            tooth_len = width_mm * 0.4
-            num_teeth = max(1, int(L / self.pitch_mm))
-            for k in range(num_teeth):
-                s = (k + 0.5) * self.pitch_mm
-                (x, y), theta, _ = modular_tracks._interpolate_on_segments(
-                    s % L, segments
-                )
-                nx = -math.sin(theta)
-                ny = math.cos(theta)
-                bx = x + nx * half_w
-                by = y + ny * half_w
-                tx = bx + nx * tooth_len
-                ty = by + ny * tooth_len
-                painter.drawLine(QPointF(bx, by), QPointF(tx, ty))
-
-        # 4) Ligne rouge perpendiculaire à la tangente de fin
-        if len(self.points) >= 2:
-            x_last, y_last = self.points[-1]
-            theta = self.last_tangent
-            nx = -math.sin(theta)
-            ny = math.cos(theta)
-            line_len = width_mm * 1.5  # 50 % de plus que la largeur
-            hx = (line_len / 2.0) * nx
-            hy = (line_len / 2.0) * ny
-
-            pen_red = QPen(QColor("#ff0000"))
-            pen_red.setWidthF(0)
-            painter.setPen(pen_red)
-            painter.drawLine(
-                QPointF(x_last - hx, y_last - hy),
-                QPointF(x_last + hx, y_last + hy),
-            )
-    finally:
-        painter.end()
-
 class ColorPickerDialog(QDialog):
     """
     Sélecteur de couleur évolué :
@@ -1019,8 +652,8 @@ class ColorPickerDialog(QDialog):
 
     def __init__(self, initial_text: str = "", lang: str = "fr", parent=None):
         super().__init__(parent)
-        self.lang = lang
-        self.setWindowTitle("Choisir une couleur" if lang == "fr" else "Pick a color")
+        self.lang = localisation.normalize_language(lang) or "fr"
+        self.setWindowTitle(tr(self.lang, "color_picker_title"))
         self.resize(820, 460)
 
         self._updating = False
@@ -1054,7 +687,7 @@ class ColorPickerDialog(QDialog):
         self.preview_label.setAutoFillBackground(True)
 
         self.text_edit = QLineEdit()
-        self.text_edit.setPlaceholderText("Nom, #hex ou (H, S, L)")
+        self.text_edit.setPlaceholderText(tr(self.lang, "color_picker_text_placeholder"))
         prev_layout.addWidget(self.preview_label)
         prev_layout.addWidget(self.text_edit, 1)
 
@@ -1110,16 +743,18 @@ class ColorPickerDialog(QDialog):
         harmony_layout = QVBoxLayout()
 
         scheme_row = QHBoxLayout()
-        scheme_label = QLabel("Harmonie" if lang == "fr" else "Harmony")
+        scheme_label = QLabel(tr(self.lang, "color_picker_harmony_label"))
         self.scheme_combo = QComboBox()
-        self.scheme_combo.addItems([
-            "Aucune" if lang == "fr" else "None",
-            "Complémentaire" if lang == "fr" else "Complementary",
-            "Analogues" if lang == "fr" else "Analogous",
-            "Triadique" if lang == "fr" else "Triadic",
-            "Tétradique" if lang == "fr" else "Tetradic",
-            "Tints & Shades",
-        ])
+        scheme_options = [
+            ("none", tr(self.lang, "color_picker_scheme_none")),
+            ("complementary", tr(self.lang, "color_picker_scheme_complementary")),
+            ("analogous", tr(self.lang, "color_picker_scheme_analogous")),
+            ("triadic", tr(self.lang, "color_picker_scheme_triadic")),
+            ("tetradic", tr(self.lang, "color_picker_scheme_tetradic")),
+            ("tints_shades", tr(self.lang, "color_picker_scheme_tints_shades")),
+        ]
+        for key, label in scheme_options:
+            self.scheme_combo.addItem(label, key)
         scheme_row.addWidget(scheme_label)
         scheme_row.addWidget(self.scheme_combo, 1)
 
@@ -1144,8 +779,8 @@ class ColorPickerDialog(QDialog):
         right_layout = QVBoxLayout()
         search_layout = QHBoxLayout()
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search" if lang == "en" else "Recherche")
-        btn_clear = QPushButton("Clear")
+        self.search_edit.setPlaceholderText(tr(self.lang, "color_picker_search_placeholder"))
+        btn_clear = QPushButton(tr(self.lang, "color_picker_clear"))
         btn_clear.clicked.connect(self.search_edit.clear)
         search_layout.addWidget(self.search_edit, 1)
         search_layout.addWidget(btn_clear)
@@ -1159,8 +794,8 @@ class ColorPickerDialog(QDialog):
 
         # --- boutons OK / Annuler ---
         btn_layout = QHBoxLayout()
-        btn_ok = QPushButton("OK")
-        btn_cancel = QPushButton("Cancel" if lang == "en" else "Annuler")
+        btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
+        btn_cancel = QPushButton(tr(self.lang, "dlg_cancel"))
         btn_ok.clicked.connect(self.accept)
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addStretch(1)
@@ -1217,15 +852,7 @@ class ColorPickerDialog(QDialog):
     # -------- Harmonies --------
 
     def update_scheme_palette(self, _index: int = 0):
-        scheme = self.scheme_combo.currentText()
-        if self.lang == "en":
-            scheme = {
-                "None": "Aucune",
-                "Complementary": "Complémentaire",
-                "Analogous": "Analogues",
-                "Triadic": "Triadique",
-                "Tetradic": "Tétradique",
-            }.get(scheme, scheme)
+        scheme = self.scheme_combo.currentData()
 
         c = QColor()
         c.setHsvF(self._h, self._s, self._v)
@@ -1241,25 +868,25 @@ class ColorPickerDialog(QDialog):
             cc.setHsvF(h, s, v)
             colors.append(f"#{cc.red():02x}{cc.green():02x}{cc.blue():02x}")
 
-        if scheme.startswith("Aucune"):
+        if scheme == "none":
             colors = []
-        elif scheme.startswith("Complémentaire"):
+        elif scheme == "complementary":
             add_h_offset(0)
             add_h_offset(180)
-        elif scheme.startswith("Analogues"):
+        elif scheme == "analogous":
             add_h_offset(-30)
             add_h_offset(0)
             add_h_offset(30)
-        elif scheme.startswith("Triadique"):
+        elif scheme == "triadic":
             add_h_offset(0)
             add_h_offset(120)
             add_h_offset(240)
-        elif scheme.startswith("Tétradique"):
+        elif scheme == "tetradic":
             add_h_offset(0)
             add_h_offset(90)
             add_h_offset(180)
             add_h_offset(270)
-        elif "Tints" in scheme:
+        elif scheme == "tints_shades":
             for v_mult in (1.2, 1.0, 0.8, 0.6, 0.4):
                 v = max(0.0, min(1.0, base_v * v_mult))
                 cc = QColor()
@@ -1427,28 +1054,49 @@ def layers_to_svg(
     width: int = 1000,
     height: int = 1000,
     bg_color: str = "#ffffff",
-    hole_spacing_mm: float = 0.65,
     points_per_path: int = 6000,
-    pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
     show_tracks: bool = True,
     return_render_data: bool = False,
 ) -> str:
     """
     Convertit une liste de LayerConfig -> SVG string.
-    Chaque layer visible devient un <g>, chaque path un <path>.
+    Chaque layer activé devient un <g>, chaque path un <path>.
     On applique le zoom de la couche et du tracé avant le centrage/scaling global.
     Quand return_render_data=True, renvoie aussi une structure réutilisable pour
     l'animation (points déjà transformés en pixels).
     """
+    def apply_transform(points, rotate_deg: float, translate_x: float, translate_y: float):
+        if not points:
+            return points
+        if (
+            abs(rotate_deg) < 1e-9
+            and abs(translate_x) < 1e-9
+            and abs(translate_y) < 1e-9
+        ):
+            return points
+        angle = math.radians(rotate_deg)
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        return [
+            (
+                (x * cos_a - y * sin_a) + translate_x,
+                (x * sin_a + y * cos_a) + translate_y,
+            )
+            for (x, y) in points
+        ]
     all_points = []
+    trace_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
     render_paths = []
     render_tracks = []
 
     for layer in layers:
-        if not layer.visible:
+        if not layer.enable:
             continue
         layer_zoom = getattr(layer, "zoom", 1.0)
+        layer_rotate = getattr(layer, "rotate_deg", 0.0)
+        layer_tx = getattr(layer, "translate_x", 0.0)
+        layer_ty = getattr(layer, "translate_y", 0.0)
 
         layer_track_points = None
         layer_track_width_mm = None
@@ -1460,29 +1108,25 @@ def layers_to_svg(
             ):
                 g0 = layer.gears[0]
                 relation = "dedans"
-                wheel_teeth_rel = 1
+                wheel_size_rel = 1
                 if len(layer.gears) > 1:
                     g1_tmp = layer.gears[1]
                     relation = getattr(g1_tmp, "relation", "dedans") or "dedans"
-                    wheel_teeth_rel = max(
-                        1, contact_teeth_for_relation(g1_tmp, relation)
-                    )
+                    wheel_size_rel = max(1, contact_size_for_relation(g1_tmp, relation))
 
-                inner_teeth = max(1, int(g0.teeth))
-                outer_teeth = int(g0.outer_teeth) if g0.outer_teeth else inner_teeth
-                outer_teeth = max(outer_teeth, inner_teeth)
+                inner_size = max(1, int(g0.size))
+                outer_size = int(g0.outer_size) if g0.outer_size else inner_size
+                outer_size = max(outer_size, inner_size)
 
                 track, bundle = modular_tracks.build_track_and_bundle_from_notation(
                     notation=g0.modular_notation,
-                    wheel_teeth=wheel_teeth_rel,
-                    hole_index=0.0,
-                    hole_spacing_mm=hole_spacing_mm,
+                    wheel_size=wheel_size_rel,
+                    hole_offset=0.0,
                     steps=2,
                     relation=relation,
-                    wheel_phase_teeth=0.0,
-                    inner_teeth=inner_teeth,
-                    outer_teeth=outer_teeth,
-                    pitch_mm_per_tooth=pitch_mm_per_tooth,
+                    phase_offset=0.0,
+                    inner_size=inner_size,
+                    outer_size=outer_size,
                 )
                 if track.segments:
                     centerline, _, _, half_w = modular_tracks.compute_track_polylines(
@@ -1490,34 +1134,68 @@ def layers_to_svg(
                     )
                     layer_track_points = centerline
                     layer_track_width_mm = (half_w * 2.0) * layer_zoom
+        layer_paths = []
         for path in layer.paths:
+            if not path.enable:
+                continue
             pts = generate_trochoid_points_for_layer_path(
                 layer,
                 path,
                 steps=points_per_path,
-                hole_spacing_mm=hole_spacing_mm,
-                pitch_mm_per_tooth=pitch_mm_per_tooth,
             )
             if not pts:
                 continue
             path_zoom = getattr(path, "zoom", 1.0)
             zoom = layer_zoom * path_zoom
             pts_zoomed = [(x * zoom, y * zoom) for (x, y) in pts]
-            rendered_paths.append((layer.name, layer_zoom, path, pts_zoomed, path_zoom))
-            all_points.extend(pts_zoomed)
+            if pts_zoomed:
+                path_cx = sum(p[0] for p in pts_zoomed) / len(pts_zoomed)
+                path_cy = sum(p[1] for p in pts_zoomed) / len(pts_zoomed)
+            else:
+                path_cx = 0.0
+                path_cy = 0.0
+            shifted_points = [(x - path_cx, y - path_cy) for (x, y) in pts_zoomed]
+            path_rotate = getattr(path, "rotate_deg", 0.0)
+            path_tx = getattr(path, "translate_x", 0.0)
+            path_ty = getattr(path, "translate_y", 0.0)
+            path_transformed = apply_transform(
+                shifted_points, path_rotate, path_tx, path_ty
+            )
+            layer_transformed = apply_transform(
+                path_transformed, layer_rotate, layer_tx, layer_ty
+            )
+            layer_paths.append((path, layer_transformed, path_zoom))
+
+        if layer_paths:
+            for path_cfg, shifted_points, path_zoom in layer_paths:
+                rendered_paths.append(
+                    (layer.name, layer_zoom, path_cfg, shifted_points, path_zoom)
+                )
+                all_points.extend(shifted_points)
+                trace_points.extend(shifted_points)
 
         if show_tracks and layer_track_points:
             track_zoomed = [
                 (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
             ]
+            if track_zoomed:
+                track_cx = sum(p[0] for p in track_zoomed) / len(track_zoomed)
+                track_cy = sum(p[1] for p in track_zoomed) / len(track_zoomed)
+            else:
+                track_cx = 0.0
+                track_cy = 0.0
+            shifted_track = [(x - track_cx, y - track_cy) for (x, y) in track_zoomed]
+            transformed_track = apply_transform(
+                shifted_track, layer_rotate, layer_tx, layer_ty
+            )
             render_tracks.append(
                 {
                     "layer_name": layer.name,
-                    "points": track_zoomed,
+                    "points": transformed_track,
                     "stroke_width_mm": layer_track_width_mm,
                 }
             )
-            all_points.extend(track_zoomed)
+            all_points.extend(transformed_track)
 
     if not all_points:
         svg_empty = f'''<?xml version="1.0" standalone="no"?>
@@ -1543,8 +1221,10 @@ def layers_to_svg(
         dy = 1
 
     scale = 0.8 * min(width / dx, height / dy)
-    cx = (min_x + max_x) / 2.0
-    cy = (min_y + max_y) / 2.0
+    centroid_points = trace_points or all_points
+    total_points = len(centroid_points)
+    cx = sum(p[0] for p in centroid_points) / total_points
+    cy = sum(p[1] for p in centroid_points) / total_points
 
     def transform(p):
         x, y = p
@@ -1562,7 +1242,7 @@ def layers_to_svg(
     tracks_out = []
 
     for layer in layers:
-        if not layer.visible:
+        if not layer.enable:
             continue
         layer_paths = [rp for rp in rendered_paths if rp[0] == layer.name]
         layer_tracks = [rt for rt in render_tracks if rt["layer_name"] == layer.name]
@@ -1636,10 +1316,10 @@ class LayerEditDialog(QDialog):
     """
     Édition d’un layer :
       - nom
-      - visible
       - zoom
-      - 2 ou 3 engrenages (type, dents, relation)
-      - pour un anneau : dents extérieures / intérieures
+      - translation / rotation
+      - 2 ou 3 engrenages (type, tailles, relation)
+      - pour un anneau : tailles extérieures / intérieures
     """
 
     def __init__(
@@ -1647,24 +1327,34 @@ class LayerEditDialog(QDialog):
         layer: LayerConfig,
         lang: str = "fr",
         parent=None,
-        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
     ):
         super().__init__(parent)
         self.lang = lang
         self.setWindowTitle(tr(self.lang, "dlg_layer_edit_title"))
         self.layer = layer
-        self.pitch_mm_per_tooth = pitch_mm_per_tooth
 
         layout = QFormLayout(self)
 
         self.name_edit = QLineEdit(self.layer.name)
-        self.visible_check = QCheckBox(tr(self.lang, "dlg_layer_visible"))
-        self.visible_check.setChecked(self.layer.visible)
-
         self.zoom_spin = QDoubleSpinBox()
         self.zoom_spin.setRange(0.01, 100.0)
         self.zoom_spin.setDecimals(3)
         self.zoom_spin.setValue(getattr(self.layer, "zoom", 1.0))
+
+        self.translate_x_spin = QDoubleSpinBox()
+        self.translate_x_spin.setRange(-10000.0, 10000.0)
+        self.translate_x_spin.setDecimals(3)
+        self.translate_x_spin.setValue(getattr(self.layer, "translate_x", 0.0))
+
+        self.translate_y_spin = QDoubleSpinBox()
+        self.translate_y_spin.setRange(-10000.0, 10000.0)
+        self.translate_y_spin.setDecimals(3)
+        self.translate_y_spin.setValue(getattr(self.layer, "translate_y", 0.0))
+
+        self.rotate_spin = QDoubleSpinBox()
+        self.rotate_spin.setRange(-360.0, 360.0)
+        self.rotate_spin.setDecimals(3)
+        self.rotate_spin.setValue(getattr(self.layer, "rotate_deg", 0.0))
 
         self.num_gears_spin = QSpinBox()
         self.num_gears_spin.setRange(2, 3)
@@ -1672,8 +1362,10 @@ class LayerEditDialog(QDialog):
         self.num_gears_spin.setValue(current_gears)
 
         layout.addRow(tr(self.lang, "dlg_layer_name"), self.name_edit)
-        layout.addRow(self.visible_check)
         layout.addRow(tr(self.lang, "dlg_layer_zoom"), self.zoom_spin)
+        layout.addRow(tr(self.lang, "dlg_layer_translate_x"), self.translate_x_spin)
+        layout.addRow(tr(self.lang, "dlg_layer_translate_y"), self.translate_y_spin)
+        layout.addRow(tr(self.lang, "dlg_layer_rotate"), self.rotate_spin)
         layout.addRow(tr(self.lang, "dlg_layer_num_gears"), self.num_gears_spin)
 
         self.gear_widgets = []
@@ -1683,8 +1375,8 @@ class LayerEditDialog(QDialog):
             gear_type_combo = QComboBox()
             for gear_type in GEAR_TYPES:
                 gear_type_combo.addItem(gear_type_label(gear_type, self.lang), gear_type)
-            teeth_spin = QSpinBox()
-            teeth_spin.setRange(1, 10000)
+            size_spin = QSpinBox()
+            size_spin.setRange(1, 10000)
             outer_spin = QSpinBox()
             outer_spin.setRange(0, 20000)
             rel_combo = QComboBox()
@@ -1711,9 +1403,9 @@ class LayerEditDialog(QDialog):
             sub.addLayout(row2)
 
             row3 = QHBoxLayout()
-            label_teeth = QLabel(tr(self.lang, "dlg_layer_gear_teeth"))
-            row3.addWidget(label_teeth)
-            row3.addWidget(teeth_spin)
+            label_size = QLabel(tr(self.lang, "dlg_layer_gear_size"))
+            row3.addWidget(label_size)
+            row3.addWidget(size_spin)
             sub.addLayout(row3)
 
             row4 = QHBoxLayout()
@@ -1746,7 +1438,7 @@ class LayerEditDialog(QDialog):
                 index=i,
                 name_edit=gear_name_edit,
                 type_combo=gear_type_combo,
-                teeth_spin=teeth_spin,
+                size_spin=size_spin,
                 outer_spin=outer_spin,
                 outer_label=label_outer,
                 rel_combo=rel_combo,
@@ -1772,15 +1464,15 @@ class LayerEditDialog(QDialog):
                     g = GearConfig(
                         name=tr(self.lang, "default_ring_name"),
                         gear_type="anneau",
-                        teeth=105,
-                        outer_teeth=150,
+                        size=105,
+                        outer_size=150,
                         relation="stationnaire",
                     )
                 else:
                     g = GearConfig(
                         name=tr(self.lang, "default_wheel_name"),
                         gear_type="roue",
-                        teeth=30,
+                        size=30,
                         relation="dedans",
                     )
 
@@ -1795,8 +1487,8 @@ class LayerEditDialog(QDialog):
                 type_index = 0
             gw["type_combo"].setCurrentIndex(type_index)
 
-            gw["teeth_spin"].setValue(g.teeth)
-            gw["outer_spin"].setValue(g.outer_teeth if g.outer_teeth > 0 else 0)
+            gw["size_spin"].setValue(g.size)
+            gw["outer_spin"].setValue(g.outer_size if g.outer_size > 0 else 0)
             gw["modular_edit"].setText(getattr(g, "modular_notation", "") or "")
 
             rel_index = gw["rel_combo"].findData(g.relation)
@@ -1822,7 +1514,7 @@ class LayerEditDialog(QDialog):
         t = gw["type_combo"].currentData() or gw["type_combo"].currentText()
         idx = gw.get("index", 0)
 
-        # "anneau" et "modulaire" ont des dents intérieures / extérieures
+        # "anneau" et "modulaire" ont des tailles intérieures / extérieures
         is_ring_like = (t == "anneau" or t == "modulaire")
         gw["outer_label"].setVisible(is_ring_like)
         gw["outer_spin"].setVisible(is_ring_like)
@@ -1840,24 +1532,25 @@ class LayerEditDialog(QDialog):
             return
 
         notation = gw["modular_edit"].text().strip()
-        inner_teeth = gw["teeth_spin"].value()
-        outer_teeth = gw["outer_spin"].value() or inner_teeth
+        inner_size = gw["size_spin"].value()
+        outer_size = gw["outer_spin"].value() or inner_size
 
         dlg = ModularTrackEditorDialog(
             lang=self.lang,
             parent=self,
             initial_notation=notation,
-            inner_teeth=inner_teeth,
-            outer_teeth=outer_teeth,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
+            inner_size=inner_size,
+            outer_size=outer_size,
         )
         if dlg.exec() == QDialog.Accepted:
             gw["modular_edit"].setText(dlg.result_notation())
 
     def accept(self):
         self.layer.name = self.name_edit.text().strip() or tr(self.lang, "default_layer_name")
-        self.layer.visible = self.visible_check.isChecked()
         self.layer.zoom = self.zoom_spin.value()
+        self.layer.translate_x = self.translate_x_spin.value()
+        self.layer.translate_y = self.translate_y_spin.value()
+        self.layer.rotate_deg = self.rotate_spin.value()
         num_gears = self.num_gears_spin.value()
 
         new_gears: List[GearConfig] = []
@@ -1870,8 +1563,8 @@ class LayerEditDialog(QDialog):
             if i > 0 and gear_type == "modulaire":
                 gear_type = "roue"
 
-            teeth = gw["teeth_spin"].value()
-            outer_teeth = gw["outer_spin"].value() if gear_type in ("anneau", "modulaire") else 0
+            size = gw["size_spin"].value()
+            outer_size = gw["outer_spin"].value() if gear_type in ("anneau", "modulaire") else 0
 
             rel = gw["rel_combo"].currentData() or gw["rel_combo"].currentText()
             if i == 0:
@@ -1887,8 +1580,8 @@ class LayerEditDialog(QDialog):
                 GearConfig(
                     name=name,
                     gear_type=gear_type,
-                    teeth=teeth,
-                    outer_teeth=outer_teeth,
+                    size=size,
+                    outer_size=outer_size,
                     relation=rel,
                     modular_notation=modular_notation,
                 )
@@ -1901,11 +1594,12 @@ class LayerEditDialog(QDialog):
 class PathEditDialog(QDialog):
     """
     Path :
-      - hole_index (float, positif ou négatif)
-      - décalage en dents
+      - hole_offset (float, positif ou négatif)
+      - décalage de phase (déplacement en unités le long de la piste)
       - couleur (CSS4 ou hex) avec validation X11/CSS4/hex
       - largeur de trait
       - zoom
+      - translation / rotation
     """
 
     def __init__(self, path: PathConfig, lang: str = "fr", parent=None):
@@ -1921,12 +1615,12 @@ class PathEditDialog(QDialog):
         self.hole_spin = QDoubleSpinBox()
         self.hole_spin.setRange(-1000.0, 1000.0)
         self.hole_spin.setDecimals(3)
-        self.hole_spin.setValue(self.path.hole_index)
+        self.hole_spin.setValue(self.path.hole_offset)
 
         self.phase_spin = QDoubleSpinBox()
         self.phase_spin.setRange(-1000.0, 1000.0)
         self.phase_spin.setDecimals(3)
-        self.phase_spin.setValue(self.path.phase_offset_teeth)
+        self.phase_spin.setValue(self.path.phase_offset)
 
         self.color_edit = QLineEdit(self.path.color)
         btn_pick = QPushButton("…")
@@ -1947,12 +1641,30 @@ class PathEditDialog(QDialog):
         self.zoom_spin.setDecimals(3)
         self.zoom_spin.setValue(getattr(self.path, "zoom", 1.0))
 
+        self.translate_x_spin = QDoubleSpinBox()
+        self.translate_x_spin.setRange(-10000.0, 10000.0)
+        self.translate_x_spin.setDecimals(3)
+        self.translate_x_spin.setValue(getattr(self.path, "translate_x", 0.0))
+
+        self.translate_y_spin = QDoubleSpinBox()
+        self.translate_y_spin.setRange(-10000.0, 10000.0)
+        self.translate_y_spin.setDecimals(3)
+        self.translate_y_spin.setValue(getattr(self.path, "translate_y", 0.0))
+
+        self.rotate_spin = QDoubleSpinBox()
+        self.rotate_spin.setRange(-360.0, 360.0)
+        self.rotate_spin.setDecimals(3)
+        self.rotate_spin.setValue(getattr(self.path, "rotate_deg", 0.0))
+
         layout.addRow(tr(self.lang, "dlg_path_name"), self.name_edit)
         layout.addRow(tr(self.lang, "dlg_path_hole_index"), self.hole_spin)
         layout.addRow(tr(self.lang, "dlg_path_phase"), self.phase_spin)
         layout.addRow(tr(self.lang, "dlg_path_color"), color_row)
         layout.addRow(tr(self.lang, "dlg_path_width"), self.stroke_spin)
         layout.addRow(tr(self.lang, "dlg_path_zoom"), self.zoom_spin)
+        layout.addRow(tr(self.lang, "dlg_path_translate_x"), self.translate_x_spin)
+        layout.addRow(tr(self.lang, "dlg_path_translate_y"), self.translate_y_spin)
+        layout.addRow(tr(self.lang, "dlg_path_rotate"), self.rotate_spin)
 
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
@@ -1971,8 +1683,8 @@ class PathEditDialog(QDialog):
 
     def accept(self):
         self.path.name = self.name_edit.text().strip() or tr(self.lang, "default_path_name")
-        self.path.hole_index = self.hole_spin.value()
-        self.path.phase_offset_teeth = self.phase_spin.value()
+        self.path.hole_offset = self.hole_spin.value()
+        self.path.phase_offset = self.phase_spin.value()
 
         new_color_input = self.color_edit.text().strip() or "#000000"
         norm_color = normalize_color_string(new_color_input)
@@ -1990,6 +1702,9 @@ class PathEditDialog(QDialog):
         self.path.color_norm = norm_color
         self.path.stroke_width = self.stroke_spin.value()
         self.path.zoom = self.zoom_spin.value()
+        self.path.translate_x = self.translate_x_spin.value()
+        self.path.translate_y = self.translate_y_spin.value()
+        self.path.rotate_deg = self.rotate_spin.value()
         super().accept()
 
 
@@ -2002,8 +1717,6 @@ class TrackTestDialog(QDialog):
         path: PathConfig,
         *,
         lang: str = "fr",
-        hole_spacing_mm: float = 0.65,
-        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
         points_per_path: int = 6000,
         parent=None,
     ):
@@ -2057,17 +1770,12 @@ class TrackTestDialog(QDialog):
         self._apply_configuration(
             layer,
             path,
-            hole_spacing_mm=hole_spacing_mm,
-            pitch_mm_per_tooth=pitch_mm_per_tooth,
         )
 
     def _apply_configuration(
         self,
         layer: LayerConfig,
         path: PathConfig,
-        *,
-        hole_spacing_mm: float,
-        pitch_mm_per_tooth: float,
     ):
         if len(layer.gears) < 2:
             QMessageBox.information(
@@ -2088,21 +1796,19 @@ class TrackTestDialog(QDialog):
             return
 
         relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
-        wheel_teeth = max(1, contact_teeth_for_relation(g1, relation))
-        inner_teeth = g0.teeth if g0.teeth > 0 else 1
-        outer_teeth = g0.outer_teeth if g0.outer_teeth > 0 else inner_teeth
+        wheel_size = max(1, contact_size_for_relation(g1, relation))
+        inner_size = g0.size if g0.size > 0 else 1
+        outer_size = g0.outer_size if g0.outer_size > 0 else inner_size
         scale = getattr(layer, "zoom", 1.0) * getattr(path, "zoom", 1.0)
 
         self.demo_widget.set_configuration(
             notation=g0.modular_notation,
-            wheel_teeth=wheel_teeth,
-            hole_index=path.hole_index,
-            hole_spacing=hole_spacing_mm,
+            wheel_size=wheel_size,
+            hole_offset=path.hole_offset,
             relation=relation,
-            wheel_phase_teeth=getattr(path, "phase_offset_teeth", 0.0),
-            inner_teeth=inner_teeth,
-            outer_teeth=outer_teeth,
-            pitch_mm_per_tooth=pitch_mm_per_tooth,
+            phase_offset=getattr(path, "phase_offset", 0.0),
+            inner_size=inner_size,
+            outer_size=outer_size,
             steps=self.points_per_path,
             scale=scale,
         )
@@ -2159,8 +1865,6 @@ class LayerManagerDialog(QDialog):
         layers: List[LayerConfig],
         lang: str = "fr",
         parent=None,
-        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
-        hole_spacing_mm: float = 0.65,
         points_per_path: int = 6000,
     ):
         super().__init__(parent)
@@ -2169,8 +1873,6 @@ class LayerManagerDialog(QDialog):
         self.resize(550, 500)
 
         self.layers: List[LayerConfig] = copy.deepcopy(layers)
-        self.pitch_mm_per_tooth: float = pitch_mm_per_tooth
-        self.hole_spacing_mm: float = hole_spacing_mm
         self.points_per_path: int = max(2, int(points_per_path))
 
         self.selected_layer_idx: int = 0
@@ -2190,6 +1892,8 @@ class LayerManagerDialog(QDialog):
         self.btn_add_layer = QPushButton(tr(self.lang, "dlg_layers_add_layer"))
         self.btn_add_path = QPushButton(tr(self.lang, "dlg_layers_add_path"))
         self.btn_edit = QPushButton(tr(self.lang, "dlg_layers_edit"))
+        self.btn_toggle_enable = QPushButton()
+        self.btn_toggle_paths = QPushButton()
         self.btn_move_up = QPushButton(tr(self.lang, "dlg_layers_move_up"))
         self.btn_move_down = QPushButton(tr(self.lang, "dlg_layers_move_down"))
         self.btn_test_track = QPushButton(tr(self.lang, "dlg_layers_test_track"))
@@ -2197,6 +1901,8 @@ class LayerManagerDialog(QDialog):
         btn_layout.addWidget(self.btn_add_layer)
         btn_layout.addWidget(self.btn_add_path)
         btn_layout.addWidget(self.btn_edit)
+        btn_layout.addWidget(self.btn_toggle_enable)
+        btn_layout.addWidget(self.btn_toggle_paths)
         btn_layout.addWidget(self.btn_move_up)
         btn_layout.addWidget(self.btn_move_down)
         btn_layout.addWidget(self.btn_test_track)
@@ -2217,6 +1923,8 @@ class LayerManagerDialog(QDialog):
         self.btn_move_down.clicked.connect(self.on_move_down)
         self.btn_test_track.clicked.connect(self.on_test_track)
         self.btn_remove.clicked.connect(self.on_remove)
+        self.btn_toggle_enable.clicked.connect(self.on_toggle_enable)
+        self.btn_toggle_paths.clicked.connect(self.on_toggle_paths)
         self.btn_ok.clicked.connect(self.accept)
         self.btn_cancel.clicked.connect(self.reject)
 
@@ -2229,8 +1937,8 @@ class LayerManagerDialog(QDialog):
 
     def _layer_summary(self, layer: LayerConfig) -> str:
         parts = []
-        gears_label = "engr." if self.lang == "fr" else "gears"
-        parts.append(f"{len(layer.gears)} {gears_label}, zoom {layer.zoom:g}")
+        gears_label = tr(self.lang, "layer_summary_gears_short")
+        parts.append(f"{len(layer.gears)} {gears_label}, {tr(self.lang, 'layer_summary_zoom')} {layer.zoom:g}")
         gear_descs = []
         for i, g in enumerate(layer.gears):
             type_name = gear_type_label(g.gear_type, self.lang)
@@ -2239,13 +1947,13 @@ class LayerManagerDialog(QDialog):
             else:
                 type_name = type_name.lower()
 
-            if g.gear_type in ("anneau", "modulaire") and g.outer_teeth > 0:
-                tooth_str = f"{g.outer_teeth}/{g.teeth}"
+            if g.gear_type in ("anneau", "modulaire") and g.outer_size > 0:
+                size_str = f"{g.outer_size}/{g.size}"
             else:
-                tooth_str = f"{g.teeth}"
+                size_str = f"{g.size}"
 
             rel = relation_label(g.relation, self.lang)
-            gear_descs.append(f"{type_name} {tooth_str} {rel}")
+            gear_descs.append(f"{type_name} {size_str} {rel}")
         if gear_descs:
             parts.append(", ".join(gear_descs))
 
@@ -2258,7 +1966,7 @@ class LayerManagerDialog(QDialog):
         return ", ".join(parts)
 
     def _path_summary(self, path: PathConfig) -> str:
-        return f"{path.hole_index:g}, {path.phase_offset_teeth:g}, {path.color}, {path.stroke_width:g}, zoom {path.zoom:g}"
+        return f"{path.hole_offset:g}, {path.phase_offset:g}, {path.color}, {path.stroke_width:g}, zoom {path.zoom:g}"
 
     def _layer_allows_test(self, layer: Optional[LayerConfig]) -> bool:
         if not layer or len(layer.gears) < 2:
@@ -2273,7 +1981,12 @@ class LayerManagerDialog(QDialog):
         enabled = False
         if kind == "path":
             layer = self.find_parent_layer(obj)
-            enabled = self._layer_allows_test(layer)
+            enabled = (
+                self._layer_allows_test(layer)
+                and layer is not None
+                and layer.enable
+                and obj.enable
+            )
         self.btn_test_track.setEnabled(enabled)
 
     def _update_move_buttons_state(self):
@@ -2295,6 +2008,93 @@ class LayerManagerDialog(QDialog):
         self.btn_move_up.setEnabled(can_move_up)
         self.btn_move_down.setEnabled(can_move_down)
 
+    def _visibility_icon(self, enabled: bool) -> QIcon:
+        icon_name = "visibility" if enabled else "visibility-off"
+        icon = QIcon.fromTheme(icon_name)
+        if icon.isNull():
+            fallback = QStyle.SP_DialogYesButton if enabled else QStyle.SP_DialogNoButton
+            icon = self.style().standardIcon(fallback)
+        return icon
+
+    def _enabled_layers_count(self) -> int:
+        return sum(1 for layer in self.layers if layer.enable)
+
+    def _enabled_paths_count(self, layer: LayerConfig) -> int:
+        return sum(1 for path in layer.paths if path.enable)
+
+    def _is_last_enabled_layer(self, layer: LayerConfig) -> bool:
+        return layer.enable and self._enabled_layers_count() == 1
+
+    def _is_last_enabled_path_in_last_layer(
+        self, layer: LayerConfig, path: PathConfig
+    ) -> bool:
+        return (
+            path.enable
+            and layer.enable
+            and self._enabled_layers_count() == 1
+            and self._enabled_paths_count(layer) == 1
+        )
+
+    def _update_enable_button_state(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            self.btn_toggle_enable.setEnabled(False)
+            self.btn_toggle_enable.setText("")
+            return
+        if kind == "layer":
+            if obj.enable:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_disable_layer"))
+                self.btn_toggle_enable.setEnabled(not self._is_last_enabled_layer(obj))
+            else:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_layer"))
+                self.btn_toggle_enable.setEnabled(True)
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                self.btn_toggle_enable.setEnabled(False)
+                return
+            if obj.enable:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_disable_path"))
+                self.btn_toggle_enable.setEnabled(
+                    not self._is_last_enabled_path_in_last_layer(layer, obj)
+                )
+            else:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_path"))
+                self.btn_toggle_enable.setEnabled(True)
+
+    def _update_paths_toggle_button_state(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            self.btn_toggle_paths.setEnabled(False)
+            self.btn_toggle_paths.setText("")
+            return
+        if kind == "layer":
+            layer = obj
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                self.btn_toggle_paths.setEnabled(False)
+                return
+        else:
+            self.btn_toggle_paths.setEnabled(False)
+            return
+        if not layer.paths:
+            self.btn_toggle_paths.setEnabled(False)
+            self.btn_toggle_paths.setText("")
+            return
+
+        any_disabled = any(not path.enable for path in layer.paths)
+        if any_disabled:
+            self.btn_toggle_paths.setText(tr(self.lang, "dlg_layers_enable_all_paths"))
+            self.btn_toggle_paths.setEnabled(True)
+            return
+
+        self.btn_toggle_paths.setText(tr(self.lang, "dlg_layers_disable_all_paths"))
+        if self._is_last_enabled_layer(layer):
+            self.btn_toggle_paths.setEnabled(False)
+            return
+        self.btn_toggle_paths.setEnabled(True)
+
     def refresh_tree(self):
         self.tree.clear()
         current_item_to_select = None
@@ -2304,6 +2104,7 @@ class LayerManagerDialog(QDialog):
                 [layer.name, tr(self.lang, "tree_type_layer"), self._layer_summary(layer)]
             )
             layer_item.setData(0, Qt.UserRole, layer)
+            layer_item.setIcon(0, self._visibility_icon(layer.enable))
             self.tree.addTopLevelItem(layer_item)
 
             if li == self.selected_layer_idx and self.selected_path_idx is None:
@@ -2314,6 +2115,7 @@ class LayerManagerDialog(QDialog):
                     [path.name, tr(self.lang, "tree_type_path"), self._path_summary(path)]
                 )
                 path_item.setData(0, Qt.UserRole, path)
+                path_item.setIcon(0, self._visibility_icon(path.enable))
                 layer_item.addChild(path_item)
 
                 if (
@@ -2336,6 +2138,8 @@ class LayerManagerDialog(QDialog):
             self.tree.setCurrentItem(current_item_to_select)
         self._update_test_button_state()
         self._update_move_buttons_state()
+        self._update_enable_button_state()
+        self._update_paths_toggle_button_state()
 
     def get_selected_object(self):
         item = self.tree.currentItem()
@@ -2365,6 +2169,8 @@ class LayerManagerDialog(QDialog):
             self.btn_test_track.setEnabled(False)
             self.btn_move_up.setEnabled(False)
             self.btn_move_down.setEnabled(False)
+            self._update_enable_button_state()
+            self._update_paths_toggle_button_state()
             return
 
         obj = current.data(0, Qt.UserRole)
@@ -2385,6 +2191,8 @@ class LayerManagerDialog(QDialog):
             self.selected_path_idx = pi
         self._update_test_button_state()
         self._update_move_buttons_state()
+        self._update_enable_button_state()
+        self._update_paths_toggle_button_state()
 
     def on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
         self.on_edit()
@@ -2395,22 +2203,29 @@ class LayerManagerDialog(QDialog):
         g0 = GearConfig(
             name=tr(self.lang, "default_ring_name"),
             gear_type="anneau",
-            teeth=105,
-            outer_teeth=150,
+            size=105,
+            outer_size=150,
             relation="stationnaire",
         )
         g1 = GearConfig(
             name=tr(self.lang, "default_wheel_name"),
             gear_type="roue",
-            teeth=30,
+            size=30,
             relation="dedans",
         )
         new_layer = LayerConfig(
             name=f"{tr(self.lang, 'default_layer_name')} {len(self.layers) + 1}",
-            visible=True,
+            enable=True,
             zoom=1.0,
             gears=[g0, g1],
-            paths=[PathConfig(name=f"{tr(self.lang, 'default_path_name')} 1", hole_index=1.0, zoom=1.0)],
+            paths=[
+                PathConfig(
+                    name=f"{tr(self.lang, 'default_path_name')} 1",
+                    hole_offset=1.0,
+                    zoom=1.0,
+                    enable=True,
+                )
+            ],
         )
         self.layers.append(new_layer)
 
@@ -2433,8 +2248,9 @@ class LayerManagerDialog(QDialog):
             return
         new_path = PathConfig(
             name=f"{tr(self.lang, 'default_path_name')} {len(layer.paths) + 1}",
-            hole_index=1.0,
+            hole_offset=1.0,
             zoom=1.0,
+            enable=layer.enable,
         )
         layer.paths.append(new_path)
 
@@ -2454,12 +2270,64 @@ class LayerManagerDialog(QDialog):
                 obj,
                 lang=self.lang,
                 parent=self,
-                pitch_mm_per_tooth=self.pitch_mm_per_tooth,
             )
         else:
             dlg = PathEditDialog(obj, lang=self.lang, parent=self)
         if dlg.exec() == QDialog.Accepted:
             self.refresh_tree()
+
+    def on_toggle_enable(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+        if kind == "layer":
+            if obj.enable:
+                if self._is_last_enabled_layer(obj):
+                    return
+                obj.enable = False
+            else:
+                obj.enable = True
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                return
+            if obj.enable:
+                if self._is_last_enabled_path_in_last_layer(layer, obj):
+                    return
+                obj.enable = False
+                if not any(path.enable for path in layer.paths):
+                    layer.enable = False
+            else:
+                obj.enable = True
+        self.refresh_tree()
+
+    def on_toggle_paths(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+        if kind == "layer":
+            layer = obj
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+        else:
+            return
+        if not layer:
+            return
+        if not layer.paths:
+            return
+
+        any_disabled = any(not path.enable for path in layer.paths)
+        if any_disabled:
+            for path in layer.paths:
+                path.enable = True
+        else:
+            if self._is_last_enabled_layer(layer):
+                return
+            for path in layer.paths:
+                path.enable = False
+            if not any(path.enable for path in layer.paths):
+                layer.enable = False
+        self.refresh_tree()
 
     def on_move_up(self):
         obj, kind = self.get_selected_object()
@@ -2523,8 +2391,6 @@ class LayerManagerDialog(QDialog):
             obj,
             lang=self.lang,
             parent=self,
-            hole_spacing_mm=self.hole_spacing_mm,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
             points_per_path=self.points_per_path,
         )
         dlg.setWindowState(dlg.windowState() | Qt.WindowFullScreen)
@@ -2573,6 +2439,11 @@ class LayerManagerDialog(QDialog):
                     self.selected_layer_idx = li
                     self.selected_path_idx = None
 
+        if self.layers and not any(layer.enable for layer in self.layers):
+            self.layers[0].enable = True
+            for path in self.layers[0].paths:
+                path.enable = True
+
         self.refresh_tree()
 
     def get_layers(self) -> List[LayerConfig]:
@@ -2583,7 +2454,7 @@ class ModularTrackView(QWidget):
     Widget de visualisation d'une piste modulaire :
       - polyline centrale (modular_tracks)
       - bande de largeur réelle (inner/outer)
-      - dents approximatives le long de la piste
+      - graduations approximatives le long de la piste
       - ligne rouge perpendiculaire à la tangente de fin
     """
 
@@ -2591,9 +2462,8 @@ class ModularTrackView(QWidget):
         super().__init__(parent)
         self.points: List[Tuple[float, float]] = []
         self.have_track = False
-        self.inner_teeth = 96
-        self.outer_teeth = 144
-        self.pitch_mm = 0.65
+        self.inner_size = 96
+        self.outer_size = 144
         self.total_length = 0.0
         self.segments = []
         self.last_tangent = 0.0  # angle de la tangente au dernier point (rad)
@@ -2612,16 +2482,14 @@ class ModularTrackView(QWidget):
     def set_track(
         self,
         track: modular_tracks.TrackBuildResult,
-        inner_teeth: int,
-        outer_teeth: int,
-        pitch_mm: float,
+        inner_size: int,
+        outer_size: int,
     ):
         self.points = track.points or []
         self.segments = track.segments or []
         self.total_length = track.total_length
-        self.inner_teeth = max(1, inner_teeth)
-        self.outer_teeth = max(self.inner_teeth + 1, outer_teeth)
-        self.pitch_mm = pitch_mm
+        self.inner_size = max(1, inner_size)
+        self.outer_size = max(self.inner_size + 1, outer_size)
         self.have_track = len(self.points) > 1 and self.total_length > 0.0
         if self.have_track and self.segments:
             _, theta, _ = modular_tracks._interpolate_on_segments(
@@ -2662,10 +2530,10 @@ class ModularTrackView(QWidget):
         painter.translate(w / 2.0, h / 2.0)
         painter.scale(scale, -scale)
 
-        # Largeur réelle de la piste (en mm)
-        inner_r = (self.pitch_mm * float(self.inner_teeth)) / (2.0 * math.pi)
-        outer_r = (self.pitch_mm * float(self.outer_teeth)) / (2.0 * math.pi)
-        width_mm = max(outer_r - inner_r, self.pitch_mm)
+        # Largeur réelle de la piste (unités abstraites)
+        inner_r = float(self.inner_size) / (2.0 * math.pi)
+        outer_r = float(self.outer_size) / (2.0 * math.pi)
+        width_mm = max(outer_r - inner_r, UNIT_LENGTH)
         half_w = width_mm / 2.0
 
         # 1) polyline centrale
@@ -2705,16 +2573,16 @@ class ModularTrackView(QWidget):
             painter.drawLine(QPointF(ix0, iy0), QPointF(ix1, iy1))
             painter.drawLine(QPointF(ox0, oy0), QPointF(ox1, oy1))
 
-        # 3) dents (petits ticks côté "outer")
+        # 3) graduations (petits ticks côté "outer")
         L = self.total_length if self.have_track else 0.0
-        if L > 0.0 and self.segments and self.pitch_mm > 0:
-            pen_teeth = QPen(QColor("#404040"))
-            pen_teeth.setWidthF(0)
-            painter.setPen(pen_teeth)
-            tooth_len = width_mm * 0.4
-            num_teeth = max(1, int(L / self.pitch_mm))
-            for k in range(num_teeth):
-                s = (k + 0.5) * self.pitch_mm
+        if L > 0.0 and self.segments:
+            pen_ticks = QPen(QColor("#404040"))
+            pen_ticks.setWidthF(0)
+            painter.setPen(pen_ticks)
+            tick_len = width_mm * 0.4
+            num_ticks = max(1, int(L))
+            for k in range(num_ticks):
+                s = (k + 0.5)
                 (x, y), theta, _ = modular_tracks._interpolate_on_segments(
                     s % L, self.segments
                 )
@@ -2722,8 +2590,8 @@ class ModularTrackView(QWidget):
                 ny = math.cos(theta)
                 bx = x + nx * half_w
                 by = y + ny * half_w
-                tx = bx + nx * tooth_len
-                ty = by + ny * tooth_len
+                tx = bx + nx * tick_len
+                ty = by + ny * tick_len
                 painter.drawLine(QPointF(bx, by), QPointF(tx, ty))
 
         # 4) Ligne rouge perpendiculaire à la tangente de fin
@@ -2750,7 +2618,7 @@ class ModularTrackEditorDialog(QDialog):
     """
     Éditeur en temps réel pour les pistes modulaires :
       - notation (avec surlignage de la partie comprise)
-      - paramètres inner/outer/pitch
+      - paramètres inner/outer
       - vue centrée sur le barycentre (via modular_tracks)
     """
 
@@ -2759,9 +2627,8 @@ class ModularTrackEditorDialog(QDialog):
         lang: str = "fr",
         parent=None,
         initial_notation: str = "",
-        inner_teeth: int = 96,
-        outer_teeth: int = 144,
-        pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH,
+        inner_size: int = 96,
+        outer_size: int = 144,
     ):
         super().__init__(parent)
         self.lang = lang
@@ -2797,24 +2664,16 @@ class ModularTrackEditorDialog(QDialog):
         params_layout = QHBoxLayout()
         self.inner_spin = QSpinBox()
         self.inner_spin.setRange(1, 2000)
-        self.inner_spin.setValue(max(1, inner_teeth))
+        self.inner_spin.setValue(max(1, inner_size))
 
         self.outer_spin = QSpinBox()
         self.outer_spin.setRange(1, 4000)
-        self.outer_spin.setValue(max(1, outer_teeth))
+        self.outer_spin.setValue(max(1, outer_size))
 
-        self.pitch_spin = QDoubleSpinBox()
-        self.pitch_spin.setRange(0.01, 5.0)
-        self.pitch_spin.setDecimals(3)
-        self.pitch_spin.setSingleStep(0.01)
-        self.pitch_spin.setValue(max(0.01, pitch_mm_per_tooth))
-
-        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_inner_teeth")))
+        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_inner_size")))
         params_layout.addWidget(self.inner_spin)
-        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_outer_teeth")))
+        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_outer_size")))
         params_layout.addWidget(self.outer_spin)
-        params_layout.addWidget(QLabel(tr(self.lang, "mod_editor_pitch")))
-        params_layout.addWidget(self.pitch_spin)
         params_layout.addStretch(1)
 
         notation_layout.addLayout(params_layout)
@@ -2843,7 +2702,6 @@ class ModularTrackEditorDialog(QDialog):
         self.notation_edit.textChanged.connect(self.update_track)
         self.inner_spin.valueChanged.connect(self.update_track)
         self.outer_spin.valueChanged.connect(self.update_track)
-        self.pitch_spin.valueChanged.connect(self.update_track)
 
         # Valeurs initiales
         self.notation_edit.setText(self._initial_notation)
@@ -2875,9 +2733,8 @@ class ModularTrackEditorDialog(QDialog):
         else:
             self.notation_display.setText("&nbsp;")
 
-        inner_teeth = self.inner_spin.value()
-        outer_teeth = self.outer_spin.value()
-        pitch = self.pitch_spin.value()
+        inner_size = self.inner_spin.value()
+        outer_size = self.outer_spin.value()
 
         # Rien à dessiner si aucune pièce
         if not has_piece or not valid:
@@ -2888,10 +2745,9 @@ class ModularTrackEditorDialog(QDialog):
         try:
             track = modular_tracks.build_track_from_notation(
                 valid,
-                inner_teeth=inner_teeth,
-                outer_teeth=outer_teeth,
-                pitch_mm_per_tooth=pitch,
-                steps_per_tooth=3,
+                inner_size=inner_size,
+                outer_size=outer_size,
+                steps_per_unit=3,
             )
         except NotImplementedError as e:
             # Cas des pièces non encore gérées (Y, etc.)
@@ -2912,21 +2768,14 @@ class ModularTrackEditorDialog(QDialog):
             self.info_label.setText(tr(self.lang, "mod_editor_info_empty"))
             return
 
-        self.track_view.set_track(track, inner_teeth, outer_teeth, pitch)
+        self.track_view.set_track(track, inner_size, outer_size)
         inner_len, mid_len, outer_len = modular_tracks.compute_track_lengths(
-            track, inner_teeth, outer_teeth, pitch
+            track, inner_size, outer_size
         )
-        pitch_safe = pitch if pitch > 0 else 1.0
         summaries = [
-            tr(self.lang, "mod_editor_summary_inner").format(
-                length=inner_len, teeth=inner_len / pitch_safe
-            ),
-            tr(self.lang, "mod_editor_summary_mid").format(
-                length=mid_len, teeth=mid_len / pitch_safe
-            ),
-            tr(self.lang, "mod_editor_summary_outer").format(
-                length=outer_len, teeth=outer_len / pitch_safe
-            ),
+            tr(self.lang, "mod_editor_summary_inner").format(length=inner_len),
+            tr(self.lang, "mod_editor_summary_mid").format(length=mid_len),
+            tr(self.lang, "mod_editor_summary_outer").format(length=outer_len),
         ]
         self.info_label.setText("\n".join(summaries))
 
@@ -2937,16 +2786,10 @@ class SpiroWindow(QWidget):
         super().__init__()
 
         # Langue par défaut : français
-        self.language = "fr"
+        self.language = localisation.resolve_language("fr")
 
         # Indicateur de restauration de géométrie
         self._geometry_restored = False
-
-        # Espacement radial des trous en mm
-        self.hole_spacing_mm: float = 0.65
-
-        # Espacement des dents en mm/dent
-        self.pitch_mm_per_tooth: float = PITCH_MM_PER_TOOTH
 
         # Couleur de fond
         self.bg_color: str = "#ffffff"
@@ -2976,17 +2819,21 @@ class SpiroWindow(QWidget):
         self.act_save_json = QAction(menubar)
         self.act_export_svg = QAction(menubar)
         self.act_export_png = QAction(menubar)
+        self.act_quit = QAction(menubar)
 
         self.menu_file.addAction(self.act_load_json)
         self.menu_file.addAction(self.act_save_json)
         self.menu_file.addSeparator()
         self.menu_file.addAction(self.act_export_svg)
         self.menu_file.addAction(self.act_export_png)
+        self.menu_file.addSeparator()
+        self.menu_file.addAction(self.act_quit)
 
         self.act_load_json.triggered.connect(self.load_from_json)
         self.act_save_json.triggered.connect(self.save_to_json)
         self.act_export_svg.triggered.connect(self.export_svg)
         self.act_export_png.triggered.connect(self.export_png)
+        self.act_quit.triggered.connect(self.close)
 
         # Menu Couches
         self.menu_layers = QMenu(menubar)
@@ -2998,10 +2845,6 @@ class SpiroWindow(QWidget):
         # Menu Options
         self.menu_options = QMenu(menubar)
         menubar.addMenu(self.menu_options)
-        self.act_spacing = QAction(menubar)
-        self.act_spacing.triggered.connect(self.edit_hole_spacing)
-        self.menu_options.addAction(self.act_spacing)
-
         self.act_bg_color = QAction(menubar)
         self.act_bg_color.triggered.connect(self.edit_bg_color)
         self.menu_options.addAction(self.act_bg_color)
@@ -3014,16 +2857,8 @@ class SpiroWindow(QWidget):
         # Sous-menu Langue
         self.menu_lang = QMenu(menubar)
         self.menu_options.addMenu(self.menu_lang)
-
-        self.act_lang_fr = QAction(menubar)
-        self.act_lang_fr.setCheckable(True)
-        self.act_lang_en = QAction(menubar)
-        self.act_lang_en.setCheckable(True)
-        self.menu_lang.addAction(self.act_lang_fr)
-        self.menu_lang.addAction(self.act_lang_en)
-
-        self.act_lang_fr.triggered.connect(lambda: self.set_language("fr"))
-        self.act_lang_en.triggered.connect(lambda: self.set_language("en"))
+        self.language_actions: Dict[str, QAction] = {}
+        self._build_language_menu(menubar)
 
 
         # Menu Régénérer
@@ -3045,6 +2880,16 @@ class SpiroWindow(QWidget):
         self.act_regen = QAction(menubar)
         self.act_regen.triggered.connect(self.update_svg)
         self.menu_regen.addAction(self.act_regen)
+
+        # Menu Aide
+        self.menu_help = QMenu(menubar)
+        menubar.addMenu(self.menu_help)
+        self.act_help_manual = QAction(menubar)
+        self.act_help_about = QAction(menubar)
+        self.menu_help.addAction(self.act_help_manual)
+        self.menu_help.addAction(self.act_help_about)
+        self.act_help_manual.triggered.connect(self.open_manual)
+        self.act_help_about.triggered.connect(self.show_about)
 
         main_layout.addWidget(menubar)
 
@@ -3109,34 +2954,36 @@ class SpiroWindow(QWidget):
         g0 = GearConfig(
             name=tr(self.language, "default_ring_name"),
             gear_type="anneau",
-            teeth=105,        # intérieur
-            outer_teeth=150,  # extérieur
+            size=105,        # intérieur
+            outer_size=150,  # extérieur
             relation="stationnaire",
         )
         g1 = GearConfig(
             name=tr(self.language, "default_wheel_name"),
             gear_type="roue",
-            teeth=30,
+            size=30,
             relation="dedans",
         )
         base_layer = LayerConfig(
             name=f"{tr(self.language, 'default_layer_name')} 1",
-            visible=True,
+            enable=True,
             zoom=1.0,
             gears=[g0, g1],
             paths=[
                 PathConfig(
                     name=f"{tr(self.language, 'default_path_name')} 1",
-                    hole_index=1.0,
-                    phase_offset_teeth=0.0,
+                    enable=True,
+                    hole_offset=1.0,
+                    phase_offset=0.0,
                     color="red",
                     stroke_width=1.2,
                     zoom=1.0,
                 ),
                 PathConfig(
                     name=f"{tr(self.language, 'default_path_name')} 2",
-                    hole_index=2.0,
-                    phase_offset_teeth=5.0,
+                    enable=True,
+                    hole_offset=2.0,
+                    phase_offset=0.25,
                     color="#0000aa",
                     stroke_width=1.0,
                     zoom=1.0,
@@ -3160,9 +3007,7 @@ class SpiroWindow(QWidget):
     # ----- Langue -----
 
     def set_language(self, lang: str):
-        if lang not in TRANSLATIONS:
-            lang = "fr"
-        self.language = lang
+        self.language = localisation.resolve_language(lang or "fr")
         self.apply_language()
 
     def apply_language(self):
@@ -3173,30 +3018,32 @@ class SpiroWindow(QWidget):
         self.menu_layers.setTitle(tr(self.language, "menu_layers"))
         self.menu_options.setTitle(tr(self.language, "menu_options"))
         self.menu_regen.setTitle(tr(self.language, "menu_regen"))
+        self.menu_help.setTitle(tr(self.language, "menu_help"))
 
         # Actions Fichier
         self.act_load_json.setText(tr(self.language, "menu_file_load_json"))
         self.act_save_json.setText(tr(self.language, "menu_file_save_json"))
         self.act_export_svg.setText(tr(self.language, "menu_file_export_svg"))
         self.act_export_png.setText(tr(self.language, "menu_file_export_png"))
+        self.act_quit.setText(tr(self.language, "menu_file_quit"))
 
         # Actions Options
         self.act_manage_layers.setText(tr(self.language, "menu_layers_manage"))
-        self.act_spacing.setText(tr(self.language, "menu_options_spacing"))
         self.act_bg_color.setText(tr(self.language, "menu_options_bgcolor"))
         self.act_canvas.setText(tr(self.language, "menu_options_canvas"))
         self.menu_lang.setTitle(tr(self.language, "menu_options_language"))
-        self.act_lang_fr.setText(tr(self.language, "menu_lang_fr"))
-        self.act_lang_en.setText(tr(self.language, "menu_lang_en"))
         self.act_animation_enabled.setText(tr(self.language, "menu_regen_animation"))
         self.act_show_track.setText(tr(self.language, "menu_regen_show_track"))
         self.act_regen.setText(tr(self.language, "menu_regen_draw"))
+        self.act_help_manual.setText(tr(self.language, "menu_help_manual"))
+        self.act_help_about.setText(tr(self.language, "menu_help_about"))
 
         self._refresh_animation_texts()
 
         # Checkmarks langue
-        self.act_lang_fr.setChecked(self.language == "fr")
-        self.act_lang_en.setChecked(self.language == "en")
+        for code, action in self.language_actions.items():
+            action.setText(localisation.language_display_name(code))
+            action.setChecked(code == self.language)
 
     def _available_svg_space(self) -> Tuple[int, int]:
         layout = self.layout()
@@ -3232,6 +3079,60 @@ class SpiroWindow(QWidget):
 
         return available_width, available_height
 
+    def _build_language_menu(self, menubar: QMenuBar):
+        self.menu_lang.clear()
+        self.language_actions.clear()
+        for code in localisation.available_languages():
+            action = QAction(menubar)
+            action.setCheckable(True)
+            action.setData(code)
+            action.triggered.connect(lambda _checked=False, lang=code: self.set_language(lang))
+            self.menu_lang.addAction(action)
+            self.language_actions[code] = action
+
+    def _resolve_repo_info(self) -> Tuple[str, Optional[str]]:
+        repo_root = os.path.dirname(os.path.abspath(__file__))
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except Exception:
+            return GITHUB_REPO_URL, None
+        branch = result.stdout.strip()
+        if not branch or branch == "HEAD":
+            return GITHUB_REPO_URL, None
+        return f"{GITHUB_REPO_URL}/tree/{branch}", branch
+
+    def open_manual(self):
+        readme_path = localisation.resolve_readme_path(self.language)
+        repo_root = Path(os.path.abspath(__file__)).parent
+        readme = readme_path.relative_to(repo_root).as_posix()
+        _repo_url, branch = self._resolve_repo_info()
+        ref = branch or "main"
+        url = f"{GITHUB_REPO_URL}/blob/{ref}/{readme}"
+        QDesktopServices.openUrl(QUrl(url))
+
+    def show_about(self):
+        url, _branch = self._resolve_repo_info()
+        text = (
+            "<p><b>Spiro Sim</b></p>"
+            "<p>Créé par Alyndiar</p>"
+            f"<p>Version {APP_VERSION}</p>"
+            "<p>CC-BY-SA 4.0</p>"
+            f'<p><a href="{url}">{url}</a></p>'
+        )
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle(tr(self.language, "dlg_about_title"))
+        dlg.setTextFormat(Qt.RichText)
+        dlg.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        dlg.setText(text)
+        dlg.setStandardButtons(QMessageBox.Ok)
+        dlg.exec()
+
     def _update_svg_size(self):
         available_width, available_height = self._available_svg_space()
         square_size = max(50, min(available_width, available_height))
@@ -3250,9 +3151,7 @@ class SpiroWindow(QWidget):
             width=self.canvas_width,
             height=self.canvas_height,
             bg_color=bg_norm,
-            hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
             show_tracks=self.show_track,
             return_render_data=True,
         )
@@ -3460,50 +3359,16 @@ class SpiroWindow(QWidget):
             self.layers,
             lang=self.language,
             parent=self,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
-            hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
         )
         if dlg.exec() == QDialog.Accepted:
             self.layers = dlg.get_layers()
             self.update_svg()
 
-    def edit_hole_spacing(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle(tr(self.language, "spacing_dialog_title"))
-        layout = QFormLayout(dlg)
-        spin = QDoubleSpinBox()
-        spin.setRange(0.01, 10.0)
-        spin.setDecimals(3)
-        spin.setValue(self.hole_spacing_mm)
-        layout.addRow(tr(self.language, "spacing_label"), spin)
-
-        pitch_spin = QDoubleSpinBox()
-        pitch_spin.setRange(0.01, 5.0)
-        pitch_spin.setDecimals(3)
-        pitch_spin.setSingleStep(0.01)
-        pitch_spin.setValue(self.pitch_mm_per_tooth)
-        layout.addRow(tr(self.language, "teeth_spacing_label"), pitch_spin)
-
-        btn_box = QHBoxLayout()
-        btn_ok = QPushButton(tr(self.language, "dlg_ok"))
-        btn_cancel = QPushButton(tr(self.language, "dlg_cancel"))
-        btn_ok.clicked.connect(dlg.accept)
-        btn_cancel.clicked.connect(dlg.reject)
-        btn_box.addWidget(btn_ok)
-        btn_box.addWidget(btn_cancel)
-        layout.addRow(btn_box)
-
-        if dlg.exec() == QDialog.Accepted:
-            self.hole_spacing_mm = spin.value()
-            self.pitch_mm_per_tooth = pitch_spin.value()
-            self.update_svg()
-
     def open_modular_track_editor(self):
         dlg = ModularTrackEditorDialog(
             lang=self.language,
             parent=self,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
         dlg.exec()
 
@@ -3577,8 +3442,11 @@ class SpiroWindow(QWidget):
         for layer in self.layers:
             data_layer = {
                 "name": layer.name,
-                "visible": layer.visible,
+                "enable": layer.enable,
                 "zoom": getattr(layer, "zoom", 1.0),
+                "translate_x": getattr(layer, "translate_x", 0.0),
+                "translate_y": getattr(layer, "translate_y", 0.0),
+                "rotate_deg": getattr(layer, "rotate_deg", 0.0),
                 "gears": [],
                 "paths": [],
             }
@@ -3586,20 +3454,24 @@ class SpiroWindow(QWidget):
                 data_layer["gears"].append({
                     "name": g.name,
                     "gear_type": g.gear_type,
-                    "teeth": g.teeth,
-                    "outer_teeth": g.outer_teeth,
+                    "size": g.size,
+                    "outer_size": g.outer_size,
                     "relation": g.relation,
                     "modular_notation": getattr(g, "modular_notation", None),
                 })
             for p in layer.paths:
                 data_layer["paths"].append({
                     "name": p.name,
-                    "hole_index": p.hole_index,
-                    "phase_offset_teeth": p.phase_offset_teeth,
+                    "enable": p.enable,
+                    "hole_offset": p.hole_offset,
+                    "phase_offset": p.phase_offset,
                     "color": p.color,  # ce que tu as tapé
                     "color_norm": getattr(p, "color_norm", None),  # peut être None
                     "stroke_width": p.stroke_width,
                     "zoom": getattr(p, "zoom", 1.0),
+                    "translate_x": getattr(p, "translate_x", 0.0),
+                    "translate_y": getattr(p, "translate_y", 0.0),
+                    "rotate_deg": getattr(p, "rotate_deg", 0.0),
                 })
             data_layers.append(data_layer)
         return data_layers
@@ -3613,8 +3485,8 @@ class SpiroWindow(QWidget):
                     GearConfig(
                         name=gd.get("name", "Engrenage"),
                         gear_type=gd.get("gear_type", "roue"),
-                        teeth=int(gd.get("teeth", 30)),
-                        outer_teeth=int(gd.get("outer_teeth", 0)),
+                        size=int(gd.get("size", 30)),
+                        outer_size=int(gd.get("outer_size", 0)),
                         relation=gd.get("relation", "stationnaire"),
                         modular_notation=gd.get("modular_notation"),
                     )
@@ -3630,23 +3502,41 @@ class SpiroWindow(QWidget):
                 paths.append(
                     PathConfig(
                         name=pd.get("name", "Tracé"),
-                        hole_index=float(pd.get("hole_index", 1.0)),
-                        phase_offset_teeth=float(pd.get("phase_offset_teeth", 0.0)),
+                        enable=bool(pd.get("enable", True)),
+                        hole_offset=float(pd.get("hole_offset", pd.get("hole_index", 1.0))),
+                        phase_offset=float(pd.get("phase_offset", 0.0)),
                         color=color_input,
                         color_norm=color_norm,
                         stroke_width=float(pd.get("stroke_width", 1.0)),
                         zoom=float(pd.get("zoom", 1.0)),
+                        translate_x=float(pd.get("translate_x", 0.0)),
+                        translate_y=float(pd.get("translate_y", 0.0)),
+                        rotate_deg=float(pd.get("rotate_deg", 0.0)),
                     )
                 )
+            enable = bool(ld.get("enable", ld.get("visible", True)))
+            if not enable:
+                for path in paths:
+                    path.enable = False
+            elif paths and not any(path.enable for path in paths):
+                for path in paths:
+                    path.enable = True
             layers.append(
                 LayerConfig(
                     name=ld.get("name", "Couche"),
-                    visible=bool(ld.get("visible", True)),
+                    enable=enable,
                     zoom=float(ld.get("zoom", 1.0)),
+                    translate_x=float(ld.get("translate_x", 0.0)),
+                    translate_y=float(ld.get("translate_y", 0.0)),
+                    rotate_deg=float(ld.get("rotate_deg", 0.0)),
                     gears=gears,
                     paths=paths,
                 )
             )
+        if layers and not any(layer.enable for layer in layers):
+            layers[0].enable = True
+            for path in layers[0].paths:
+                path.enable = True
         return layers
 
     def _config_file_path(self) -> str:
@@ -3663,8 +3553,6 @@ class SpiroWindow(QWidget):
         data = {
             "version": 1,
             "language": self.language,
-            "hole_spacing_mm": self.hole_spacing_mm,
-            "pitch_mm_per_tooth": self.pitch_mm_per_tooth,
             "bg_color": self.bg_color,
             "canvas_width": self.canvas_width,
             "canvas_height": self.canvas_height,
@@ -3690,11 +3578,7 @@ class SpiroWindow(QWidget):
         return data
 
     def _apply_state_dict(self, data, *, apply_window: bool, refresh: bool):
-        self.language = data.get("language", self.language)
-        self.hole_spacing_mm = float(data.get("hole_spacing_mm", self.hole_spacing_mm))
-        self.pitch_mm_per_tooth = float(
-            data.get("pitch_mm_per_tooth", self.pitch_mm_per_tooth)
-        )
+        self.language = localisation.resolve_language(data.get("language", self.language))
         self.bg_color = data.get("bg_color", self.bg_color)
         self.canvas_width = int(data.get("canvas_width", self.canvas_width))
         self.canvas_height = int(data.get("canvas_height", self.canvas_height))
@@ -3823,9 +3707,7 @@ class SpiroWindow(QWidget):
             width=self.canvas_width,
             height=self.canvas_height,
             bg_color=self.bg_color,
-            hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
 
         try:
@@ -3886,9 +3768,7 @@ class SpiroWindow(QWidget):
             width=out_w,
             height=out_h,
             bg_color=bg_norm,
-            hole_spacing_mm=self.hole_spacing_mm,
             points_per_path=self.points_per_path,
-            pitch_mm_per_tooth=self.pitch_mm_per_tooth,
         )
 
         renderer = QSvgRenderer(QByteArray(svg_data.encode("utf-8")))
