@@ -1,0 +1,72 @@
+"""Update spirosim/_version.py using GitVersion locally."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from spirosim.versioning import write_version_file
+
+
+def _repo_root() -> Path:
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return Path(result.stdout.strip())
+
+
+def _run_gitversion(repo_root: Path) -> dict[str, str] | None:
+    commands = []
+    if shutil.which("gitversion"):
+        commands.append(["gitversion"])
+    if shutil.which("dotnet"):
+        commands.append(["dotnet", "tool", "run", "gitversion"])
+
+    for command in commands:
+        try:
+            result = subprocess.run(
+                command + ["/output", "json", "/nofetch"],
+                check=True,
+                capture_output=True,
+                text=True,
+                cwd=repo_root,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            continue
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def main() -> int:
+    try:
+        repo_root = _repo_root()
+    except subprocess.CalledProcessError:
+        print("Unable to locate git repository root.", file=sys.stderr)
+        return 1
+
+    metadata = _run_gitversion(repo_root)
+    if not metadata:
+        print(
+            "GitVersion not available. Install it or run `dotnet tool restore`.",
+            file=sys.stderr,
+        )
+        return 0
+
+    version = metadata.get("fullSemVer") or "0.0.0-dev"
+    sha = metadata.get("shortSha") or "unknown"
+    version_path = repo_root / "spirosim" / "_version.py"
+    write_version_file(version_path, version, sha)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
