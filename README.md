@@ -144,7 +144,7 @@ To keep `spirosim/_version.py` in sync after each pull, checkout, or rebase,
 install the GitVersion tool and enable the repository hooks:
 
 ```bash
-dotnet tool restore
+dotnet tool restore --tool-manifest .config/dotnet-tools.json
 python scripts/setup_git_hooks.py
 ```
 

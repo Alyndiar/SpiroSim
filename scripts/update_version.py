@@ -26,7 +26,16 @@ def _run_gitversion(repo_root: Path) -> dict[str, str] | None:
     if shutil.which("gitversion"):
         commands.append(["gitversion"])
     if shutil.which("dotnet"):
-        commands.append(["dotnet", "tool", "run", "gitversion"])
+        commands.append(
+            [
+                "dotnet",
+                "tool",
+                "run",
+                "gitversion",
+                "--tool-manifest",
+                str(repo_root / ".config" / "dotnet-tools.json"),
+            ]
+        )
 
     for command in commands:
         try:
