@@ -22,6 +22,7 @@ from shape_dsl import DslParseError, parse_analytic_expression, parse_modular_ex
 from shape_geometry import (
     BaseCurve,
     ArcSegment,
+    CircleCurve,
     EllipseCurve,
     LineSegment,
     ModularTrackCurve,
@@ -458,13 +459,11 @@ def generate_trochoid_points_for_layer_path(
         s_max = base_curve.length
     s_max = max(s_max, base_curve.length)
 
-    if relation == "dedans":
-        side = 1
-        epsilon = 1
+    side = 1 if relation == "dedans" else -1
+    epsilon = side
+    if relation == "dedans" and isinstance(base_curve, CircleCurve):
         alpha0 = math.pi
     else:
-        side = -1
-        epsilon = -1
         alpha0 = 0.0
 
     base_points = []

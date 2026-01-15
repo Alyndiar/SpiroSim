@@ -375,14 +375,9 @@ def build_track_and_bundle_from_notation(
     ], closed=False)
     r = wheel_size / (2.0 * math.pi) if wheel_size else 1.0
     d = max(0.0, (wheel_size / (2.0 * math.pi)) - hole_offset)
-    if relation == "dedans":
-        side = 1
-        epsilon = 1
-        alpha0 = math.pi
-    else:
-        side = -1
-        epsilon = -1
-        alpha0 = 0.0
+    side = 1 if relation == "dedans" else -1
+    epsilon = side
+    alpha0 = 0.0
     s_max = track.total_length
     stylo: List[Point] = []
     centre: List[Point] = []
