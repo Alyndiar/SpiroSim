@@ -36,7 +36,7 @@ Analytic shapes compile to a **single closed pitch curve** (`Curve2D`).
 ### 3.1 Circle
 
 ```text
-C(N)
+C N
 ```
 
 - `N` : total perimeter (circumference)
@@ -167,8 +167,8 @@ Constraint:
 
 | Piece | Syntax | Parameters | Meaning |
 |---|---|---|---|
-| Arc | `A(θ)` | `θ` degrees | Arc segment swept by `θ` degrees |
-| Straight | `S(L)` | `L` length | Straight segment length `L` |
+| Arc | `Aθ` | `θ` degrees | Arc segment swept by `θ` degrees |
+| Straight | `Lx` (or `Sx`) | `x` length | Straight segment length `x` |
 | Endcap | `E` | none | Terminates a branch (adds a closing cap in track topology) |
 | Intersection | `I<n>` | `n` branches | n-way junction (`n > 2`) that creates new open branches |
 
@@ -184,8 +184,8 @@ Notes:
 |---|---|
 | `+` | Connect next piece using its connector **A** |
 | `-` | Connect next piece using its connector **B** (implies the piece is flipped/rotated to mate) |
-| `*` | Jump to the **next open branch** |
-| `*n` | Jump to open branch index **n** |
+| `*` | Jump to the **next open branch** (must be followed by `+` or `-` before the next piece) |
+| `*n` | Jump to open branch index **n** (must be followed by `+` or `-` before the next piece) |
 
 High-level connector rule:
 - Each piece has two connectors: **A** (start) and **B** (end) in its local orientation.

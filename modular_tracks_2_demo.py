@@ -118,7 +118,7 @@ class ModularTrackDemo(QWidget):
         parent=None,
         *,
         auto_start: bool = True,
-        notation: str = "+A(60)+S(144)+A(60)+S(144)",
+        notation: str = "+A60+L144+A60+L144",
         wheel_size: int = 84,
         hole_offset: float = 9.5,
         relation: str = "dedans",

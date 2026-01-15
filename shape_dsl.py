@@ -103,9 +103,10 @@ def parse_analytic_expression(expr: str) -> AnalyticSpec:
     if not cleaned:
         raise DslParseError("Empty expression")
 
-    circle_match = re.fullmatch(rf"C\(({_NUM_RE})\)", cleaned)
+    circle_match = re.fullmatch(rf"C(?:\(({_NUM_RE})\)|({_NUM_RE}))", cleaned)
     if circle_match:
-        return CircleSpec(float(circle_match.group(1)))
+        value = circle_match.group(1) or circle_match.group(2)
+        return CircleSpec(float(value))
 
     ring_match = re.fullmatch(rf"R\(({_NUM_RE}),({_NUM_RE})\)", cleaned)
     if ring_match:
@@ -151,6 +152,7 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
 
     steps: List[TrackStep] = []
     idx = 0
+    require_orientation = False
 
     def _parse_number(start: int) -> tuple[Optional[float], int]:
         match = re.match(rf"{_NUM_RE}", cleaned[start:])
@@ -170,32 +172,43 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
                 if jump_number is not None:
                     jump_index = int(jump_number)
                     idx = new_idx
+                require_orientation = True
+                continue
+        elif require_orientation:
+            raise DslParseError("Expected '+' or '-' after '*' to set orientation")
+        require_orientation = False
         if idx >= len(cleaned):
             break
 
         if cleaned[idx] == "A":
             idx += 1
-            if idx >= len(cleaned) or cleaned[idx] != "(":
-                raise DslParseError("Expected '(' after A")
-            idx += 1
-            value, idx = _parse_number(idx)
+            if idx < len(cleaned) and cleaned[idx] == "(":
+                idx += 1
+                value, idx = _parse_number(idx)
+                if value is None:
+                    raise DslParseError("Expected arc sweep value")
+                if idx >= len(cleaned) or cleaned[idx] != ")":
+                    raise DslParseError("Expected ')' after arc value")
+                idx += 1
+            else:
+                value, idx = _parse_number(idx)
             if value is None:
                 raise DslParseError("Expected arc sweep value")
-            if idx >= len(cleaned) or cleaned[idx] != ")":
-                raise DslParseError("Expected ')' after arc value")
-            idx += 1
             piece: TrackPiece = ArcPiece(value)
-        elif cleaned[idx] == "S":
+        elif cleaned[idx] in {"S", "L"}:
             idx += 1
-            if idx >= len(cleaned) or cleaned[idx] != "(":
-                raise DslParseError("Expected '(' after S")
-            idx += 1
-            value, idx = _parse_number(idx)
+            if idx < len(cleaned) and cleaned[idx] == "(":
+                idx += 1
+                value, idx = _parse_number(idx)
+                if value is None:
+                    raise DslParseError("Expected straight length")
+                if idx >= len(cleaned) or cleaned[idx] != ")":
+                    raise DslParseError("Expected ')' after straight length")
+                idx += 1
+            else:
+                value, idx = _parse_number(idx)
             if value is None:
                 raise DslParseError("Expected straight length")
-            if idx >= len(cleaned) or cleaned[idx] != ")":
-                raise DslParseError("Expected ')' after straight length")
-            idx += 1
             piece = StraightPiece(value)
         elif cleaned[idx] == "E":
             idx += 1
@@ -218,4 +231,4 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
 
 def is_modular_expression(expr: str) -> bool:
     cleaned = _clean_expr(expr)
-    return cleaned.startswith(("A", "S", "E", "I", "+", "-", "*"))
+    return cleaned.startswith(("A", "S", "L", "E", "I", "+", "-", "*"))

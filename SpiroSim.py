@@ -395,7 +395,7 @@ def generate_trochoid_points_for_layer_path(
     piste virtuelle SuperSpirograph, définie par :
       - g0.size        => taille intérieure de l’anneau de base
       - g0.outer_size  => taille extérieure de l’anneau de base
-      - g0.modular_notation => notation de pièce (ex: "+A(60)+S(144)-E*A(72)")
+      - g0.modular_notation => notation de pièce (ex: "+A60+L144-E*+A72")
     La courbe est ensuite utilisée comme piste de contact pour le roulage.
     """
 

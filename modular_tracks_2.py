@@ -107,7 +107,7 @@ class TrackRollBundle:
     context: TrackRollContext
 
 
-PIECES = frozenset({"a", "s", "e", "i"})
+PIECES = frozenset({"a", "l", "s", "e", "i"})
 
 
 def _normalize(x: float, y: float) -> Tuple[float, float]:
@@ -448,23 +448,35 @@ def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
     idx = 0
     last_valid = 0
     has_piece = False
+    require_orientation = False
     while idx < len(cleaned):
         if cleaned[idx] in "+-*":
             idx += 1
+            if cleaned[idx - 1] == "*":
+                require_orientation = True
             while idx < len(cleaned) and cleaned[idx].isdigit():
                 idx += 1
         if idx >= len(cleaned):
             break
-        if cleaned[idx] in {"A", "S"}:
+        if require_orientation and cleaned[idx] not in "+-":
+            break
+        if cleaned[idx] in "+-":
             idx += 1
-            if idx >= len(cleaned) or cleaned[idx] != "(":
-                break
+        if idx >= len(cleaned):
+            break
+        require_orientation = False
+        if cleaned[idx] in {"A", "S", "L"}:
             idx += 1
-            while idx < len(cleaned) and (cleaned[idx].isdigit() or cleaned[idx] == "." or cleaned[idx] in "+-"):
+            if idx < len(cleaned) and cleaned[idx] == "(":
                 idx += 1
-            if idx >= len(cleaned) or cleaned[idx] != ")":
-                break
-            idx += 1
+                while idx < len(cleaned) and (cleaned[idx].isdigit() or cleaned[idx] == "." or cleaned[idx] in "+-"):
+                    idx += 1
+                if idx >= len(cleaned) or cleaned[idx] != ")":
+                    break
+                idx += 1
+            else:
+                while idx < len(cleaned) and (cleaned[idx].isdigit() or cleaned[idx] == "." or cleaned[idx] in "+-"):
+                    idx += 1
             has_piece = True
         elif cleaned[idx] == "E":
             idx += 1

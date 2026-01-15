@@ -159,12 +159,13 @@ and `shortSha` values.
 
 An initial optional `+` or `-` sets the default turn direction for the first
 piece. A leading `*` jumps to the next open branch (or `*n` for branch index
-`n`).
+`n`) and must be followed by a `+` or `-` before the next piece to select an
+orientation.
 
 ### Pieces
 
-- `A(θ)`: arc of `θ` degrees. The sign (`+`/`-`) determines left/right turn.
-- `S(L)`: straight segment of length `L`.
+- `Aθ`: arc of `θ` degrees. The sign (`+`/`-`) determines left/right turn.
+- `Lx`: straight segment of length `x` (alias: `Sx`).
 - `E`: endcap that terminates a branch.
 - `I<n>`: intersection with `n` branches (`n > 2`).
 
@@ -173,7 +174,7 @@ Angles and lengths can be integer or decimal values.
 ### Example
 
 ```
-+A(90)-S(40)+E*A(90)
++A90-L40+E*+A90
 ```
 
 This builds a 90° left arc, a 40-unit straight, an endcap, then continues
@@ -184,7 +185,7 @@ on the next branch with another 90° left arc.
 Analytic expressions define single closed pitch curves that can be used as
 gears, hoops, or tracks:
 
-- `C(N)` : circle with perimeter `N`
+- `C N` : circle with perimeter `N` (parentheses optional for single values)
 - `R(Ni,No)` : ring reference with inner/outer perimeters
 - `P<n>(T,S/C)` : rounded polygon with `n` sides
 - `D(T,O/H/L)` : drop shape
