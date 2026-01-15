@@ -375,8 +375,14 @@ def build_track_and_bundle_from_notation(
     ], closed=False)
     r = wheel_size / (2.0 * math.pi) if wheel_size else 1.0
     d = max(0.0, (wheel_size / (2.0 * math.pi)) - hole_offset)
-    side = 1 if relation == "dedans" else -1
-    epsilon = -side
+    if relation == "dedans":
+        side = 1
+        epsilon = 1
+        alpha0 = math.pi
+    else:
+        side = -1
+        epsilon = -1
+        alpha0 = 0.0
     s_max = track.total_length
     stylo: List[Point] = []
     centre: List[Point] = []
@@ -386,7 +392,7 @@ def build_track_and_bundle_from_notation(
     track_marker_indices: List[int] = []
     for i in range(steps):
         s = s_max * i / max(1, steps - 1)
-        px, py = pen_position(s, base_curve, r, d, side, alpha0=0.0, epsilon=epsilon)
+        px, py = pen_position(s, base_curve, r, d, side, alpha0=alpha0, epsilon=epsilon)
         stylo.append((px, py))
         xb, yb, (tx, ty), (nx, ny) = base_curve.eval(s)
         centre.append((xb + side * r * nx, yb + side * r * ny))

@@ -458,9 +458,14 @@ def generate_trochoid_points_for_layer_path(
         s_max = base_curve.length
     s_max = max(s_max, base_curve.length)
 
-    side = 1 if relation == "dedans" else -1
-    epsilon = -side
-    alpha0 = 0.0
+    if relation == "dedans":
+        side = 1
+        epsilon = 1
+        alpha0 = math.pi
+    else:
+        side = -1
+        epsilon = -1
+        alpha0 = 0.0
 
     base_points = []
     for i in range(steps):
