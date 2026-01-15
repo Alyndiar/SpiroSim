@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
@@ -9,9 +10,11 @@ datas = [
     ("README.md", "."),
 ]
 
+repo_root = os.path.abspath(os.path.dirname(__file__))
+
 a = Analysis(
     ["SpiroSim.py"],
-    pathex=[],
+    pathex=[repo_root],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
