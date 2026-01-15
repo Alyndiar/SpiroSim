@@ -1,60 +1,31 @@
 """
-Nouvelle génération de pistes modulaires basée sur une notation algébrique
-simplifiée. La totalité de la logique précédente est remplacée afin de coller
-au cahier des charges suivant :
-
-- Une piste est décrite par une suite de blocs "lettre+nombre" séparés par les
-  opérateurs "+", "-" ou "*". Un signe initial optionnel précise le côté vers
-  lequel tourne la première pièce.
-- Les paramètres de référence (tailles intérieure / extérieure) sont fournis
-  par l'appelant, par défaut 144 unités intérieures et 96 unités extérieures.
-- La largeur de piste est la différence de rayon entre les deux cercles de
-  référence ; elle est donc constante pour toutes les pièces.
-- Les pièces reconnues sont :
-    * ``aNN`` : arc de NN degrés ; l'orientation est donnée par l'opérateur
-      précédent (``+`` pour tourner à gauche, ``-`` pour tourner à droite).
-    * ``dNN`` : droite de NN unités de longueur.
-    * ``b``   : bout arrondi (demi-cercle) reliant les deux côtés de la piste ;
-      aucune longueur n'est indiquée après la lettre.
-    * ``y``   : jonction triangulaire composée de trois arcs de 120° espacés de
-      la largeur de la piste. Les longueurs de ces arcs sont toujours évaluées
-      avec la taille intérieure de l'anneau de référence.
-    * ``nNN`` : décalage de l'origine en unités de longueur, appliqué dans la
-      direction indiquée par le signe précédent (gauche = ``+``, droite = ``-``).
-    * ``oNN`` : décalage angulaire de l'origine en degrés, avec le même
-      convention de signe que ``n``.
-- L'opérateur ``*`` fait passer à la prochaine branche ouverte (issue d'un
-  ``y`` ou d'un bout ``b`` qui laisse un côté libre).
-- À l'ajout de chaque pièce, les longueurs consommées sur les pistes gauche et
-  droite sont comptabilisées. Une fois la piste terminée, la piste la plus
-  courte est considérée comme l'intérieur ; la plus longue, comme l'extérieur.
-
-Ce module reste indépendant de Qt et expose des primitives de construction de
-piste, d'interpolation sur la géométrie et une génération de courbe trochoïdale
-compatible avec les appels existants.
+Modular track engine based on the DSL defined in dsl_spec.md.
+Implements arcs A(θ), straights S(L), endcaps E, and intersections I<n>.
 """
-
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+from shape_dsl import (
+    DslParseError,
+    ModularTrackSpec,
+    TrackOperator,
+    TrackStep,
+    ArcPiece,
+    StraightPiece,
+    EndcapPiece,
+    IntersectionPiece,
+    parse_modular_expression,
+)
+from shape_geometry import ArcSegment, LineSegment, ModularTrackCurve, pen_position
 
 Point = Tuple[float, float]
 
 
-# ---------------------------------------------------------------------------
-# 1) Structures de base
-# ---------------------------------------------------------------------------
-
 @dataclass
 class ReferenceRing:
-    """Paramétrage de l'anneau de référence.
-
-    Les valeurs sont automatiquement réordonnées pour que ``r_inner`` soit
-    toujours le plus petit rayon, conformément à la notion de "rayon intérieur".
-    """
-
     inner_size: float = 144.0
     outer_size: float = 96.0
 
@@ -62,7 +33,6 @@ class ReferenceRing:
         r_inner = self.inner_size / (2.0 * math.pi)
         r_outer = self.outer_size / (2.0 * math.pi)
         if r_inner > r_outer:
-            # on réordonne pour garantir r_inner <= r_outer
             self.inner_size, self.outer_size = self.outer_size, self.inner_size
 
     @property
@@ -87,40 +57,16 @@ class ReferenceRing:
 
 
 @dataclass
-class TrackBlock:
-    """Bloc issu de la notation algébrique."""
-
-    operator: str  # '+', '-', '*'
-    kind: str      # 'a', 'd', 'b', 'y', 'n', 'o', 'branch'
-    value: Optional[float] = None
-    raw: str = ""
-
-
-@dataclass
-class ParsedTrack:
-    blocks: List[TrackBlock]
-    origin_offset: float
-    origin_angle_offset: float
-    default_turn: int
-
-
-@dataclass
 class TrackSegment:
-    """Segment de la piste (médiane ou côté reparamétré)."""
-
-    kind: str  # 'line' ou 'arc'
+    kind: str
     s_start: float
     s_end: float
-    turn: int  # +1 gauche, -1 droite, 0 pour les droites
     start: Point
     end: Point
     center: Optional[Point] = None
     radius: Optional[float] = None
     angle_start: Optional[float] = None
     angle_end: Optional[float] = None
-    left_is_inner: Optional[bool] = None
-    length_left: float = 0.0
-    length_right: float = 0.0
 
 
 @dataclass
@@ -129,11 +75,8 @@ class TrackBuildResult:
     points: List[Point]
     width: float
     half_width: float
-    left_length: float
-    right_length: float
     inner_length: float
     outer_length: float
-    inner_side: str
     origin_offset: float
     origin_angle_offset: float
     ring: ReferenceRing
@@ -144,6 +87,16 @@ class TrackBuildResult:
 
 
 @dataclass
+class TrackRollContext:
+    half_width: float
+    r_wheel: float
+    track_length: float
+    sign_side: float
+    wheel_size: int
+    track_size: int
+
+
+@dataclass
 class TrackRollBundle:
     stylo: List[Point]
     centre: List[Point]
@@ -151,533 +104,148 @@ class TrackRollBundle:
     marker0: List[Point]
     wheel_marker_indices: List[int]
     track_marker_indices: List[int]
-    context: "TrackRollContext"
+    context: TrackRollContext
 
 
-@dataclass
-class TrackRollContext:
-    half_width: float
-    r_wheel: float
-    wheel_size: int
-    track_size: int
-    track_length: float
-    sign_side: float
+PIECES = frozenset({"a", "s", "e", "i"})
 
 
-# ---------------------------------------------------------------------------
-# 2) Parsing de la notation
-# ---------------------------------------------------------------------------
-
-_VALID_PIECES = {"a", "d", "b", "y", "n", "o"}
-# Exposer pour compatibilité avec l'ancienne validation côté UI.
-PIECES = frozenset(_VALID_PIECES)
-
-
-def _parse_number(s: str, idx: int) -> Tuple[Optional[float], int]:
-    start = idx
-    while idx < len(s) and (s[idx].isdigit() or s[idx] == "."):
-        idx += 1
-    if idx == start:
-        return None, idx
-    return float(s[start:idx]), idx
-
-
-def parse_track_notation(text: str) -> ParsedTrack:
-    """Parse la notation algébrique décrite dans le cahier des charges."""
-
-    cleaned = text.replace(" ", "").lower()
-    if not cleaned:
-        return ParsedTrack(blocks=[], origin_offset=0.0, origin_angle_offset=0.0, default_turn=1)
-
-    blocks: List[TrackBlock] = []
-    idx = 0
-    n = len(cleaned)
-    pending_op: Optional[str] = None
-
-    def _consume_operator(pos: int) -> Tuple[Optional[str], int]:
-        if pos < n and cleaned[pos] in "+-*":
-            return cleaned[pos], pos + 1
-        return None, pos
-
-    default_turn = 1
-    origin_offset = 0.0
-    origin_angle_offset = 0.0
-
-    op, idx = _consume_operator(idx)
-    if op in {"+", "-"}:
-        default_turn = 1 if op == "+" else -1
-        pending_op = op
-    elif op == "*":
-        blocks.append(TrackBlock(operator="*", kind="branch", raw="*"))
-        pending_op = None
-    else:
-        pending_op = "+"
-
-    # Compatibilité : ancien format avec un décalage initial numérique (-18-...)
-    if idx < n and cleaned[idx].isdigit():
-        implicit_op = pending_op or "+"
-        value, idx = _parse_number(cleaned, idx)
-        if value is not None:
-            delta = value if implicit_op == "+" else -value
-            origin_offset += delta
-
-    while idx < n:
-        op, idx = _consume_operator(idx)
-        if op is not None:
-            if op == "*":
-                blocks.append(TrackBlock(operator="*", kind="branch", raw="*"))
-                pending_op = None
-                continue
-            pending_op = op
-        if idx >= n:
-            break
-
-        # Compatibilité : nombre directement après un opérateur -> offset n
-        if cleaned[idx].isdigit():
-            value, idx = _parse_number(cleaned, idx)
-            if value is None:
-                break
-            delta = value if (pending_op or "+") == "+" else -value
-            origin_offset += delta
-            continue
-
-        letter = cleaned[idx]
-        idx += 1
-        if letter not in _VALID_PIECES:
-            # Tolérance : ignorer les pièces inconnues (anciennes notations)
-            continue
-
-        value: Optional[float] = None
-        if letter in {"a", "d", "n", "o"}:
-            value, idx = _parse_number(cleaned, idx)
-            if value is None:
-                raise ValueError(f"La pièce '{letter}' doit être suivie d'un nombre")
-        elif letter in {"b", "y"}:
-            value = None
-
-        operator = pending_op or "+"
-        raw = f"{operator}{letter}{'' if value is None else value}"
-        block = TrackBlock(operator=operator, kind=letter, value=value, raw=raw)
-        blocks.append(block)
-
-        if letter == "n":
-            delta = value or 0.0
-            origin_offset += delta if operator == "+" else -delta
-        if letter == "o":
-            delta = value or 0.0
-            origin_angle_offset += delta if operator == "+" else -delta
-
-    return ParsedTrack(
-        blocks=blocks,
-        origin_offset=origin_offset,
-        origin_angle_offset=origin_angle_offset,
-        default_turn=default_turn,
-    )
-
-
-# ---------------------------------------------------------------------------
-# 3) Construction géométrique
-# ---------------------------------------------------------------------------
-
-@dataclass
-class _Pose:
-    point: Point
-    tangent: Point
-    normal: Point
-
-
-def _normalize(vx: float, vy: float) -> Point:
-    n = math.hypot(vx, vy)
+def _normalize(x: float, y: float) -> Tuple[float, float]:
+    n = math.hypot(x, y)
     if n == 0:
-        return 0.0, 0.0
-    return vx / n, vy / n
+        return (0.0, 0.0)
+    return (x / n, y / n)
 
 
-def _rotate(vec: Point, angle: float) -> Point:
-    vx, vy = vec
-    c = math.cos(angle)
-    s = math.sin(angle)
-    return vx * c - vy * s, vx * s + vy * c
-
-
-def _append_line(
-    pose: _Pose,
-    length_mm: float,
-    s_cursor: float,
-) -> Tuple[TrackSegment, _Pose, float, float, float]:
-    if length_mm < 0:
-        length_mm = 0.0
-    x0, y0 = pose.point
-    tx, ty = pose.tangent
-    nx, ny = pose.normal
-
-    x1 = x0 + tx * length_mm
-    y1 = y0 + ty * length_mm
-    segment = TrackSegment(
-        kind="line",
-        s_start=s_cursor,
-        s_end=s_cursor + length_mm,
-        turn=0,
-        start=(x0, y0),
-        end=(x1, y1),
-        left_is_inner=None,
-        length_left=length_mm,
-        length_right=length_mm,
-    )
-    new_pose = _Pose(point=(x1, y1), tangent=(tx, ty), normal=(nx, ny))
-    return segment, new_pose, length_mm, length_mm, s_cursor + length_mm
-
-
-def _append_arc(
-    pose: _Pose,
-    angle_deg: float,
-    turn_sign: int,
-    ring: ReferenceRing,
-    s_cursor: float,
-    radius_override: Optional[float] = None,
-    length_for_both_sides: Optional[float] = None,
-) -> Tuple[TrackSegment, _Pose, float, float, float]:
-    angle_rad = math.radians(angle_deg)
-    if angle_rad == 0:
-        empty_segment = TrackSegment(
-            kind="arc",
-            s_start=s_cursor,
-            s_end=s_cursor,
-            turn=turn_sign,
-            start=pose.point,
-            end=pose.point,
-            center=pose.point,
-            radius=0.0,
-            angle_start=0.0,
-            angle_end=0.0,
-            left_is_inner=turn_sign > 0,
-            length_left=0.0,
-            length_right=0.0,
-        )
-        return empty_segment, pose, 0.0, 0.0, s_cursor
-
-    r_center = radius_override if radius_override is not None else ring.r_center
-    half_w = ring.half_width
-    left_is_inner = turn_sign > 0
-    radius_left = r_center - turn_sign * (+1) * half_w
-    radius_right = r_center - turn_sign * (-1) * half_w
-
-    # Longueurs géométriques
-    length_center = abs(r_center * angle_rad)
-    length_left = abs(radius_left * angle_rad)
-    length_right = abs(radius_right * angle_rad)
-
-    if length_for_both_sides is not None:
-        length_left = length_right = length_for_both_sides
-        length_center = length_left
-
-    x0, y0 = pose.point
-    tx, ty = pose.tangent
-    nx, ny = pose.normal
-
-    cx = x0 + turn_sign * nx * r_center
-    cy = y0 + turn_sign * ny * r_center
-    center = (cx, cy)
-    angle_start = math.atan2(y0 - cy, x0 - cx)
-    angle_end = angle_start + turn_sign * angle_rad
-
-    end_point = (cx + r_center * math.cos(angle_end), cy + r_center * math.sin(angle_end))
-    new_tangent = _rotate((tx, ty), turn_sign * angle_rad)
-    new_tangent = _normalize(*new_tangent)
-    new_normal = (-new_tangent[1], new_tangent[0])
-    new_pose = _Pose(point=end_point, tangent=new_tangent, normal=new_normal)
-
-    segment = TrackSegment(
-        kind="arc",
-        s_start=s_cursor,
-        s_end=s_cursor + length_center,
-        turn=turn_sign,
-        start=(x0, y0),
-        end=end_point,
-        center=center,
-        radius=r_center,
-        angle_start=angle_start,
-        angle_end=angle_end,
-        left_is_inner=left_is_inner,
-        length_left=length_left,
-        length_right=length_right,
-    )
-
-    return segment, new_pose, length_left, length_right, s_cursor + length_center
-
-
-@dataclass
-class _BranchState:
-    pose: _Pose
-    pending_segments: List[TrackSegment] = field(default_factory=list)
-
-
-def _apply_pending_segments(
-    branch: _BranchState,
-    segments: List[TrackSegment],
-    s_cursor: float,
-) -> float:
-    for seg in branch.pending_segments:
-        length = seg.s_end - seg.s_start
-        seg.s_start = s_cursor
-        seg.s_end = s_cursor + length
-        segments.append(seg)
-        s_cursor += length
-        branch.pose = _Pose(point=seg.end, tangent=_segment_tangent(seg), normal=_segment_normal(seg))
-    branch.pending_segments.clear()
-    return s_cursor
-
-
-def _segment_tangent(seg: TrackSegment) -> Point:
-    if seg.kind == "line":
-        dx = seg.end[0] - seg.start[0]
-        dy = seg.end[1] - seg.start[1]
-        return _normalize(dx, dy)
-    if seg.kind == "arc" and seg.center is not None and seg.angle_end is not None:
-        tx, ty = _normalize(-math.sin(seg.angle_end), math.cos(seg.angle_end))
-        if seg.turn < 0:
-            tx, ty = -tx, -ty
-        return tx, ty
-    return (1.0, 0.0)
-
-
-def _segment_normal(seg: TrackSegment) -> Point:
-    tx, ty = _segment_tangent(seg)
-    return -ty, tx
-
-
-def _build_segments(parsed: ParsedTrack, ring: ReferenceRing) -> TrackBuildResult:
-    pose = _Pose(point=(0.0, 0.0), tangent=(1.0, 0.0), normal=(0.0, 1.0))
-    s_cursor = 0.0
-    left_length = 0.0
-    right_length = 0.0
+def _build_segments_from_spec(spec: ModularTrackSpec, ring: ReferenceRing) -> List[TrackSegment]:
     segments: List[TrackSegment] = []
-    branch_queue: List[_BranchState] = []
+    open_branches: List[Tuple[Point, float]] = []
+    pos = (0.0, 0.0)
+    heading = 0.0
+    s_cursor = 0.0
 
-    for block in parsed.blocks:
-        if block.kind == "branch":
-            if branch_queue:
-                next_branch = branch_queue.pop(0)
-                s_cursor = _apply_pending_segments(next_branch, segments, s_cursor)
-                pose = next_branch.pose
-            continue
-
-        if block.kind in {"n", "o"}:
-            # Les décalages d'origine sont déjà accumulés lors du parsing
-            continue
-
-        turn_sign = 1 if block.operator == "+" else -1
-
-        if block.kind == "d":
-            length_mm = block.value or 0.0
-            seg, pose, len_left, len_right, s_cursor = _append_line(pose, length_mm, s_cursor)
-            segments.append(seg)
-            left_length += len_left
-            right_length += len_right
-            continue
-
-        if block.kind == "a":
-            seg, pose, len_left, len_right, s_cursor = _append_arc(
-                pose,
-                angle_deg=block.value or 0.0,
-                turn_sign=turn_sign,
-                ring=ring,
-                s_cursor=s_cursor,
-            )
-            segments.append(seg)
-            left_length += len_left
-            right_length += len_right
-            continue
-
-        if block.kind == "b":
-            seg, pose, len_left, len_right, s_cursor = _append_arc(
-                pose,
-                angle_deg=180.0,
-                turn_sign=turn_sign,
-                ring=ring,
-                s_cursor=s_cursor,
-                radius_override=ring.half_width,
-            )
-            segments.append(seg)
-            left_length += len_left
-            right_length += len_right
-            # Le bout ouvre implicitement une branche libre
-            branch_queue.append(_BranchState(pose=_Pose(point=pose.point, tangent=pose.tangent, normal=pose.normal)))
-            continue
-
-        if block.kind == "y":
-            angle = 120.0
-            r_geo = ring.width / math.sqrt(3)
-            # Arc principal (branche courante)
-            seg0, new_pose, len_left, len_right, s_cursor = _append_arc(
-                pose,
-                angle_deg=angle,
-                turn_sign=turn_sign,
-                ring=ring,
-                s_cursor=s_cursor,
-                radius_override=r_geo,
-                length_for_both_sides=ring.inner_size * (angle / 360.0),
-            )
-            segments.append(seg0)
-            left_length += len_left
-            right_length += len_right
-
-            heading = math.atan2(pose.tangent[1], pose.tangent[0])
-            alpha0 = heading - turn_sign * (math.pi / 2.0)
-            hub_x = pose.point[0] - r_geo * math.cos(alpha0)
-            hub_y = pose.point[1] - r_geo * math.sin(alpha0)
-            hub = (hub_x, hub_y)
-
-            # Préparer deux autres branches
-            for k in (1, 2):
-                alpha_k = alpha0 + k * (2.0 * math.pi / 3.0)
-                start_pt = (hub_x + r_geo * math.cos(alpha_k), hub_y + r_geo * math.sin(alpha_k))
-                start_tan = _rotate(pose.tangent, k * (2.0 * math.pi / 3.0))
-                start_tan = _normalize(*start_tan)
-                start_norm = (-start_tan[1], start_tan[0])
-                branch_pose = _Pose(point=start_pt, tangent=start_tan, normal=start_norm)
-
-                seg_branch, branch_end_pose, _, _, _ = _append_arc(
-                    branch_pose,
-                    angle_deg=angle,
-                    turn_sign=turn_sign,
-                    ring=ring,
-                    s_cursor=0.0,
-                    radius_override=r_geo,
-                    length_for_both_sides=ring.inner_size * (angle / 360.0),
+    def add_segment(seg: LineSegment | ArcSegment) -> None:
+        nonlocal s_cursor
+        length = seg.length
+        if isinstance(seg, LineSegment):
+            segments.append(
+                TrackSegment(
+                    kind="line",
+                    s_start=s_cursor,
+                    s_end=s_cursor + length,
+                    start=seg.start,
+                    end=seg.end,
                 )
-                branch_state = _BranchState(pose=branch_end_pose, pending_segments=[seg_branch])
-                branch_queue.append(branch_state)
-
-            pose = new_pose
-            continue
-
-    # Appliquer les décalages d'origine sur la géométrie
-    segments = _apply_origin_offsets(
-        segments,
-        rotation_deg=parsed.origin_angle_offset,
-        offset_length=parsed.origin_offset,
-        ring=ring,
-    )
-
-    points = list(_sample_segments(segments, max(200, len(segments) * 10)))
-
-    inner_length = min(left_length, right_length)
-    outer_length = max(left_length, right_length)
-    if math.isclose(inner_length, outer_length, rel_tol=1e-9, abs_tol=1e-9):
-        inner_side = "both"
-    elif left_length <= right_length:
-        inner_side = "left"
-    else:
-        inner_side = "right"
-
-    return TrackBuildResult(
-        segments=segments,
-        points=points,
-        width=ring.width,
-        half_width=ring.half_width,
-        left_length=left_length,
-        right_length=right_length,
-        inner_length=inner_length,
-        outer_length=outer_length,
-        inner_side=inner_side,
-        origin_offset=parsed.origin_offset,
-        origin_angle_offset=parsed.origin_angle_offset,
-        ring=ring,
-    )
-
-
-def _apply_origin_offsets(
-    segments: List[TrackSegment],
-    *,
-    rotation_deg: float,
-    offset_length: float,
-    ring: ReferenceRing,
-) -> List[TrackSegment]:
-    if not segments:
-        return []
-
-    rot = math.radians(rotation_deg)
-    cos_r = math.cos(rot)
-    sin_r = math.sin(rot)
-    offset_mm = offset_length
-    # translation suivant la normale initiale (0, 1)
-    dx = 0.0
-    dy = offset_mm
-
-    def _transform(p: Point) -> Point:
-        x, y = p
-        x, y = x * cos_r - y * sin_r, x * sin_r + y * cos_r
-        return x + dx, y + dy
-
-    transformed: List[TrackSegment] = []
-    for seg in segments:
-        start = _transform(seg.start)
-        end = _transform(seg.end)
-        center = _transform(seg.center) if seg.center is not None else None
-        transformed.append(
-            TrackSegment(
-                kind=seg.kind,
-                s_start=seg.s_start,
-                s_end=seg.s_end,
-                turn=seg.turn,
-                start=start,
-                end=end,
-                center=center,
-                radius=seg.radius,
-                angle_start=None if seg.angle_start is None else seg.angle_start + rot,
-                angle_end=None if seg.angle_end is None else seg.angle_end + rot,
-                left_is_inner=seg.left_is_inner,
-                length_left=seg.length_left,
-                length_right=seg.length_right,
             )
-        )
+        else:
+            segments.append(
+                TrackSegment(
+                    kind="arc",
+                    s_start=s_cursor,
+                    s_end=s_cursor + length,
+                    start=(0.0, 0.0),
+                    end=(0.0, 0.0),
+                    center=seg.center,
+                    radius=seg.radius,
+                    angle_start=seg.angle_start,
+                    angle_end=seg.angle_end,
+                )
+            )
+        s_cursor += length
 
-    return transformed
+    for step in spec.steps:
+        op = step.operator
+        if op.kind == "*":
+            if open_branches:
+                idx = 0
+                if op.jump_index is not None:
+                    idx = max(0, min(int(op.jump_index), len(open_branches) - 1))
+                pos, heading = open_branches.pop(idx)
+            continue
+        reverse = op.kind == "-"
+        if reverse:
+            heading = heading + math.pi
+
+        if isinstance(step.piece, ArcPiece):
+            sweep = math.radians(step.piece.sweep_deg)
+            if reverse:
+                sweep = -sweep
+            left_x = -math.sin(heading)
+            left_y = math.cos(heading)
+            sign = 1.0 if sweep >= 0 else -1.0
+            center = (
+                pos[0] + left_x * ring.r_center * sign,
+                pos[1] + left_y * ring.r_center * sign,
+            )
+            angle_start = math.atan2(pos[1] - center[1], pos[0] - center[0])
+            angle_end = angle_start + sweep
+            arc = ArcSegment(center, ring.r_center, angle_start, angle_end)
+            add_segment(arc)
+            pos = (
+                center[0] + ring.r_center * math.cos(angle_end),
+                center[1] + ring.r_center * math.sin(angle_end),
+            )
+            heading += sweep
+        elif isinstance(step.piece, StraightPiece):
+            length = step.piece.length
+            if length < 0:
+                length = 0.0
+            start = pos
+            end = (
+                pos[0] + length * math.cos(heading),
+                pos[1] + length * math.sin(heading),
+            )
+            add_segment(LineSegment(start, end))
+            pos = end
+        elif isinstance(step.piece, EndcapPiece):
+            sweep = math.pi
+            left_x = -math.sin(heading)
+            left_y = math.cos(heading)
+            center = (
+                pos[0] + left_x * ring.half_width,
+                pos[1] + left_y * ring.half_width,
+            )
+            angle_start = math.atan2(pos[1] - center[1], pos[0] - center[0])
+            angle_end = angle_start + sweep
+            arc = ArcSegment(center, ring.half_width, angle_start, angle_end)
+            add_segment(arc)
+            pos = (
+                center[0] + ring.half_width * math.cos(angle_end),
+                center[1] + ring.half_width * math.sin(angle_end),
+            )
+            heading += sweep
+        elif isinstance(step.piece, IntersectionPiece):
+            branches = max(3, step.piece.branches)
+            for i in range(1, branches):
+                open_branches.append((pos, heading + (2.0 * math.pi * i / branches)))
+        if reverse:
+            heading = heading + math.pi
+
+    return segments
 
 
-def _sample_segments(segments: List[TrackSegment], samples: int) -> Iterable[Point]:
+def _sample_segments(segments: List[TrackSegment], samples: int) -> List[Point]:
     if not segments:
         return [(0.0, 0.0)]
+    points: List[Point] = []
+    total = segments[-1].s_end
+    for i in range(samples):
+        s = total * i / max(1, samples - 1)
+        (x, y), _, _ = _interpolate_on_segments(s, segments)
+        points.append((x, y))
+    return points
 
-    for seg in segments:
-        if seg.s_end <= seg.s_start:
-            continue
-        n_steps = max(2, samples // max(1, len(segments)))
-        if seg.kind == "line":
-            for i in range(n_steps):
-                t = i / float(n_steps - 1)
-                x = seg.start[0] + (seg.end[0] - seg.start[0]) * t
-                y = seg.start[1] + (seg.end[1] - seg.start[1]) * t
-                yield (x, y)
-        elif seg.kind == "arc" and seg.center is not None and seg.radius is not None:
-            angle0 = seg.angle_start if seg.angle_start is not None else 0.0
-            angle1 = seg.angle_end if seg.angle_end is not None else angle0
-            for i in range(n_steps):
-                t = i / float(n_steps - 1)
-                a = angle0 + (angle1 - angle0) * t
-                x = seg.center[0] + seg.radius * math.cos(a)
-                y = seg.center[1] + seg.radius * math.sin(a)
-                yield (x, y)
-
-
-# ---------------------------------------------------------------------------
-# 4) Interpolation sur la géométrie
-# ---------------------------------------------------------------------------
 
 def _interpolate_on_segments(s: float, segments: List[TrackSegment]) -> Tuple[Point, float, Point]:
     if not segments:
         return (0.0, 0.0), 0.0, (0.0, 1.0)
-
     total = segments[-1].s_end
     s = max(0.0, min(s, total))
-
     seg = segments[-1]
     for candidate in segments:
         if candidate.s_start <= s <= candidate.s_end:
             seg = candidate
             break
-
     local_s = s - seg.s_start
     if seg.kind == "line":
         length = seg.s_end - seg.s_start
@@ -687,280 +255,237 @@ def _interpolate_on_segments(s: float, segments: List[TrackSegment]) -> Tuple[Po
         tx, ty = _normalize(seg.end[0] - seg.start[0], seg.end[1] - seg.start[1])
         nx, ny = -ty, tx
         return (x, y), math.atan2(ty, tx), (nx, ny)
-
     if seg.kind == "arc" and seg.center is not None and seg.radius is not None:
         length = seg.s_end - seg.s_start
         t = 0.0 if length == 0 else local_s / length
         angle_start = seg.angle_start if seg.angle_start is not None else 0.0
         angle_end = seg.angle_end if seg.angle_end is not None else angle_start
-        a = angle_start + (angle_end - angle_start) * t
-        x = seg.center[0] + seg.radius * math.cos(a)
-        y = seg.center[1] + seg.radius * math.sin(a)
-        tangent = (-math.sin(a), math.cos(a))
-        if seg.turn < 0:
-            tangent = (-tangent[0], -tangent[1])
-        tx, ty = _normalize(*tangent)
+        angle = angle_start + (angle_end - angle_start) * t
+        x = seg.center[0] + seg.radius * math.cos(angle)
+        y = seg.center[1] + seg.radius * math.sin(angle)
+        delta = angle_end - angle_start
+        sign = 1.0 if delta >= 0 else -1.0
+        tx, ty = _normalize(-math.sin(angle) * sign, math.cos(angle) * sign)
         nx, ny = -ty, tx
         return (x, y), math.atan2(ty, tx), (nx, ny)
-
     return (0.0, 0.0), 0.0, (0.0, 1.0)
 
 
-def _make_side_segments(track: TrackBuildResult, side: str) -> List[TrackSegment]:
-    side_sign = 1 if side == "left" else -1
-    half_w = track.half_width
-    remapped: List[TrackSegment] = []
-    s_cursor = 0.0
-
-    for seg in track.segments:
-        if seg.kind == "line":
-            tx, ty = _normalize(seg.end[0] - seg.start[0], seg.end[1] - seg.start[1])
-            nx, ny = -ty, tx
-            offset_x = side_sign * half_w * nx
-            offset_y = side_sign * half_w * ny
-            start = (seg.start[0] + offset_x, seg.start[1] + offset_y)
-            end = (seg.end[0] + offset_x, seg.end[1] + offset_y)
-            length = math.hypot(end[0] - start[0], end[1] - start[1])
-            remapped.append(
-                TrackSegment(
-                    kind="line",
-                    s_start=s_cursor,
-                    s_end=s_cursor + length,
-                    turn=seg.turn,
-                    start=start,
-                    end=end,
-                    left_is_inner=seg.left_is_inner,
-                    length_left=length,
-                    length_right=length,
-                )
-            )
-            s_cursor += length
-        elif seg.kind == "arc" and seg.center is not None and seg.radius is not None:
-            radius_side = seg.radius - seg.turn * side_sign * half_w
-            angle_start = seg.angle_start if seg.angle_start is not None else 0.0
-            angle_end = seg.angle_end if seg.angle_end is not None else angle_start
-            length = abs(radius_side * (angle_end - angle_start))
-            remapped.append(
-                TrackSegment(
-                    kind="arc",
-                    s_start=s_cursor,
-                    s_end=s_cursor + length,
-                    turn=seg.turn,
-                    start=(0.0, 0.0),
-                    end=(0.0, 0.0),
-                    center=seg.center,
-                    radius=radius_side,
-                    angle_start=angle_start,
-                    angle_end=angle_end,
-                    left_is_inner=seg.left_is_inner,
-                    length_left=length if side == "left" else seg.length_left,
-                    length_right=length if side == "right" else seg.length_right,
-                )
-            )
-            s_cursor += length
-
-    # Recalculer start/end pour les arcs côté pour garder une géométrie cohérente
-    for seg in remapped:
-        if seg.kind == "arc" and seg.center is not None and seg.radius is not None:
-            seg.start = (
-                seg.center[0] + seg.radius * math.cos(seg.angle_start if seg.angle_start is not None else 0.0),
-                seg.center[1] + seg.radius * math.sin(seg.angle_start if seg.angle_start is not None else 0.0),
-            )
-            end_angle = seg.angle_end if seg.angle_end is not None else seg.angle_start
-            seg.end = (
-                seg.center[0] + seg.radius * math.cos(end_angle if end_angle is not None else 0.0),
-                seg.center[1] + seg.radius * math.sin(end_angle if end_angle is not None else 0.0),
-            )
-    return remapped
-
-
-# ---------------------------------------------------------------------------
-# 5) Fonctions publiques de construction et de mesure
-# ---------------------------------------------------------------------------
-
 def build_track_from_notation(
     notation: str,
-    inner_size: int = 144,
-    outer_size: int = 96,
+    inner_size: float = 96.0,
+    outer_size: float = 144.0,
     steps_per_unit: int = 3,
 ) -> TrackBuildResult:
-    parsed = parse_track_notation(notation)
-    ring = ReferenceRing(inner_size=float(inner_size), outer_size=float(outer_size))
-    return _build_segments(parsed, ring)
+    ring = ReferenceRing(inner_size, outer_size)
+    spec = parse_modular_expression(notation)
+    segments = _build_segments_from_spec(spec, ring)
+    points = _sample_segments(segments, max(2, int(steps_per_unit * max(1.0, sum(seg.s_end - seg.s_start for seg in segments)))))
+    inner_length, mid_length, outer_length = compute_track_lengths(segments, half_width=ring.half_width)
+    return TrackBuildResult(
+        segments=segments,
+        points=points,
+        width=ring.width,
+        half_width=ring.half_width,
+        inner_length=inner_length,
+        outer_length=outer_length,
+        origin_offset=0.0,
+        origin_angle_offset=0.0,
+        ring=ring,
+    )
+
+
+def compute_track_lengths(
+    track_or_segments,
+    inner_size: Optional[float] = None,
+    outer_size: Optional[float] = None,
+    half_width: Optional[float] = None,
+) -> Tuple[float, float, float]:
+    if isinstance(track_or_segments, TrackBuildResult):
+        segments = track_or_segments.segments
+        half_w = track_or_segments.half_width
+        total_length = track_or_segments.total_length
+    else:
+        segments = track_or_segments
+        if half_width is not None:
+            half_w = half_width
+        elif inner_size is not None and outer_size is not None:
+            ring = ReferenceRing(inner_size, outer_size)
+            half_w = ring.half_width
+        else:
+            half_w = 0.0
+        total_length = segments[-1].s_end if segments else 0.0
+
+    inner_length = 0.0
+    outer_length = 0.0
+    for seg in segments:
+        if seg.kind == "line":
+            length = seg.s_end - seg.s_start
+            inner_length += length
+            outer_length += length
+        elif seg.kind == "arc" and seg.radius is not None and seg.angle_start is not None and seg.angle_end is not None:
+            delta = seg.angle_end - seg.angle_start
+            inner_length += abs((seg.radius - half_w) * delta)
+            outer_length += abs((seg.radius + half_w) * delta)
+    return inner_length, total_length, outer_length
 
 
 def compute_track_polylines(
     track: TrackBuildResult,
-    samples: int = 400,
-    *,
+    samples: int = 800,
     half_width: Optional[float] = None,
 ) -> Tuple[List[Point], List[Point], List[Point], float]:
-    effective_half_width = half_width if half_width is not None else track.half_width
-    centerline = list(_sample_segments(track.segments, samples))
-    # polylignes gauche/droite via interpolation directe
-    left_segments = _make_side_segments(track, "left")
-    right_segments = _make_side_segments(track, "right")
-    left = list(_sample_segments(left_segments, samples))
-    right = list(_sample_segments(right_segments, samples))
-    return centerline, left, right, effective_half_width
-
-
-def compute_track_lengths(
-    track: TrackBuildResult,
-    inner_size: float,
-    outer_size: float,
-) -> Tuple[float, float, float]:
-    del inner_size, outer_size  # déjà intégrés dans le TrackBuildResult
-    inner_length = track.inner_length
-    outer_length = track.outer_length
-    mid_length = 0.5 * (track.left_length + track.right_length)
-    return inner_length, mid_length, outer_length
-
-
-# ---------------------------------------------------------------------------
-# 6) Génération du trochoïde
-# ---------------------------------------------------------------------------
-
-def _select_side_for_relation(track: TrackBuildResult, relation: str) -> str:
-    relation = relation.lower()
-    if track.inner_side == "both":
-        return "left" if relation == "dedans" else "right"
-    if relation == "dedans":
-        return track.inner_side
-    return "right" if track.inner_side == "left" else "left"
+    center = _sample_segments(track.segments, samples)
+    offset = track.half_width if half_width is None else half_width
+    inner: List[Point] = []
+    outer: List[Point] = []
+    for i in range(len(center) - 1):
+        x0, y0 = center[i]
+        x1, y1 = center[i + 1]
+        dx = x1 - x0
+        dy = y1 - y0
+        nx, ny = _normalize(-dy, dx)
+        inner.append((x0 - nx * offset, y0 - ny * offset))
+        outer.append((x0 + nx * offset, y0 + ny * offset))
+    if center:
+        inner.append(inner[-1])
+        outer.append(outer[-1])
+    return center, inner, outer, offset
 
 
 def build_track_and_bundle_from_notation(
-    *,
     notation: str,
-    wheel_size: int,
+    wheel_size: float,
     hole_offset: float,
     steps: int,
-    relation: str = "dedans",
-    phase_offset: float = 0.0,
-    inner_size: int = 144,
-    outer_size: int = 96,
+    relation: str,
+    phase_offset: float,
+    inner_size: float,
+    outer_size: float,
 ) -> Tuple[TrackBuildResult, TrackRollBundle]:
-    track = build_track_from_notation(
-        notation,
-        inner_size=inner_size,
-        outer_size=outer_size,
-        steps_per_unit=3,
-    )
-
-    if steps < 2:
-        steps = 2
-
-    side = _select_side_for_relation(track, relation)
-    side_segments = _make_side_segments(track, side)
-    side_length = side_segments[-1].s_end if side_segments else 0.0
-    if side_length <= 0:
-        empty_context = TrackRollContext(
-            half_width=track.half_width,
-            r_wheel=0.0,
-            wheel_size=max(1, int(wheel_size)),
-            track_size=max(1, int(round(track.left_length if side == "left" else track.right_length))),
-            track_length=0.0,
-            sign_side=1.0 if side == "left" else -1.0,
+    track = build_track_from_notation(notation, inner_size=inner_size, outer_size=outer_size)
+    base_curve = ModularTrackCurve([
+        LineSegment(seg.start, seg.end) if seg.kind == "line" else ArcSegment(
+            seg.center,
+            seg.radius or 0.0,
+            seg.angle_start or 0.0,
+            seg.angle_end or 0.0,
         )
-        empty = TrackRollBundle(
-            stylo=[],
-            centre=[],
-            contact=[],
-            marker0=[],
-            wheel_marker_indices=[],
-            track_marker_indices=[],
-            context=empty_context,
-        )
-        return track, empty
-
-    wheel_size = max(1, int(wheel_size))
-    wheel_radius = wheel_size / (2.0 * math.pi)
-    track_size_side = track.left_length if side == "left" else track.right_length
-    track_size_side = max(1, int(round(track_size_side)))
-    g = math.gcd(track_size_side, wheel_size)
-    laps = max(1, wheel_size // g)
-    s_max = side_length * laps
-
-    sign_side = 1 if side == "left" else -1
-    roll_sign = -sign_side
-
-    stylo_points: List[Point] = []
-    centre_points: List[Point] = []
-    contact_points: List[Point] = []
+        for seg in track.segments
+    ], closed=False)
+    r = wheel_size / (2.0 * math.pi) if wheel_size else 1.0
+    d = max(0.0, (wheel_size / (2.0 * math.pi)) - hole_offset)
+    side = 1 if relation == "dedans" else -1
+    epsilon = -side
+    s_max = track.total_length
+    stylo: List[Point] = []
+    centre: List[Point] = []
+    contact: List[Point] = []
     marker0: List[Point] = []
-    wheel_indices: List[int] = []
-    track_indices: List[int] = []
-
-    phase_turns = phase_offset / float(track_size_side)
-
+    wheel_marker_indices: List[int] = []
+    track_marker_indices: List[int] = []
     for i in range(steps):
-        s = s_max * i / (steps - 1)
-        contact, theta, normal = _interpolate_on_segments(s % side_length, side_segments)
-        cx = contact[0] + sign_side * normal[0] * wheel_radius
-        cy = contact[1] + sign_side * normal[1] * wheel_radius
-
-        distance_rolled = s + track.origin_offset
-        angle_contact = math.atan2(contact[1] - cy, contact[0] - cx)
-        phi = angle_contact + roll_sign * 2.0 * math.pi * ((distance_rolled / float(wheel_size)) - phase_turns)
-        d = max(0.0, wheel_radius - hole_offset)
-
-        stylo_points.append((cx + d * math.cos(phi), cy + d * math.sin(phi)))
-        centre_points.append((cx, cy))
-        contact_points.append(contact)
-        marker0.append((cx + wheel_radius * math.cos(angle_contact), cy + wheel_radius * math.sin(angle_contact)))
-        roll_offset = (distance_rolled / float(wheel_size)) - phase_turns
-        wheel_indices.append(int(math.floor((roll_offset % 1.0) * wheel_size)))
-        track_indices.append(int(math.floor(((s + track.origin_offset) % track_size_side))))
-
+        s = s_max * i / max(1, steps - 1)
+        px, py = pen_position(s, base_curve, r, d, side, alpha0=0.0, epsilon=epsilon)
+        stylo.append((px, py))
+        xb, yb, (tx, ty), (nx, ny) = base_curve.eval(s)
+        centre.append((xb + side * r * nx, yb + side * r * ny))
+        contact.append((xb, yb))
+        marker0.append((xb, yb))
+        wheel_marker_indices.append(i)
+        track_marker_indices.append(i)
     context = TrackRollContext(
         half_width=track.half_width,
-        r_wheel=wheel_radius,
-        wheel_size=wheel_size,
-        track_size=track_size_side,
-        track_length=side_length,
-        sign_side=sign_side,
+        r_wheel=r,
+        track_length=track.total_length,
+        sign_side=side,
+        wheel_size=int(round(wheel_size)),
+        track_size=int(round(track.total_length)),
     )
-
     bundle = TrackRollBundle(
-        stylo=stylo_points,
-        centre=centre_points,
-        contact=contact_points,
+        stylo=stylo,
+        centre=centre,
+        contact=contact,
         marker0=marker0,
-        wheel_marker_indices=wheel_indices,
-        track_marker_indices=track_indices,
+        wheel_marker_indices=wheel_marker_indices,
+        track_marker_indices=track_marker_indices,
         context=context,
     )
     return track, bundle
 
 
-def generate_track_base_points(
-    notation: str,
-    wheel_size: int,
+def build_track_and_bundle_from_spec(
+    spec: ModularTrackSpec,
+    ring: ReferenceRing,
+    wheel_size: float,
     hole_offset: float,
     steps: int,
-    relation: str = "dedans",
-    output_mode: str = "stylo",
-    phase_offset: float = 0.0,
-    inner_size: int = 144,
-    outer_size: int = 96,
-) -> List[Point]:
-    track, bundle = build_track_and_bundle_from_notation(
-        notation=notation,
+    relation: str,
+) -> Tuple[TrackBuildResult, TrackRollBundle]:
+    notation = ""
+    return build_track_and_bundle_from_notation(
+        notation,
         wheel_size=wheel_size,
         hole_offset=hole_offset,
         steps=steps,
         relation=relation,
-        phase_offset=phase_offset,
-        inner_size=inner_size,
-        outer_size=outer_size,
+        phase_offset=0.0,
+        inner_size=ring.inner_size,
+        outer_size=ring.outer_size,
     )
 
-    mode = output_mode.lower()
-    if mode == "stylo":
-        return bundle.stylo
-    if mode == "centre":
-        return bundle.centre
-    if mode == "contact":
-        return bundle.contact
-    raise ValueError("output_mode doit être 'stylo', 'centre' ou 'contact'")
+
+def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
+    cleaned = "".join(ch for ch in text if not ch.isspace())
+    if not cleaned:
+        return "", "", False
+    idx = 0
+    last_valid = 0
+    has_piece = False
+    while idx < len(cleaned):
+        if cleaned[idx] in "+-*":
+            idx += 1
+            while idx < len(cleaned) and cleaned[idx].isdigit():
+                idx += 1
+        if idx >= len(cleaned):
+            break
+        if cleaned[idx] in {"A", "S"}:
+            idx += 1
+            if idx >= len(cleaned) or cleaned[idx] != "(":
+                break
+            idx += 1
+            while idx < len(cleaned) and (cleaned[idx].isdigit() or cleaned[idx] == "." or cleaned[idx] in "+-"):
+                idx += 1
+            if idx >= len(cleaned) or cleaned[idx] != ")":
+                break
+            idx += 1
+            has_piece = True
+        elif cleaned[idx] == "E":
+            idx += 1
+            has_piece = True
+        elif cleaned[idx] == "I":
+            idx += 1
+            while idx < len(cleaned) and cleaned[idx].isdigit():
+                idx += 1
+            has_piece = True
+        else:
+            break
+        last_valid = idx
+    return cleaned[:last_valid], cleaned[last_valid:], has_piece
+
+
+def parse_track_notation(text: str) -> ModularTrackSpec:
+    try:
+        return parse_modular_expression(text)
+    except DslParseError:
+        return ModularTrackSpec(steps=[])
+
+
+def compute_track_polylines_for_notation(
+    notation: str,
+    inner_size: float,
+    outer_size: float,
+    samples: int = 800,
+) -> Tuple[List[Point], List[Point], List[Point], float]:
+    track = build_track_from_notation(notation, inner_size=inner_size, outer_size=outer_size)
+    return compute_track_polylines(track, samples=samples)

@@ -7,6 +7,7 @@
     "menu_regen": "Regenerate",
     "menu_layers_manage": "Manage layers and paths…",
     "menu_options_bgcolor": "Background color…",
+    "menu_options_shape_lab": "Shape Design Lab…",
     "menu_options_language": "Language",
     "menu_help": "Help",
     "menu_help_manual": "Manual",
@@ -61,6 +62,7 @@
     "dlg_layer_gear_outer": "Outer size (ring):",
     "dlg_layer_gear_relation": "Relation:",
     "dlg_layer_gear_modular_notation": "Modular track (notation):",
+    "dlg_layer_gear_dsl_expression": "DSL expression:",
     "dlg_ok": "OK",
     "dlg_cancel": "Cancel",
     "dlg_about_title": "About",
@@ -136,6 +138,7 @@
     "barre": "bar",
     "croix": "cross",
     "oeil": "eye",
+    "dsl": "DSL",
     "modulaire": "modular"
   },
   "relation_labels": {

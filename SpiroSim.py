@@ -17,6 +17,20 @@ from typing import Dict, List, Optional, Tuple
 
 import modular_tracks_2 as modular_tracks
 import modular_tracks_2_demo as modular_track_demo
+from shape_lab import ShapeDesignLabWindow
+from shape_dsl import DslParseError, parse_analytic_expression, parse_modular_expression
+from shape_geometry import (
+    BaseCurve,
+    ArcSegment,
+    EllipseCurve,
+    LineSegment,
+    ModularTrackCurve,
+    build_circle,
+    build_drop,
+    build_oblong,
+    build_rounded_polygon,
+    pen_position,
+)
 import localisation
 from localisation import gear_type_label, relation_label, tr
 
@@ -87,70 +101,7 @@ APP_VERSION = _load_app_version()
 GITHUB_REPO_URL = "https://github.com/alyndiar/SpiroSim"
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
-    """
-    Analyse "mollement" une notation de piste modulaire (nouvelle syntaxe).
-
-    Retourne (valid, rest, has_piece) où :
-      - valid : partie comprise (offsets + suites de +a, -d, * ...)
-      - rest  : le reste (non compris ou incomplet)
-      - has_piece : True s'il y a au moins une pièce (a, d, b, y)
-    """
-    s = "".join(ch.lower() for ch in text if not ch.isspace())
-    n = len(s)
-    idx = 0
-    has_piece = False
-
-    if n == 0:
-        return "", "", False
-
-    def _consume_number(pos: int) -> int:
-        start = pos
-        while pos < n and (s[pos].isdigit() or s[pos] == "."):
-            pos += 1
-        return pos if pos > start else start
-
-    # opérateur initial optionnel
-    if idx < n and s[idx] in "+-*":
-        idx += 1
-
-    while idx < n:
-        if s[idx] in "+-*":
-            op = s[idx]
-            idx += 1
-            if op == "*":
-                continue
-        else:
-            op = "+"
-
-        if idx >= n:
-            break
-
-        if s[idx].isdigit():
-            next_idx = _consume_number(idx)
-            if next_idx == idx:
-                break
-            idx = next_idx
-            continue
-
-        letter = s[idx]
-        if letter not in modular_tracks.PIECES:
-            break
-        idx += 1
-
-        if letter in {"a", "d", "n", "o"}:
-            next_idx = _consume_number(idx)
-            if next_idx == idx:
-                break
-            idx = next_idx
-        elif letter in {"b", "y"}:
-            pass
-
-        if letter in {"a", "d", "b", "y"}:
-            has_piece = True
-
-    valid = s[:idx]
-    rest = s[idx:]
-    return valid, rest, has_piece
+    return modular_tracks.split_valid_modular_notation(text)
 
 def wavelength_to_rgb(nm: float) -> Tuple[int, int, int]:
     """
@@ -246,6 +197,7 @@ GEAR_TYPES = [
     "barre",
     "croix",
     "oeil",
+    "dsl",
     "modulaire",  # piste modulaire virtuelle (uniquement engrenage 1)
 ]
 
@@ -263,6 +215,7 @@ class GearConfig:
     outer_size: int = 144       # anneau : taille extérieure / anneau modulaire
     relation: str = "stationnaire"  # stationnaire / dedans / dehors
     modular_notation: Optional[str] = None  # notation de piste si gear_type == "modulaire"
+    dsl_expression: Optional[str] = None  # expression DSL si gear_type == "dsl"
 
 
 @dataclass
@@ -335,6 +288,68 @@ def contact_radius_for_relation(gear: GearConfig, relation: str) -> float:
     return radius_from_size(size)
 
 
+def _curve_from_analytic_spec(spec, relation: str) -> BaseCurve:
+    if spec.__class__.__name__ == "CircleSpec":
+        return build_circle(spec.perimeter)
+    if spec.__class__.__name__ == "RingSpec":
+        if relation == "dehors":
+            return build_circle(spec.outer)
+        return build_circle(spec.inner)
+    if spec.__class__.__name__ == "PolygonSpec":
+        return build_rounded_polygon(spec.perimeter, spec.sides, spec.side_size, spec.corner_size)
+    if spec.__class__.__name__ == "DropSpec":
+        return build_drop(spec.perimeter, spec.opposite, spec.half, spec.link)
+    if spec.__class__.__name__ == "OblongSpec":
+        return build_oblong(spec.perimeter, spec.cap_size)
+    if spec.__class__.__name__ == "EllipseSpec":
+        return EllipseCurve(spec.perimeter, spec.axis_a, spec.axis_b)
+    return build_circle(1.0)
+
+
+def _curve_from_gear(gear: GearConfig, relation: str) -> Optional[BaseCurve]:
+    if gear.gear_type == "modulaire" and gear.modular_notation:
+        track = modular_tracks.build_track_from_notation(
+            gear.modular_notation,
+            inner_size=gear.size or 1,
+            outer_size=gear.outer_size or (gear.size + 1),
+            steps_per_unit=3,
+        )
+        segments = []
+        for seg in track.segments:
+            if seg.kind == "line":
+                segments.append(LineSegment(seg.start, seg.end))
+            elif seg.kind == "arc" and seg.center is not None and seg.radius is not None:
+                segments.append(
+                    ArcSegment(
+                        seg.center,
+                        seg.radius,
+                        seg.angle_start or 0.0,
+                        seg.angle_end or 0.0,
+                    )
+                )
+        return ModularTrackCurve(segments, closed=False)
+
+    if gear.gear_type == "dsl" and gear.dsl_expression:
+        spec = parse_analytic_expression(gear.dsl_expression)
+        return _curve_from_analytic_spec(spec, relation)
+
+    if gear.gear_type == "anneau":
+        return build_circle(contact_size_for_relation(gear, relation))
+
+    return build_circle(gear.size or 1)
+
+
+def _gear_perimeter(gear: GearConfig, relation: str) -> float:
+    if gear.gear_type == "dsl" and gear.dsl_expression:
+        try:
+            spec = parse_analytic_expression(gear.dsl_expression)
+        except DslParseError:
+            return float(contact_size_for_relation(gear, relation))
+        curve = _curve_from_analytic_spec(spec, relation)
+        return curve.length
+    return float(contact_size_for_relation(gear, relation))
+
+
 def generate_simple_circle_for_index(
     hole_offset: float,
     steps: int,
@@ -380,8 +395,8 @@ def generate_trochoid_points_for_layer_path(
     piste virtuelle SuperSpirograph, définie par :
       - g0.size        => taille intérieure de l’anneau de base
       - g0.outer_size  => taille extérieure de l’anneau de base
-      - g0.modular_notation => notation de pièce (ex: "+a60+d144-b*d72")
-    Dans ce cas, on délègue à modular_tracks.generate_track_base_points.
+      - g0.modular_notation => notation de pièce (ex: "+A(60)+S(144)-E*A(72)")
+    La courbe est ensuite utilisée comme piste de contact pour le roulage.
     """
 
     hole_offset = float(path.hole_offset)
@@ -406,105 +421,58 @@ def generate_trochoid_points_for_layer_path(
 
     relation = g1.relation
 
-    # Taille de contact pour chaque engrenage
-    T0 = max(1, contact_size_for_relation(g0, relation))
-    T1 = max(1, contact_size_for_relation(g1, relation))
+    try:
+        base_curve = _curve_from_gear(g0, relation)
+    except DslParseError:
+        base_curve = None
 
-    # --- Cas 1 : piste modulaire comme premier engrenage ---
-    if g0.gear_type == "modulaire" and g0.modular_notation:
-        inner_size = g0.size if g0.size > 0 else 1
-        outer_size = g0.outer_size if g0.outer_size > 0 else inner_size
-
-        _, bundle = modular_tracks.build_track_and_bundle_from_notation(
-            notation=g0.modular_notation,
-            wheel_size=T1,
-            hole_offset=hole_offset,
-            steps=steps,
-            relation=relation,
-            phase_offset=path.phase_offset,
-            inner_size=inner_size,
-            outer_size=outer_size,
-        )
-
-        return bundle.stylo
-
-    # --- Cas 2 : comportement standard (anneau / roue ... ) ---
-
-    # Rayons de contact
-    R = contact_radius_for_relation(g0, relation)
-    r = contact_radius_for_relation(g1, relation)
-
-    if R <= 0 or r <= 0:
+    if base_curve is None or base_curve.length <= 0:
         base_points = generate_simple_circle_for_index(hole_offset, steps)
-        phase_turns = phase_offset_turns(path.phase_offset, max(1, T0))
+        phase_turns = phase_offset_turns(path.phase_offset, 1)
         total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
-
-        rotated_points = []
+        rotated = []
         for (x, y) in base_points:
             xr = x * cos_a - y * sin_a
             yr = x * sin_a + y * cos_a
-            rotated_points.append((xr, yr))
-        return rotated_points
+            rotated.append((xr, yr))
+        return rotated
 
-    # Distance du stylo au centre de l’engrenage mobile
+    wheel_size = max(1.0, _gear_perimeter(g1, relation))
+    r = radius_from_size(wheel_size)
     if g1.gear_type == "anneau":
-        R_tip_size = g1.outer_size or g1.size
+        tip_size = g1.outer_size or g1.size
+    elif g1.gear_type == "dsl" and g1.dsl_expression:
+        tip_size = wheel_size
     else:
-        R_tip_size = g1.size
+        tip_size = g1.size
 
-    R_tip = radius_from_size(R_tip_size)
-    d = R_tip - hole_offset
-    if d < 0:
-        d = 0.0
+    d = max(0.0, radius_from_size(tip_size) - hole_offset)
 
-    # Durée t_max pour "fermer" la courbe (basée sur le ratio des tailles)
-    if T0 >= 1 and T1 >= 1:
-        g = math.gcd(int(T0), int(T1))
-        # La période correcte dépend du petit engrenage (mobile) :
-        t_max = 2.0 * math.pi * (T1 / g)
+    if base_curve.closed:
+        g = math.gcd(int(round(base_curve.length)), int(round(wheel_size))) or 1
+        s_max = base_curve.length * (wheel_size / g)
     else:
-        t_max = 20.0 * math.pi
+        s_max = base_curve.length
+    s_max = max(s_max, base_curve.length)
+
+    side = 1 if relation == "dedans" else -1
+    epsilon = -side
+    alpha0 = 0.0
 
     base_points = []
-
     for i in range(steps):
-        t = t_max * i / (steps - 1)
-
-        if relation == "dedans":
-            # Hypotrochoïde : centre mobile à rayon (R - r)
-            R_minus_r = R - r
-            k = R_minus_r / r
-            x = R_minus_r * math.cos(t) + d * math.cos(k * t)
-            y = R_minus_r * math.sin(t) - d * math.sin(k * t)
-
-        elif relation == "dehors":
-            # Épitrochoïde : centre mobile à rayon (R + r)
-            R_plus_r = R + r
-            k = R_plus_r / r
-            x = R_plus_r * math.cos(t) - d * math.cos(k * t)
-            y = R_plus_r * math.sin(t) - d * math.sin(k * t)
-
-        else:
-            # Fallback : simple cercle autour de l’origine de rayon d
-            x = d * math.cos(t)
-            y = d * math.sin(t)
-
+        s = s_max * i / (steps - 1)
+        x, y = pen_position(s, base_curve, r, d, side, alpha0, epsilon)
         base_points.append((x, y))
 
-    # Rotation globale selon le décalage de phase.
-    phase_turns = phase_offset_turns(path.phase_offset, max(1, T0))
-    angle_from_phase = 2.0 * math.pi * phase_turns
-    # 0 => motif pointant vers le haut (π/2),
-    # positif => tourne vers la droite (horaire),
-    # négatif => vers la gauche (anti-horaire).
-    total_angle = math.pi / 2.0 - angle_from_phase
+    phase_turns = phase_offset_turns(path.phase_offset, max(1, int(round(base_curve.length))))
+    total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
 
     cos_a = math.cos(total_angle)
     sin_a = math.sin(total_angle)
-
     rotated_points = []
     for (x, y) in base_points:
         xr = x * cos_a - y * sin_a
@@ -1130,7 +1098,7 @@ def layers_to_svg(
                 )
                 if track.segments:
                     centerline, _, _, half_w = modular_tracks.compute_track_polylines(
-                        track, half_width=bundle.context.half_width
+                        track, samples=800, half_width=bundle.context.half_width
                     )
                     layer_track_points = centerline
                     layer_track_width_mm = (half_w * 2.0) * layer_zoom
@@ -1388,6 +1356,8 @@ class LayerEditDialog(QDialog):
             modular_label = QLabel(tr(self.lang, "dlg_layer_gear_modular_notation"))
             modular_button = QPushButton("…")
             modular_button.setFixedWidth(28)
+            dsl_edit = QLineEdit()
+            dsl_label = QLabel(tr(self.lang, "dlg_layer_gear_dsl_expression"))
 
             sub = QVBoxLayout()
             sub.addWidget(group_label)
@@ -1426,6 +1396,12 @@ class LayerEditDialog(QDialog):
             row6.addWidget(modular_button)
             sub.addLayout(row6)
 
+            # Ligne pour l'expression DSL
+            row7 = QHBoxLayout()
+            row7.addWidget(dsl_label)
+            row7.addWidget(dsl_edit)
+            sub.addLayout(row7)
+
             layout.addRow(sub)
 
             # Restreindre "modulaire" aux engrenages d'indice 0 uniquement
@@ -1445,6 +1421,8 @@ class LayerEditDialog(QDialog):
                 modular_label=modular_label,
                 modular_edit=modular_edit,
                 modular_button=modular_button,
+                dsl_label=dsl_label,
+                dsl_edit=dsl_edit,
             )
             modular_button.clicked.connect(
                 lambda _checked=False, gw=gw: self._open_modular_editor_from_widget(gw)
@@ -1490,6 +1468,7 @@ class LayerEditDialog(QDialog):
             gw["size_spin"].setValue(g.size)
             gw["outer_spin"].setValue(g.outer_size if g.outer_size > 0 else 0)
             gw["modular_edit"].setText(getattr(g, "modular_notation", "") or "")
+            gw["dsl_edit"].setText(getattr(g, "dsl_expression", "") or "")
 
             rel_index = gw["rel_combo"].findData(g.relation)
             if rel_index < 0:
@@ -1524,6 +1503,9 @@ class LayerEditDialog(QDialog):
         gw["modular_label"].setVisible(is_modular)
         gw["modular_edit"].setVisible(is_modular)
         gw["modular_button"].setVisible(is_modular)
+        is_dsl = t == "dsl"
+        gw["dsl_label"].setVisible(is_dsl)
+        gw["dsl_edit"].setVisible(is_dsl)
 
     def _open_modular_editor_from_widget(self, gw: dict):
         if gw.get("index", 0) != 0:
@@ -1576,6 +1558,12 @@ class LayerEditDialog(QDialog):
                 if txt:
                     modular_notation = txt
 
+            dsl_expression = None
+            if gear_type == "dsl":
+                txt = gw["dsl_edit"].text().strip()
+                if txt:
+                    dsl_expression = txt
+
             new_gears.append(
                 GearConfig(
                     name=name,
@@ -1584,6 +1572,7 @@ class LayerEditDialog(QDialog):
                     outer_size=outer_size,
                     relation=rel,
                     modular_notation=modular_notation,
+                    dsl_expression=dsl_expression,
                 )
             )
         self.layer.gears = new_gears
@@ -1947,7 +1936,9 @@ class LayerManagerDialog(QDialog):
             else:
                 type_name = type_name.lower()
 
-            if g.gear_type in ("anneau", "modulaire") and g.outer_size > 0:
+            if g.gear_type == "dsl" and getattr(g, "dsl_expression", None):
+                size_str = g.dsl_expression
+            elif g.gear_type in ("anneau", "modulaire") and g.outer_size > 0:
                 size_str = f"{g.outer_size}/{g.size}"
             else:
                 size_str = f"{g.size}"
@@ -2849,6 +2840,10 @@ class SpiroWindow(QWidget):
         self.act_bg_color.triggered.connect(self.edit_bg_color)
         self.menu_options.addAction(self.act_bg_color)
 
+        self.act_shape_lab = QAction(menubar)
+        self.act_shape_lab.triggered.connect(self.open_shape_lab)
+        self.menu_options.addAction(self.act_shape_lab)
+
         # NOUVELLE OPTION : taille du canevas et précision
         self.act_canvas = QAction(menubar)
         self.act_canvas.triggered.connect(self.edit_canvas_settings)
@@ -3030,6 +3025,7 @@ class SpiroWindow(QWidget):
         # Actions Options
         self.act_manage_layers.setText(tr(self.language, "menu_layers_manage"))
         self.act_bg_color.setText(tr(self.language, "menu_options_bgcolor"))
+        self.act_shape_lab.setText(tr(self.language, "menu_options_shape_lab"))
         self.act_canvas.setText(tr(self.language, "menu_options_canvas"))
         self.menu_lang.setTitle(tr(self.language, "menu_options_language"))
         self.act_animation_enabled.setText(tr(self.language, "menu_regen_animation"))
@@ -3372,6 +3368,13 @@ class SpiroWindow(QWidget):
         )
         dlg.exec()
 
+    def open_shape_lab(self):
+        if getattr(self, "_shape_lab_window", None) is None:
+            self._shape_lab_window = ShapeDesignLabWindow(self)
+        self._shape_lab_window.show()
+        self._shape_lab_window.raise_()
+        self._shape_lab_window.activateWindow()
+
     def edit_bg_color(self):
         # couleur actuelle (texte tel que saisi)
         current = self.bg_color
@@ -3458,6 +3461,7 @@ class SpiroWindow(QWidget):
                     "outer_size": g.outer_size,
                     "relation": g.relation,
                     "modular_notation": getattr(g, "modular_notation", None),
+                    "dsl_expression": getattr(g, "dsl_expression", None),
                 })
             for p in layer.paths:
                 data_layer["paths"].append({
@@ -3489,6 +3493,7 @@ class SpiroWindow(QWidget):
                         outer_size=int(gd.get("outer_size", 0)),
                         relation=gd.get("relation", "stationnaire"),
                         modular_notation=gd.get("modular_notation"),
+                        dsl_expression=gd.get("dsl_expression"),
                     )
                 )
             paths = []
