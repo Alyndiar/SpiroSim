@@ -158,26 +158,38 @@ and `shortSha` values.
 - `*`: jump to the next open branch created by a `y` or `b` piece.
 
 An initial optional `+` or `-` sets the default turn direction for the first
-piece. A leading `*` jumps to the first open branch.
+piece. A leading `*` jumps to the next open branch (or `*n` for branch index
+`n`) and must be followed by a `+` or `-` before the next piece to select an
+orientation.
 
 ### Pieces
 
-- `aNN`: arc of `NN` degrees. The sign (`+`/`-`) determines left/right turn.
-- `dNN`: straight segment of `NN` units.
-- `b`: rounded end (half-circle) connecting the two sides of the track.
-- `y`: triangular junction composed of three 120° arcs spaced by the track
-  width.
-- `nNN`: origin offset in units, applied in the direction of the current sign.
-- `oNN`: origin angular offset in degrees, applied with the same sign
-  convention.
+- `Aθ`: arc of `θ` degrees. The sign (`+`/`-`) determines left/right turn.
+- `Lx`: straight segment of length `x` (alias: `Sx`).
+- `E`: endcap that terminates a branch.
+- `I<n>`: intersection with `n` branches (`n > 2`).
 
-`NN` can be an integer or a decimal value.
+Angles and lengths can be integer or decimal values.
 
 ### Example
 
 ```
-+a90-d40+b*a90
++A90-L40+E*+A90
 ```
 
-This builds a 90° left arc, a 40-unit straight, a rounded end, then continues
+This builds a 90° left arc, a 40-unit straight, an endcap, then continues
 on the next branch with another 90° left arc.
+
+## Shape Design Lab DSL (Analytic)
+
+Analytic expressions define single closed pitch curves that can be used as
+gears, hoops, or tracks:
+
+- `C N` : circle with perimeter `N` (parentheses optional for single values)
+- `R(Ni,No)` : ring reference with inner/outer perimeters
+- `P<n>(T,S/C)` : rounded polygon with `n` sides
+- `D(T,O/H/L)` : drop shape
+- `O(T,K)` : oblong / stadium
+- `L(T,A/B)` : ellipse (numerical arc-length LUT)
+
+These expressions can be previewed and edited in the Shape Design Lab.

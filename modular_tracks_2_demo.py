@@ -69,7 +69,7 @@ def _compute_animation_sequences(
         return track, [], [], [], [], 0.0, 0.0, [], 0, 0, [], [], 0.0
 
     centerline, _, _, half_width = modular_tracks.compute_track_polylines(
-        track, half_width=track.half_width
+        track, samples=800, half_width=track.half_width
     )
 
     track_markers: List[Tuple[Point, Point]] = []
@@ -118,7 +118,7 @@ class ModularTrackDemo(QWidget):
         parent=None,
         *,
         auto_start: bool = True,
-        notation: str = "+a60+d144+a60+d144",
+        notation: str = "+A60+L144+A60+L144",
         wheel_size: int = 84,
         hole_offset: float = 9.5,
         relation: str = "dedans",
@@ -272,7 +272,7 @@ class ModularTrackDemo(QWidget):
         self._full_path = False
 
         centerline, inner, outer, _ = modular_tracks.compute_track_polylines(
-            track, half_width=half_width
+            track, samples=800, half_width=half_width
         )
         self.track.points = _scale_pts(centerline)
         self.inner_side = _scale_pts(inner)
