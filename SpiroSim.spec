@@ -10,7 +10,7 @@ datas = [
     ("README.md", "."),
 ]
 
-repo_root = os.path.abspath(os.path.dirname(__file__))
+repo_root = os.path.abspath(SPECPATH)
 
 a = Analysis(
     ["SpiroSim.py"],
