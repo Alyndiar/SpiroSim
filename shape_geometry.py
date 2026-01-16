@@ -323,11 +323,12 @@ def wheel_orientation(
     wheel_curve: BaseCurve,
     side: int,
     epsilon: int = 1,
+    wheel_offset_s: float = 0.0,
 ) -> Tuple[float, float]:
     _, _, (tx, ty), _ = base_curve.eval(s)
     target_tx, target_ty = (tx, ty) if side == 1 else (-tx, -ty)
     if wheel_curve.length > 0:
-        wheel_s = epsilon * s
+        wheel_s = epsilon * s + wheel_offset_s
         if wheel_curve.closed:
             wheel_s %= wheel_curve.length
         else:
@@ -344,10 +345,19 @@ def wheel_pen_local_vector(
     d: float,
     side: int,
     alpha0: float,
+    wheel_offset_s: float = 0.0,
 ) -> Tuple[float, float]:
     _, _, (tx, ty), (nx, ny) = base_curve.eval(0.0)
     target_tx, target_ty = (tx, ty) if side == 1 else (-tx, -ty)
-    _, _, (twx, twy), _ = wheel_curve.eval(0.0)
+    wheel_s = wheel_offset_s
+    if wheel_curve.length > 0:
+        if wheel_curve.closed:
+            wheel_s %= wheel_curve.length
+        else:
+            wheel_s = max(0.0, min(wheel_s, wheel_curve.length))
+    else:
+        wheel_s = 0.0
+    _, _, (twx, twy), _ = wheel_curve.eval(wheel_s)
     cos_a, sin_a = _rotation_from_to(twx, twy, target_tx, target_ty)
     cos_p = math.cos(alpha0)
     sin_p = math.sin(alpha0)
@@ -366,10 +376,11 @@ def roll_pen_position(
     alpha0: float,
     epsilon: int = 1,
     pen_local: Tuple[float, float] | None = None,
+    wheel_offset_s: float = 0.0,
 ) -> Tuple[float, float]:
     xb, yb, _, _ = base_curve.eval(s)
     if wheel_curve.length > 0:
-        wheel_s = epsilon * s
+        wheel_s = epsilon * s + wheel_offset_s
         if wheel_curve.closed:
             wheel_s %= wheel_curve.length
         else:
@@ -377,12 +388,19 @@ def roll_pen_position(
     else:
         wheel_s = 0.0
     xw, yw, _, _ = wheel_curve.eval(wheel_s)
-    cos_a, sin_a = wheel_orientation(s, base_curve, wheel_curve, side, epsilon=epsilon)
+    cos_a, sin_a = wheel_orientation(s, base_curve, wheel_curve, side, epsilon=epsilon, wheel_offset_s=wheel_offset_s)
     xw_rot, yw_rot = _rotate(xw, yw, cos_a, sin_a)
     cx = xb - xw_rot
     cy = yb - yw_rot
     if pen_local is None:
-        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+        pen_local = wheel_pen_local_vector(
+            base_curve,
+            wheel_curve,
+            d,
+            side,
+            alpha0,
+            wheel_offset_s=wheel_offset_s,
+        )
     px_local, py_local = pen_local
     px_rot, py_rot = _rotate(px_local, py_local, cos_a, sin_a)
     return cx + px_rot, cy + py_rot

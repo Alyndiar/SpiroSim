@@ -223,6 +223,7 @@ class PathConfig:
     enable: bool = True
     hole_offset: float = 1.0
     phase_offset: float = 0.0
+    wheel_phase_offset: float = 0.0
     color: str = "blue"            # chaîne telle que saisie / affichée
     color_norm: Optional[str] = None  # valeur normalisée (#rrggbb) pour le dessin
     stroke_width: float = 1.2
@@ -399,6 +400,8 @@ def generate_trochoid_points_for_layer_path(
     """
 
     hole_offset = float(path.hole_offset)
+    base_phase_offset = float(getattr(path, "phase_offset", 0.0))
+    wheel_phase_offset = float(getattr(path, "wheel_phase_offset", 0.0))
 
     # Pas assez d’engrenages : cercle simple + rotation
     if len(layer.gears) < 2:
@@ -458,6 +461,26 @@ def generate_trochoid_points_for_layer_path(
             max_radius = max(max_radius, math.hypot(x, y))
         return max_radius
 
+    def _min_curve_radius_offset(curve: BaseCurve, samples: int = 720) -> float:
+        if curve.length <= 0:
+            return 0.0
+        min_radius = math.inf
+        min_s = 0.0
+        for i in range(samples):
+            s = curve.length * i / max(1, samples - 1)
+            x, y, _, _ = curve.eval(s)
+            radius = math.hypot(x, y)
+            if radius < min_radius:
+                min_radius = radius
+                min_s = s
+        return min_s
+
+    def _offset_base_s(s: float) -> float:
+        if base_curve.closed and base_curve.length > 0:
+            return (s + base_phase_offset) % base_curve.length
+        return max(0.0, min(s + base_phase_offset, base_curve.length))
+
+    wheel_zero_offset = 0.0
     if g1.gear_type == "dsl" and g1.dsl_expression:
         wheel_curve = None
         try:
@@ -465,10 +488,13 @@ def generate_trochoid_points_for_layer_path(
         except DslParseError:
             wheel_curve = None
         tip_radius = _max_curve_radius(wheel_curve) if wheel_curve else radius_from_size(tip_size)
+        if wheel_curve and not isinstance(wheel_curve, CircleCurve):
+            wheel_zero_offset = _min_curve_radius_offset(wheel_curve)
     else:
         tip_radius = radius_from_size(tip_size)
 
     d = tip_radius - hole_offset
+    wheel_offset_s = wheel_zero_offset + wheel_phase_offset
 
     if base_curve.closed:
         g = math.gcd(int(round(base_curve.length)), int(round(wheel_size))) or 1
@@ -494,19 +520,39 @@ def generate_trochoid_points_for_layer_path(
     else:
         wheel_curve = None
     if wheel_curve is not None:
-        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+        pen_local = wheel_pen_local_vector(
+            base_curve,
+            wheel_curve,
+            d,
+            side,
+            alpha0,
+            wheel_offset_s=wheel_offset_s,
+        )
         for i in range(steps):
             s = s_max * i / (steps - 1)
-            x, y = roll_pen_position(s, base_curve, wheel_curve, d, side, alpha0, epsilon, pen_local=pen_local)
+            s_eval = _offset_base_s(s)
+            x, y = roll_pen_position(
+                s_eval,
+                base_curve,
+                wheel_curve,
+                d,
+                side,
+                alpha0,
+                epsilon,
+                pen_local=pen_local,
+                wheel_offset_s=wheel_offset_s,
+            )
             base_points.append((x, y))
     else:
+        if r > 0:
+            alpha0 += epsilon * (wheel_offset_s / r)
         for i in range(steps):
             s = s_max * i / (steps - 1)
-            x, y = pen_position(s, base_curve, r, d, side, alpha0, epsilon)
+            s_eval = _offset_base_s(s)
+            x, y = pen_position(s_eval, base_curve, r, d, side, alpha0, epsilon)
             base_points.append((x, y))
 
-    phase_turns = phase_offset_turns(path.phase_offset, max(1, int(round(base_curve.length))))
-    total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
+    total_angle = math.pi / 2.0
 
     cos_a = math.cos(total_angle)
     sin_a = math.sin(total_angle)
@@ -1130,6 +1176,7 @@ def layers_to_svg(
                     steps=2,
                     relation=relation,
                     phase_offset=0.0,
+                    wheel_phase_offset=0.0,
                     inner_size=inner_size,
                     outer_size=outer_size,
                 )
@@ -1650,6 +1697,11 @@ class PathEditDialog(QDialog):
         self.phase_spin.setDecimals(3)
         self.phase_spin.setValue(self.path.phase_offset)
 
+        self.wheel_phase_spin = QDoubleSpinBox()
+        self.wheel_phase_spin.setRange(-1000.0, 1000.0)
+        self.wheel_phase_spin.setDecimals(3)
+        self.wheel_phase_spin.setValue(getattr(self.path, "wheel_phase_offset", 0.0))
+
         self.color_edit = QLineEdit(self.path.color)
         btn_pick = QPushButton("…")
         btn_pick.setFixedWidth(30)
@@ -1687,6 +1739,7 @@ class PathEditDialog(QDialog):
         layout.addRow(tr(self.lang, "dlg_path_name"), self.name_edit)
         layout.addRow(tr(self.lang, "dlg_path_hole_index"), self.hole_spin)
         layout.addRow(tr(self.lang, "dlg_path_phase"), self.phase_spin)
+        layout.addRow(tr(self.lang, "dlg_path_wheel_phase"), self.wheel_phase_spin)
         layout.addRow(tr(self.lang, "dlg_path_color"), color_row)
         layout.addRow(tr(self.lang, "dlg_path_width"), self.stroke_spin)
         layout.addRow(tr(self.lang, "dlg_path_zoom"), self.zoom_spin)
@@ -1713,6 +1766,7 @@ class PathEditDialog(QDialog):
         self.path.name = self.name_edit.text().strip() or tr(self.lang, "default_path_name")
         self.path.hole_offset = self.hole_spin.value()
         self.path.phase_offset = self.phase_spin.value()
+        self.path.wheel_phase_offset = self.wheel_phase_spin.value()
 
         new_color_input = self.color_edit.text().strip() or "#000000"
         norm_color = normalize_color_string(new_color_input)
@@ -1868,6 +1922,8 @@ class TrackTestDialog(QDialog):
         relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
         wheel_size = max(1.0, _gear_perimeter(g1, relation))
         scale = getattr(layer, "zoom", 1.0) * getattr(path, "zoom", 1.0)
+        base_phase_offset = float(getattr(path, "phase_offset", 0.0))
+        wheel_phase_offset = float(getattr(path, "wheel_phase_offset", 0.0))
 
         try:
             base_curve = _curve_from_gear(g0, relation)
@@ -1911,6 +1967,11 @@ class TrackTestDialog(QDialog):
         epsilon = side
         alpha0 = math.pi if relation == "dedans" and isinstance(base_curve, CircleCurve) else 0.0
 
+        def _offset_base_s(s: float) -> float:
+            if base_curve.closed and base_curve.length > 0:
+                return (s + base_phase_offset) % base_curve.length
+            return max(0.0, min(s + base_phase_offset, base_curve.length))
+
         steps = self.points_per_path
         base_len = max(base_curve.length, 1e-9)
         wheel_len = max(wheel_curve.length, 1e-9)
@@ -1943,13 +2004,45 @@ class TrackTestDialog(QDialog):
         else:
             tip_radius = radius_from_size(tip_size)
         d = tip_radius - float(path.hole_offset)
-        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+
+        wheel_zero_offset = 0.0
+        if wheel_curve.length > 0 and not isinstance(wheel_curve, CircleCurve):
+            min_radius = math.inf
+            min_s = 0.0
+            for i in range(sample_count + 1):
+                s_local = wheel_curve.length * i / sample_count
+                xw, yw, _, _ = wheel_curve.eval(s_local)
+                radius = math.hypot(xw, yw)
+                if radius < min_radius:
+                    min_radius = radius
+                    min_s = s_local
+            wheel_zero_offset = min_s
+        if wheel_curve.length > 0:
+            marker_x, marker_y, _, _ = wheel_curve.eval(wheel_zero_offset)
+            wheel_marker_local = (marker_x, marker_y)
+        wheel_offset_s = wheel_zero_offset + wheel_phase_offset
+        pen_local = wheel_pen_local_vector(
+            base_curve,
+            wheel_curve,
+            d,
+            side,
+            alpha0,
+            wheel_offset_s=wheel_offset_s,
+        )
 
         for i in range(steps):
             s = s_max * i / max(1, steps - 1)
-            xb, yb, _, _ = base_curve.eval(s)
-            cos_a, sin_a = wheel_orientation(s, base_curve, wheel_curve, side, epsilon=epsilon)
-            wheel_s = epsilon * s
+            s_eval = _offset_base_s(s)
+            xb, yb, _, _ = base_curve.eval(s_eval)
+            cos_a, sin_a = wheel_orientation(
+                s_eval,
+                base_curve,
+                wheel_curve,
+                side,
+                epsilon=epsilon,
+                wheel_offset_s=wheel_offset_s,
+            )
+            wheel_s = epsilon * s_eval + wheel_offset_s
             if wheel_curve.length > 0:
                 if wheel_curve.closed:
                     wheel_s %= wheel_curve.length
@@ -1965,7 +2058,17 @@ class TrackTestDialog(QDialog):
             wheel_centers.append((cx, cy))
             contact_points.append((xb, yb))
             stylo_points.append(
-                roll_pen_position(s, base_curve, wheel_curve, d, side, alpha0, epsilon, pen_local=pen_local)
+                roll_pen_position(
+                    s_eval,
+                    base_curve,
+                    wheel_curve,
+                    d,
+                    side,
+                    alpha0,
+                    epsilon,
+                    pen_local=pen_local,
+                    wheel_offset_s=wheel_offset_s,
+                )
             )
             wheel_orientations.append((cos_a, sin_a))
             if wheel_marker_local:
@@ -2149,7 +2252,10 @@ class LayerManagerDialog(QDialog):
         return ", ".join(parts)
 
     def _path_summary(self, path: PathConfig) -> str:
-        return f"{path.hole_offset:g}, {path.phase_offset:g}, {path.color}, {path.stroke_width:g}, zoom {path.zoom:g}"
+        return (
+            f"{path.hole_offset:g}, {path.phase_offset:g}, {getattr(path, 'wheel_phase_offset', 0.0):g}, "
+            f"{path.color}, {path.stroke_width:g}, zoom {path.zoom:g}"
+        )
 
     def _layer_allows_test(self, layer: Optional[LayerConfig]) -> bool:
         if not layer or len(layer.gears) < 2:
@@ -3172,6 +3278,7 @@ class SpiroWindow(QWidget):
                     enable=True,
                     hole_offset=1.0,
                     phase_offset=0.0,
+                    wheel_phase_offset=0.0,
                     color="red",
                     stroke_width=1.2,
                     zoom=1.0,
@@ -3181,6 +3288,7 @@ class SpiroWindow(QWidget):
                     enable=True,
                     hole_offset=2.0,
                     phase_offset=0.25,
+                    wheel_phase_offset=0.0,
                     color="#0000aa",
                     stroke_width=1.0,
                     zoom=1.0,
@@ -3671,6 +3779,7 @@ class SpiroWindow(QWidget):
                     "enable": p.enable,
                     "hole_offset": p.hole_offset,
                     "phase_offset": p.phase_offset,
+                    "wheel_phase_offset": getattr(p, "wheel_phase_offset", 0.0),
                     "color": p.color,  # ce que tu as tapé
                     "color_norm": getattr(p, "color_norm", None),  # peut être None
                     "stroke_width": p.stroke_width,
@@ -3712,6 +3821,7 @@ class SpiroWindow(QWidget):
                         enable=bool(pd.get("enable", True)),
                         hole_offset=float(pd.get("hole_offset", pd.get("hole_index", 1.0))),
                         phase_offset=float(pd.get("phase_offset", 0.0)),
+                        wheel_phase_offset=float(pd.get("wheel_phase_offset", 0.0)),
                         color=color_input,
                         color_norm=color_norm,
                         stroke_width=float(pd.get("stroke_width", 1.0)),
