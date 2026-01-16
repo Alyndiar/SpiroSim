@@ -2089,12 +2089,7 @@ class LayerManagerDialog(QDialog):
         enabled = False
         if kind == "path":
             layer = self.find_parent_layer(obj)
-            enabled = (
-                self._layer_allows_test(layer)
-                and layer is not None
-                and layer.enable
-                and obj.enable
-            )
+            enabled = self._layer_allows_test(layer)
         self.btn_test_track.setEnabled(enabled)
 
     def _update_move_buttons_state(self):
