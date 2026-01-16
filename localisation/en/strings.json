@@ -70,7 +70,6 @@
     "dlg_path_name": "Path name:",
     "dlg_path_hole_index": "Hole offset:",
     "dlg_path_phase": "Phase offset (track units):",
-    "dlg_path_wheel_phase": "Wheel phase offset (wheel units):",
     "dlg_path_color": "Color (CSS4 name or #hex):",
     "dlg_path_width": "Stroke width:",
     "dlg_path_zoom": "Path zoom:",

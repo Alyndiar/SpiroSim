@@ -70,7 +70,6 @@
     "dlg_path_name": "Nom du tracé :",
     "dlg_path_hole_index": "Décalage du trou :",
     "dlg_path_phase": "Décalage de phase (unités le long de la piste) :",
-    "dlg_path_wheel_phase": "Décalage phase roue (unités sur la roue) :",
     "dlg_path_color": "Couleur (nom CSS4 ou #hex) :",
     "dlg_path_width": "Largeur de trait :",
     "dlg_path_zoom": "Zoom du tracé :",
