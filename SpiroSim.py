@@ -1780,6 +1780,55 @@ class TrackTestDialog(QDialog):
             path,
         )
 
+    def _build_track_from_curve(self, base_curve: BaseCurve) -> modular_tracks.TrackBuildResult:
+        samples = 800
+        points: List[Tuple[float, float]] = []
+        segments: List[modular_tracks.TrackSegment] = []
+        length = base_curve.length
+        if length <= 0:
+            return modular_tracks.TrackBuildResult(
+                segments=[],
+                points=[],
+                width=0.0,
+                half_width=0.0,
+                inner_length=0.0,
+                outer_length=0.0,
+                origin_offset=0.0,
+                origin_angle_offset=0.0,
+                ring=modular_tracks.ReferenceRing(),
+            )
+        prev_point = None
+        prev_s = 0.0
+        for i in range(samples):
+            s = length * i / max(1, samples - 1)
+            x, y, _, _ = base_curve.eval(s)
+            point = (x, y)
+            points.append(point)
+            if prev_point is not None:
+                segments.append(
+                    modular_tracks.TrackSegment(
+                        kind="line",
+                        s_start=prev_s,
+                        s_end=s,
+                        start=prev_point,
+                        end=point,
+                    )
+                )
+            prev_point = point
+            prev_s = s
+
+        return modular_tracks.TrackBuildResult(
+            segments=segments,
+            points=points,
+            width=0.0,
+            half_width=0.0,
+            inner_length=length,
+            outer_length=length,
+            origin_offset=0.0,
+            origin_angle_offset=0.0,
+            ring=modular_tracks.ReferenceRing(),
+        )
+
     def _apply_configuration(
         self,
         layer: LayerConfig,
@@ -1795,7 +1844,19 @@ class TrackTestDialog(QDialog):
 
         g0 = layer.gears[0]
         g1 = layer.gears[1]
-        if g0.gear_type != "modulaire" or not getattr(g0, "modular_notation", ""):
+
+        relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
+        wheel_size = max(1.0, _gear_perimeter(g1, relation))
+        scale = getattr(layer, "zoom", 1.0) * getattr(path, "zoom", 1.0)
+
+        try:
+            base_curve = _curve_from_gear(g0, relation)
+            wheel_curve = _curve_from_gear(g1, relation)
+        except DslParseError:
+            base_curve = None
+            wheel_curve = None
+
+        if base_curve is None or wheel_curve is None:
             QMessageBox.information(
                 self,
                 tr(self.lang, "track_test_title"),
@@ -1803,121 +1864,110 @@ class TrackTestDialog(QDialog):
             )
             return
 
-        relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
-        wheel_size = max(1.0, _gear_perimeter(g1, relation))
-        inner_size = g0.size if g0.size > 0 else 1
-        outer_size = g0.outer_size if g0.outer_size > 0 else inner_size
-        scale = getattr(layer, "zoom", 1.0) * getattr(path, "zoom", 1.0)
-
-        track = modular_tracks.build_track_from_notation(
-            g0.modular_notation,
-            inner_size=inner_size,
-            outer_size=outer_size,
-            steps_per_unit=3,
-        )
-        segments = [
-            LineSegment(seg.start, seg.end) if seg.kind == "line" else ArcSegment(
-                seg.center,
-                seg.radius or 0.0,
-                seg.angle_start or 0.0,
-                seg.angle_end or 0.0,
-            )
-            for seg in track.segments
-        ]
-        base_curve = ModularTrackCurve(segments, closed=False)
-
-        try:
-            wheel_curve = _curve_from_gear(g1, relation)
-        except DslParseError:
-            wheel_curve = None
-        if wheel_curve is None:
-            self.demo_widget.set_configuration(
-                notation=g0.modular_notation,
-                wheel_size=int(round(wheel_size)),
-                hole_offset=path.hole_offset,
-                relation=relation,
-                phase_offset=getattr(path, "phase_offset", 0.0),
+        if g0.gear_type == "modulaire" and getattr(g0, "modular_notation", ""):
+            inner_size = g0.size if g0.size > 0 else 1
+            outer_size = g0.outer_size if g0.outer_size > 0 else inner_size
+            track = modular_tracks.build_track_from_notation(
+                g0.modular_notation,
                 inner_size=inner_size,
                 outer_size=outer_size,
-                steps=self.points_per_path,
-                scale=scale,
+                steps_per_unit=3,
             )
-        else:
-            tip_size = wheel_size if g1.gear_type == "dsl" else g1.size
-            d = max(0.0, radius_from_size(tip_size) - float(path.hole_offset))
-            side = 1 if relation == "dedans" else -1
-            epsilon = side
-            alpha0 = math.pi if relation == "dedans" and isinstance(base_curve, CircleCurve) else 0.0
-            pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
-
-            steps = self.points_per_path
-            s_max = max(base_curve.length, 1e-9)
-
-            stylo_points: List[Tuple[float, float]] = []
-            wheel_centers: List[Tuple[float, float]] = []
-            contact_points: List[Tuple[float, float]] = []
-            wheel_marker_points: List[Tuple[float, float]] = []
-            wheel_orientations: List[Tuple[float, float]] = []
-
-            wheel_marker_local = None
-            wheel_shape_local: List[Tuple[float, float]] = []
-            if wheel_curve.length > 0:
-                sample_count = 360
-                for i in range(sample_count + 1):
-                    s_local = wheel_curve.length * i / sample_count
-                    xw, yw, _, _ = wheel_curve.eval(s_local)
-                    wheel_shape_local.append((xw, yw))
-                marker_x, marker_y, _, _ = wheel_curve.eval(0.0)
-                wheel_marker_local = (marker_x, marker_y)
-
-            for i in range(steps):
-                s = s_max * i / max(1, steps - 1)
-                xb, yb, _, _ = base_curve.eval(s)
-                cos_a, sin_a = wheel_orientation(s, base_curve, wheel_curve, side, epsilon=epsilon)
-                wheel_s = epsilon * s
-                if wheel_curve.length > 0:
-                    if wheel_curve.closed:
-                        wheel_s %= wheel_curve.length
-                    else:
-                        wheel_s = max(0.0, min(wheel_s, wheel_curve.length))
-                else:
-                    wheel_s = 0.0
-                xw, yw, _, _ = wheel_curve.eval(wheel_s)
-                xw_rot = xw * cos_a - yw * sin_a
-                yw_rot = xw * sin_a + yw * cos_a
-                cx = xb - xw_rot
-                cy = yb - yw_rot
-                wheel_centers.append((cx, cy))
-                contact_points.append((xb, yb))
-                stylo_points.append(
-                    roll_pen_position(s, base_curve, wheel_curve, d, side, alpha0, epsilon, pen_local=pen_local)
+            segments = [
+                LineSegment(seg.start, seg.end) if seg.kind == "line" else ArcSegment(
+                    seg.center,
+                    seg.radius or 0.0,
+                    seg.angle_start or 0.0,
+                    seg.angle_end or 0.0,
                 )
-                wheel_orientations.append((cos_a, sin_a))
-                if wheel_marker_local:
-                    mx = wheel_marker_local[0] * cos_a - wheel_marker_local[1] * sin_a
-                    my = wheel_marker_local[0] * sin_a + wheel_marker_local[1] * cos_a
-                    wheel_marker_points.append((cx + mx, cy + my))
-                else:
-                    wheel_marker_points.append((xb, yb))
+                for seg in track.segments
+            ]
+            base_curve = ModularTrackCurve(segments, closed=False)
+        else:
+            track = self._build_track_from_curve(base_curve)
 
-            self.demo_widget.set_debug_sequences(
-                track=track,
-                stylo_points=stylo_points,
-                wheel_centers=wheel_centers,
-                contact_points=contact_points,
-                markers_angle0=wheel_marker_points,
-                track_markers=[],
-                r_wheel=radius_from_size(wheel_size),
-                wheel_size_count=0,
-                track_size_count=0,
-                wheel_marker_indices=[],
-                track_marker_indices=[],
-                roll_sign=-side,
-                wheel_orientations=wheel_orientations,
-                wheel_shape_local=wheel_shape_local,
-                wheel_marker_local=wheel_marker_local,
-                scale=scale,
+        tip_size = wheel_size if g1.gear_type == "dsl" else g1.size
+        d = max(0.0, radius_from_size(tip_size) - float(path.hole_offset))
+        side = 1 if relation == "dedans" else -1
+        epsilon = side
+        alpha0 = math.pi if relation == "dedans" and isinstance(base_curve, CircleCurve) else 0.0
+        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+
+        steps = self.points_per_path
+        base_len = max(base_curve.length, 1e-9)
+        wheel_len = max(wheel_curve.length, 1e-9)
+        if base_curve.closed:
+            g = math.gcd(int(round(base_len)), int(round(wheel_len))) or 1
+            s_max = base_len * (wheel_len / g)
+        else:
+            s_max = base_len
+        s_max = max(s_max, base_len)
+
+        stylo_points: List[Tuple[float, float]] = []
+        wheel_centers: List[Tuple[float, float]] = []
+        contact_points: List[Tuple[float, float]] = []
+        wheel_marker_points: List[Tuple[float, float]] = []
+        wheel_orientations: List[Tuple[float, float]] = []
+
+        wheel_marker_local = None
+        wheel_shape_local: List[Tuple[float, float]] = []
+        if wheel_curve.length > 0:
+            sample_count = 360
+            for i in range(sample_count + 1):
+                s_local = wheel_curve.length * i / sample_count
+                xw, yw, _, _ = wheel_curve.eval(s_local)
+                wheel_shape_local.append((xw, yw))
+            marker_x, marker_y, _, _ = wheel_curve.eval(0.0)
+            wheel_marker_local = (marker_x, marker_y)
+
+        for i in range(steps):
+            s = s_max * i / max(1, steps - 1)
+            xb, yb, _, _ = base_curve.eval(s)
+            cos_a, sin_a = wheel_orientation(s, base_curve, wheel_curve, side, epsilon=epsilon)
+            wheel_s = epsilon * s
+            if wheel_curve.length > 0:
+                if wheel_curve.closed:
+                    wheel_s %= wheel_curve.length
+                else:
+                    wheel_s = max(0.0, min(wheel_s, wheel_curve.length))
+            else:
+                wheel_s = 0.0
+            xw, yw, _, _ = wheel_curve.eval(wheel_s)
+            xw_rot = xw * cos_a - yw * sin_a
+            yw_rot = xw * sin_a + yw * cos_a
+            cx = xb - xw_rot
+            cy = yb - yw_rot
+            wheel_centers.append((cx, cy))
+            contact_points.append((xb, yb))
+            stylo_points.append(
+                roll_pen_position(s, base_curve, wheel_curve, d, side, alpha0, epsilon, pen_local=pen_local)
             )
+            wheel_orientations.append((cos_a, sin_a))
+            if wheel_marker_local:
+                mx = wheel_marker_local[0] * cos_a - wheel_marker_local[1] * sin_a
+                my = wheel_marker_local[0] * sin_a + wheel_marker_local[1] * cos_a
+                wheel_marker_points.append((cx + mx, cy + my))
+            else:
+                wheel_marker_points.append((xb, yb))
+
+        self.demo_widget.set_debug_sequences(
+            track=track,
+            stylo_points=stylo_points,
+            wheel_centers=wheel_centers,
+            contact_points=contact_points,
+            markers_angle0=wheel_marker_points,
+            track_markers=[],
+            r_wheel=radius_from_size(wheel_size),
+            wheel_size_count=0,
+            track_size_count=0,
+            wheel_marker_indices=[],
+            track_marker_indices=[],
+            roll_sign=-side,
+            wheel_orientations=wheel_orientations,
+            wheel_shape_local=wheel_shape_local,
+            wheel_marker_local=wheel_marker_local,
+            scale=scale,
+        )
         if not self.demo_widget.stylo_points:
             QMessageBox.information(
                 self,
@@ -2080,8 +2130,18 @@ class LayerManagerDialog(QDialog):
         if not layer or len(layer.gears) < 2:
             return False
         g0 = layer.gears[0]
-        return g0.gear_type == "modulaire" and bool(
-            getattr(g0, "modular_notation", "")
+        g1 = layer.gears[1]
+        relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
+        try:
+            base_curve = _curve_from_gear(g0, relation)
+            wheel_curve = _curve_from_gear(g1, relation)
+        except DslParseError:
+            return False
+        return (
+            base_curve is not None
+            and wheel_curve is not None
+            and base_curve.length > 0
+            and wheel_curve.length > 0
         )
 
     def _update_test_button_state(self):
