@@ -98,8 +98,12 @@ def _clean_expr(expr: str) -> str:
     return "".join(ch for ch in expr if not ch.isspace())
 
 
+def normalize_dsl_text(expr: str) -> str:
+    return _clean_expr(expr).upper()
+
+
 def parse_analytic_expression(expr: str) -> AnalyticSpec:
-    cleaned = _clean_expr(expr)
+    cleaned = normalize_dsl_text(expr)
     if not cleaned:
         raise DslParseError("Empty expression")
 
@@ -146,7 +150,7 @@ def parse_analytic_expression(expr: str) -> AnalyticSpec:
 
 
 def parse_modular_expression(expr: str) -> ModularTrackSpec:
-    cleaned = _clean_expr(expr)
+    cleaned = normalize_dsl_text(expr)
     if not cleaned:
         return ModularTrackSpec(steps=[])
 
@@ -230,5 +234,5 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
 
 
 def is_modular_expression(expr: str) -> bool:
-    cleaned = _clean_expr(expr)
+    cleaned = normalize_dsl_text(expr)
     return cleaned.startswith(("A", "S", "L", "E", "I", "+", "-", "*"))

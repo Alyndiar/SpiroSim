@@ -100,7 +100,7 @@ engrenage, vous pouvez configurer :
 
 - **Nom** : libellé affiché dans le gestionnaire.
 - **Type** :
-  - `anneau`, `roue`, `triangle`, `carré`, `barre`, `croix`, `oeil`
+  - `anneau`, `roue`, `dsl`
   - `modulaire` (piste modulaire de base, uniquement pour l’engrenage 1)
 - **Taille (roue / int. anneau)** : taille de la roue ou de l’anneau intérieur.
 - **Taille ext. (anneau)** : taille de l’anneau extérieur.

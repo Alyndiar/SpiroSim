@@ -40,6 +40,7 @@ from shape_dsl import (
     OblongSpec,
     PolygonSpec,
     RingSpec,
+    normalize_dsl_text,
     parse_analytic_expression,
 )
 from shape_geometry import (
@@ -147,6 +148,9 @@ class ShapeDesignLabWindow(QMainWindow):
         self.preview = QGraphicsView(self.scene)
         self.preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.preview)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([360, 720])
 
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["Draft", "Normal", "High"])
@@ -171,6 +175,21 @@ class ShapeDesignLabWindow(QMainWindow):
 
         self._on_mode_changed(self.mode_combo.currentText())
 
+    def _normalize_editor_text(self) -> str:
+        raw = self.dsl_editor.toPlainText()
+        normalized = normalize_dsl_text(raw)
+        if normalized != raw:
+            self.dsl_editor.blockSignals(True)
+            self.dsl_editor.setPlainText(normalized)
+            self.dsl_editor.blockSignals(False)
+        ring_raw = self.reference_ring_edit.text()
+        ring_normalized = normalize_dsl_text(ring_raw)
+        if ring_normalized != ring_raw:
+            self.reference_ring_edit.blockSignals(True)
+            self.reference_ring_edit.setText(ring_normalized)
+            self.reference_ring_edit.blockSignals(False)
+        return normalized
+
     def _on_mode_changed(self, text: str) -> None:
         self.reference_ring_edit.setVisible(text == "Modular")
         self.compile_now()
@@ -181,6 +200,7 @@ class ShapeDesignLabWindow(QMainWindow):
 
     def compile_now(self) -> None:
         self._set_diagnostics([])
+        self._normalize_editor_text()
         self._update_quick_params()
         self._update_preview()
 
@@ -190,7 +210,7 @@ class ShapeDesignLabWindow(QMainWindow):
             QTreeWidgetItem(self.diagnostics, [message])
 
     def _add_variant_from_editor(self) -> None:
-        expr = self.dsl_editor.toPlainText().strip()
+        expr = normalize_dsl_text(self.dsl_editor.toPlainText())
         name = f"Variant {self._variant_counter}"
         self._variant_counter += 1
         self._variants.append(ShapeVariant(name, expr, True))
@@ -245,7 +265,10 @@ class ShapeDesignLabWindow(QMainWindow):
         if item.column() == 0:
             variant.name = item.text()
         elif item.column() == 1:
-            variant.expression = item.text()
+            variant.expression = normalize_dsl_text(item.text())
+            self.variants_table.blockSignals(True)
+            item.setText(variant.expression)
+            self.variants_table.blockSignals(False)
         elif item.column() == 2:
             variant.visible = item.checkState() == Qt.Checked
         self._update_preview()
@@ -259,7 +282,7 @@ class ShapeDesignLabWindow(QMainWindow):
         return 600
 
     def _compile_expression(self, expr: str) -> Optional[List[tuple[float, float]]]:
-        expr = expr.strip()
+        expr = normalize_dsl_text(expr)
         if not expr:
             return None
         mode = self.mode_combo.currentText()
@@ -281,7 +304,7 @@ class ShapeDesignLabWindow(QMainWindow):
                 else:
                     return None
                 return self._sample_curve(curve.length, curve.eval)
-            ring_expr = self.reference_ring_edit.text().strip() or "R(96,144)"
+            ring_expr = normalize_dsl_text(self.reference_ring_edit.text()) or "R(96,144)"
             ring_spec = parse_analytic_expression(ring_expr)
             if not isinstance(ring_spec, RingSpec):
                 raise DslParseError("Reference ring must be a ring expression")
@@ -324,7 +347,7 @@ class ShapeDesignLabWindow(QMainWindow):
         palette = [QColor("#ff6b6b"), QColor("#4dabf7"), QColor("#51cf66"), QColor("#ffa94d")]
         variants = [v for v in self._variants if v.visible]
         if not variants:
-            expr = self.dsl_editor.toPlainText()
+            expr = normalize_dsl_text(self.dsl_editor.toPlainText())
             variants = [ShapeVariant("Current", expr, True)]
         for idx, variant in enumerate(variants):
             points = self._compile_expression(variant.expression)
@@ -346,7 +369,7 @@ class ShapeDesignLabWindow(QMainWindow):
             item = self.quick_params_layout.itemAt(i)
             if item and item.widget():
                 item.widget().deleteLater()
-        expr = self.dsl_editor.toPlainText().strip()
+        expr = normalize_dsl_text(self.dsl_editor.toPlainText())
         if not expr or self.mode_combo.currentText() != "Analytic":
             return
         try:

@@ -15,6 +15,23 @@ def _normalize(x: float, y: float) -> Tuple[float, float]:
     return (x / n, y / n)
 
 
+def _rotate(x: float, y: float, cos_a: float, sin_a: float) -> Tuple[float, float]:
+    return (x * cos_a - y * sin_a, x * sin_a + y * cos_a)
+
+
+def _rotation_from_to(
+    tx: float,
+    ty: float,
+    ux: float,
+    uy: float,
+) -> Tuple[float, float]:
+    tx, ty = _normalize(tx, ty)
+    ux, uy = _normalize(ux, uy)
+    cos_a = tx * ux + ty * uy
+    sin_a = tx * uy - ty * ux
+    return cos_a, sin_a
+
+
 class BaseCurve:
     def __init__(self, length: float, closed: bool = True) -> None:
         self.length = max(0.0, length)
@@ -298,6 +315,58 @@ def pen_position(
     px = cx + d * (cos_a * nx + sin_a * tx)
     py = cy + d * (cos_a * ny + sin_a * ty)
     return px, py
+
+
+def wheel_pen_local_vector(
+    base_curve: BaseCurve,
+    wheel_curve: BaseCurve,
+    d: float,
+    side: int,
+    alpha0: float,
+) -> Tuple[float, float]:
+    _, _, (tx, ty), (nx, ny) = base_curve.eval(0.0)
+    target_tx, target_ty = (tx, ty) if side == 1 else (-tx, -ty)
+    _, _, (twx, twy), _ = wheel_curve.eval(0.0)
+    cos_a, sin_a = _rotation_from_to(twx, twy, target_tx, target_ty)
+    cos_p = math.cos(alpha0)
+    sin_p = math.sin(alpha0)
+    pen_base = (d * (cos_p * nx + sin_p * tx), d * (cos_p * ny + sin_p * ty))
+    inv_cos = cos_a
+    inv_sin = -sin_a
+    px_local, py_local = _rotate(pen_base[0], pen_base[1], inv_cos, inv_sin)
+    return px_local, py_local
+
+
+def roll_pen_position(
+    s: float,
+    base_curve: BaseCurve,
+    wheel_curve: BaseCurve,
+    d: float,
+    side: int,
+    alpha0: float,
+    epsilon: int = 1,
+    pen_local: Tuple[float, float] | None = None,
+) -> Tuple[float, float]:
+    xb, yb, (tx, ty), _ = base_curve.eval(s)
+    target_tx, target_ty = (tx, ty) if side == 1 else (-tx, -ty)
+    if wheel_curve.length > 0:
+        wheel_s = epsilon * s
+        if wheel_curve.closed:
+            wheel_s %= wheel_curve.length
+        else:
+            wheel_s = max(0.0, min(wheel_s, wheel_curve.length))
+    else:
+        wheel_s = 0.0
+    xw, yw, (twx, twy), _ = wheel_curve.eval(wheel_s)
+    cos_a, sin_a = _rotation_from_to(twx, twy, target_tx, target_ty)
+    xw_rot, yw_rot = _rotate(xw, yw, cos_a, sin_a)
+    cx = xb - xw_rot
+    cy = yb - yw_rot
+    if pen_local is None:
+        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+    px_local, py_local = pen_local
+    px_rot, py_rot = _rotate(px_local, py_local, cos_a, sin_a)
+    return cx + px_rot, cy + py_rot
 
 
 @dataclass

@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Tuple
 import modular_tracks_2 as modular_tracks
 import modular_tracks_2_demo as modular_track_demo
 from shape_lab import ShapeDesignLabWindow
-from shape_dsl import DslParseError, parse_analytic_expression, parse_modular_expression
+from shape_dsl import DslParseError, normalize_dsl_text, parse_analytic_expression, parse_modular_expression
 from shape_geometry import (
     BaseCurve,
     ArcSegment,
@@ -31,6 +31,8 @@ from shape_geometry import (
     build_oblong,
     build_rounded_polygon,
     pen_position,
+    roll_pen_position,
+    wheel_pen_local_vector,
 )
 import localisation
 from localisation import gear_type_label, relation_label, tr
@@ -193,11 +195,6 @@ def kelvin_to_rgb(temp_k: float) -> Tuple[int, int, int]:
 GEAR_TYPES = [
     "anneau",    # ring
     "roue",      # wheel
-    "triangle",
-    "carré",
-    "barre",
-    "croix",
-    "oeil",
     "dsl",
     "modulaire",  # piste modulaire virtuelle (uniquement engrenage 1)
 ]
@@ -211,7 +208,7 @@ RELATIONS = [
 @dataclass
 class GearConfig:
     name: str = "Engrenage"
-    gear_type: str = "anneau"   # anneau, roue, triangle, carré, barre, croix, oeil, modulaire
+    gear_type: str = "anneau"   # anneau, roue, dsl, modulaire
     size: int = 96              # taille de la roue / taille intérieure de l'anneau
     outer_size: int = 144       # anneau : taille extérieure / anneau modulaire
     relation: str = "stationnaire"  # stationnaire / dedans / dehors
@@ -467,10 +464,25 @@ def generate_trochoid_points_for_layer_path(
         alpha0 = 0.0
 
     base_points = []
-    for i in range(steps):
-        s = s_max * i / (steps - 1)
-        x, y = pen_position(s, base_curve, r, d, side, alpha0, epsilon)
-        base_points.append((x, y))
+    use_dsl_wheel = g1.gear_type == "dsl" and g1.dsl_expression
+    if use_dsl_wheel:
+        try:
+            wheel_curve = _curve_from_gear(g1, relation)
+        except DslParseError:
+            wheel_curve = None
+    else:
+        wheel_curve = None
+    if wheel_curve is not None:
+        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+        for i in range(steps):
+            s = s_max * i / (steps - 1)
+            x, y = roll_pen_position(s, base_curve, wheel_curve, d, side, alpha0, epsilon, pen_local=pen_local)
+            base_points.append((x, y))
+    else:
+        for i in range(steps):
+            s = s_max * i / (steps - 1)
+            x, y = pen_position(s, base_curve, r, d, side, alpha0, epsilon)
+            base_points.append((x, y))
 
     phase_turns = phase_offset_turns(path.phase_offset, max(1, int(round(base_curve.length))))
     total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
@@ -1471,8 +1483,10 @@ class LayerEditDialog(QDialog):
 
             gw["size_spin"].setValue(g.size)
             gw["outer_spin"].setValue(g.outer_size if g.outer_size > 0 else 0)
-            gw["modular_edit"].setText(getattr(g, "modular_notation", "") or "")
-            gw["dsl_edit"].setText(getattr(g, "dsl_expression", "") or "")
+            modular_text = getattr(g, "modular_notation", "") or ""
+            dsl_text = getattr(g, "dsl_expression", "") or ""
+            gw["modular_edit"].setText(normalize_dsl_text(modular_text) if modular_text else "")
+            gw["dsl_edit"].setText(normalize_dsl_text(dsl_text) if dsl_text else "")
 
             rel_index = gw["rel_combo"].findData(g.relation)
             if rel_index < 0:
@@ -1517,7 +1531,7 @@ class LayerEditDialog(QDialog):
         if (gw["type_combo"].currentData() or gw["type_combo"].currentText()) != "modulaire":
             return
 
-        notation = gw["modular_edit"].text().strip()
+        notation = normalize_dsl_text(gw["modular_edit"].text())
         inner_size = gw["size_spin"].value()
         outer_size = gw["outer_spin"].value() or inner_size
 
@@ -1558,13 +1572,13 @@ class LayerEditDialog(QDialog):
 
             modular_notation = None
             if gear_type == "modulaire":
-                txt = gw["modular_edit"].text().strip()
+                txt = normalize_dsl_text(gw["modular_edit"].text())
                 if txt:
                     modular_notation = txt
 
             dsl_expression = None
             if gear_type == "dsl":
-                txt = gw["dsl_edit"].text().strip()
+                txt = normalize_dsl_text(gw["dsl_edit"].text())
                 if txt:
                     dsl_expression = txt
 
@@ -2703,11 +2717,16 @@ class ModularTrackEditorDialog(QDialog):
         self.update_track()
 
     def result_notation(self) -> str:
-        return self.notation_edit.text().strip()
+        return normalize_dsl_text(self.notation_edit.text())
 
     def update_track(self):
         text = self.notation_edit.text()
-        valid, rest, has_piece = split_valid_modular_notation(text)
+        normalized = normalize_dsl_text(text)
+        if normalized != text:
+            self.notation_edit.blockSignals(True)
+            self.notation_edit.setText(normalized)
+            self.notation_edit.blockSignals(False)
+        valid, rest, has_piece = split_valid_modular_notation(normalized)
 
         # Construction du texte surligné (tout en MAJUSCULES, sans espaces)
         if valid or rest:

@@ -133,11 +133,6 @@
   "gear_type_labels": {
     "anneau": "ring",
     "roue": "wheel",
-    "triangle": "triangle",
-    "carré": "square",
-    "barre": "bar",
-    "croix": "cross",
-    "oeil": "eye",
     "dsl": "DSL",
     "modulaire": "modular"
   },

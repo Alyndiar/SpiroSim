@@ -1,6 +1,6 @@
 import math
 
-from shape_geometry import CircleCurve, StraightLineCurve, pen_position
+from shape_geometry import CircleCurve, StraightLineCurve, pen_position, roll_pen_position, wheel_pen_local_vector
 
 
 def _reference_epitrochoid(theta: float, R: float, r: float, d: float) -> tuple[float, float]:
@@ -76,3 +76,20 @@ def test_circle_base_tangent_normal_unit():
         assert math.isclose(math.hypot(tx, ty), 1.0, abs_tol=1e-9)
         assert math.isclose(math.hypot(nx, ny), 1.0, abs_tol=1e-9)
         assert math.isclose(tx * nx + ty * ny, 0.0, abs_tol=1e-9)
+
+
+def test_roll_pen_position_matches_circle_pen_position():
+    r = 2.5
+    d = 1.25
+    base = StraightLineCurve(12.0)
+    wheel = CircleCurve(2.0 * math.pi * r)
+    side = 1
+    epsilon = 1
+    alpha0 = 0.35
+    pen_local = wheel_pen_local_vector(base, wheel, d, side, alpha0)
+
+    for s in [0.0, 1.0, 4.5, 9.0, 11.5]:
+        px, py = pen_position(s, base, r, d, side, alpha0=alpha0, epsilon=epsilon)
+        rx, ry = roll_pen_position(s, base, wheel, d, side, alpha0, epsilon=epsilon, pen_local=pen_local)
+        assert math.isclose(px, rx, abs_tol=1e-6)
+        assert math.isclose(py, ry, abs_tol=1e-6)

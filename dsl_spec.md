@@ -16,7 +16,7 @@ The DSL is the **single source of truth** for shape definition. All geometry is 
 - “Size” refers to **arc-length perimeter** (or arc-length along a segment).
 - Shapes are assumed **continuous** and intended for **slipless rolling** in the solver.
 - Whitespace is ignored.
-- DSL is case-sensitive. Identifiers are **uppercase**.
+- DSL is case-insensitive; canonical form uses **uppercase** identifiers.
 
 ### 2.1 Roles (Usage Context)
 
