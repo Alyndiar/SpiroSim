@@ -333,8 +333,7 @@ def wheel_pen_local_vector(
     pen_base = (d * (cos_p * nx + sin_p * tx), d * (cos_p * ny + sin_p * ty))
     inv_cos = cos_a
     inv_sin = -sin_a
-    px_local, py_local = _rotate(pen_base[0], pen_base[1], inv_cos, inv_sin)
-    return px_local, py_local
+    return _rotate(pen_base[0], pen_base[1], inv_cos, inv_sin)
 
 
 def roll_pen_position(

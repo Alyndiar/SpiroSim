@@ -93,3 +93,22 @@ def test_roll_pen_position_matches_circle_pen_position():
         rx, ry = roll_pen_position(s, base, wheel, d, side, alpha0, epsilon=epsilon, pen_local=pen_local)
         assert math.isclose(px, rx, abs_tol=1e-6)
         assert math.isclose(py, ry, abs_tol=1e-6)
+
+
+def test_roll_pen_position_matches_circle_base():
+    base_radius = 6.0
+    r = 2.0
+    d = 1.5
+    base = CircleCurve(2.0 * math.pi * base_radius)
+    wheel = CircleCurve(2.0 * math.pi * r)
+    side = -1
+    epsilon = -1
+    alpha0 = 0.0
+    pen_local = wheel_pen_local_vector(base, wheel, d, side, alpha0)
+
+    for theta in [0.0, 0.4, 0.9, 1.3]:
+        s = base_radius * theta
+        px, py = pen_position(s, base, r, d, side, alpha0=alpha0, epsilon=epsilon)
+        rx, ry = roll_pen_position(s, base, wheel, d, side, alpha0, epsilon=epsilon, pen_local=pen_local)
+        assert math.isclose(px, rx, abs_tol=1e-6)
+        assert math.isclose(py, ry, abs_tol=1e-6)
