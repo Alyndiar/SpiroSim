@@ -448,7 +448,27 @@ def generate_trochoid_points_for_layer_path(
     else:
         tip_size = g1.size
 
-    d = max(0.0, radius_from_size(tip_size) - hole_offset)
+    def _max_curve_radius(curve: BaseCurve, samples: int = 720) -> float:
+        if curve.length <= 0:
+            return 0.0
+        max_radius = 0.0
+        for i in range(samples):
+            s = curve.length * i / max(1, samples - 1)
+            x, y, _, _ = curve.eval(s)
+            max_radius = max(max_radius, math.hypot(x, y))
+        return max_radius
+
+    if g1.gear_type == "dsl" and g1.dsl_expression:
+        wheel_curve = None
+        try:
+            wheel_curve = _curve_from_gear(g1, relation)
+        except DslParseError:
+            wheel_curve = None
+        tip_radius = _max_curve_radius(wheel_curve) if wheel_curve else radius_from_size(tip_size)
+    else:
+        tip_radius = radius_from_size(tip_size)
+
+    d = tip_radius - hole_offset
 
     if base_curve.closed:
         g = math.gcd(int(round(base_curve.length)), int(round(wheel_size))) or 1
@@ -1887,11 +1907,9 @@ class TrackTestDialog(QDialog):
             track = self._build_track_from_curve(base_curve)
 
         tip_size = wheel_size if g1.gear_type == "dsl" else g1.size
-        d = max(0.0, radius_from_size(tip_size) - float(path.hole_offset))
         side = 1 if relation == "dedans" else -1
         epsilon = side
         alpha0 = math.pi if relation == "dedans" and isinstance(base_curve, CircleCurve) else 0.0
-        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
 
         steps = self.points_per_path
         base_len = max(base_curve.length, 1e-9)
@@ -1919,6 +1937,13 @@ class TrackTestDialog(QDialog):
                 wheel_shape_local.append((xw, yw))
             marker_x, marker_y, _, _ = wheel_curve.eval(0.0)
             wheel_marker_local = (marker_x, marker_y)
+
+        if wheel_shape_local:
+            tip_radius = max(math.hypot(x, y) for x, y in wheel_shape_local)
+        else:
+            tip_radius = radius_from_size(tip_size)
+        d = tip_radius - float(path.hole_offset)
+        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
 
         for i in range(steps):
             s = s_max * i / max(1, steps - 1)
