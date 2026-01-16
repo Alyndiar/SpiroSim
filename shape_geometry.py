@@ -317,6 +317,27 @@ def pen_position(
     return px, py
 
 
+def wheel_orientation(
+    s: float,
+    base_curve: BaseCurve,
+    wheel_curve: BaseCurve,
+    side: int,
+    epsilon: int = 1,
+) -> Tuple[float, float]:
+    _, _, (tx, ty), _ = base_curve.eval(s)
+    target_tx, target_ty = (tx, ty) if side == 1 else (-tx, -ty)
+    if wheel_curve.length > 0:
+        wheel_s = epsilon * s
+        if wheel_curve.closed:
+            wheel_s %= wheel_curve.length
+        else:
+            wheel_s = max(0.0, min(wheel_s, wheel_curve.length))
+    else:
+        wheel_s = 0.0
+    _, _, (twx, twy), _ = wheel_curve.eval(wheel_s)
+    return _rotation_from_to(twx, twy, target_tx, target_ty)
+
+
 def wheel_pen_local_vector(
     base_curve: BaseCurve,
     wheel_curve: BaseCurve,
@@ -346,8 +367,7 @@ def roll_pen_position(
     epsilon: int = 1,
     pen_local: Tuple[float, float] | None = None,
 ) -> Tuple[float, float]:
-    xb, yb, (tx, ty), _ = base_curve.eval(s)
-    target_tx, target_ty = (tx, ty) if side == 1 else (-tx, -ty)
+    xb, yb, _, _ = base_curve.eval(s)
     if wheel_curve.length > 0:
         wheel_s = epsilon * s
         if wheel_curve.closed:
@@ -356,8 +376,8 @@ def roll_pen_position(
             wheel_s = max(0.0, min(wheel_s, wheel_curve.length))
     else:
         wheel_s = 0.0
-    xw, yw, (twx, twy), _ = wheel_curve.eval(wheel_s)
-    cos_a, sin_a = _rotation_from_to(twx, twy, target_tx, target_ty)
+    xw, yw, _, _ = wheel_curve.eval(wheel_s)
+    cos_a, sin_a = wheel_orientation(s, base_curve, wheel_curve, side, epsilon=epsilon)
     xw_rot, yw_rot = _rotate(xw, yw, cos_a, sin_a)
     cx = xb - xw_rot
     cy = yb - yw_rot
