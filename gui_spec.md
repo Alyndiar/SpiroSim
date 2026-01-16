@@ -46,6 +46,10 @@ Widgets:
 - `QCheckBox`: Auto-compile
 - `QPushButton`: Compile
 
+Notes:
+- DSL stands for **domain-specific language**.
+- Canonical DSL uses uppercase identifiers.
+
 Debounce:
 - Use `QTimer` to debounce edits when Auto-compile is enabled (e.g., 250–400 ms).
 - Compilation emits results via signals to update preview and diagnostics.

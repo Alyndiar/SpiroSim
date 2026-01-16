@@ -17,6 +17,7 @@ from shape_dsl import (
     StraightPiece,
     EndcapPiece,
     IntersectionPiece,
+    normalize_dsl_text,
     parse_modular_expression,
 )
 from shape_geometry import ArcSegment, LineSegment, ModularTrackCurve, pen_position
@@ -437,7 +438,7 @@ def build_track_and_bundle_from_spec(
 
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
-    cleaned = "".join(ch for ch in text if not ch.isspace())
+    cleaned = normalize_dsl_text(text)
     if not cleaned:
         return "", "", False
     idx = 0
