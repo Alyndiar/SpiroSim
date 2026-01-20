@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Tuple
 import modular_tracks_2 as modular_tracks
 import modular_tracks_2_demo as modular_track_demo
 from shape_lab import ShapeDesignLabWindow
-from shape_dsl import DslParseError, normalize_dsl_text, parse_analytic_expression, parse_modular_expression
+from shape_rsdl import RsdlParseError, normalize_rsdl_text, parse_analytic_expression, parse_modular_expression
 from shape_geometry import (
     BaseCurve,
     ArcSegment,
@@ -196,7 +196,7 @@ def kelvin_to_rgb(temp_k: float) -> Tuple[int, int, int]:
 GEAR_TYPES = [
     "anneau",    # ring
     "roue",      # wheel
-    "dsl",
+    "rsdl",
     "modulaire",  # piste modulaire virtuelle (uniquement engrenage 1)
 ]
 
@@ -209,12 +209,12 @@ RELATIONS = [
 @dataclass
 class GearConfig:
     name: str = "Engrenage"
-    gear_type: str = "anneau"   # anneau, roue, dsl, modulaire
+    gear_type: str = "anneau"   # anneau, roue, rsdl, modulaire
     size: int = 96              # taille de la roue / taille intérieure de l'anneau
     outer_size: int = 144       # anneau : taille extérieure / anneau modulaire
     relation: str = "stationnaire"  # stationnaire / dedans / dehors
     modular_notation: Optional[str] = None  # notation de piste si gear_type == "modulaire"
-    dsl_expression: Optional[str] = None  # expression DSL si gear_type == "dsl"
+    rsdl_expression: Optional[str] = None  # expression RSDL si gear_type == "rsdl"
 
 
 @dataclass
@@ -328,8 +328,8 @@ def _curve_from_gear(gear: GearConfig, relation: str) -> Optional[BaseCurve]:
                 )
         return ModularTrackCurve(segments, closed=False)
 
-    if gear.gear_type == "dsl" and gear.dsl_expression:
-        spec = parse_analytic_expression(gear.dsl_expression)
+    if gear.gear_type == "rsdl" and gear.rsdl_expression:
+        spec = parse_analytic_expression(gear.rsdl_expression)
         return _curve_from_analytic_spec(spec, relation)
 
     if gear.gear_type == "anneau":
@@ -339,10 +339,10 @@ def _curve_from_gear(gear: GearConfig, relation: str) -> Optional[BaseCurve]:
 
 
 def _gear_perimeter(gear: GearConfig, relation: str) -> float:
-    if gear.gear_type == "dsl" and gear.dsl_expression:
+    if gear.gear_type == "rsdl" and gear.rsdl_expression:
         try:
-            spec = parse_analytic_expression(gear.dsl_expression)
-        except DslParseError:
+            spec = parse_analytic_expression(gear.rsdl_expression)
+        except RsdlParseError:
             return float(contact_size_for_relation(gear, relation))
         curve = _curve_from_analytic_spec(spec, relation)
         return curve.length
@@ -422,7 +422,7 @@ def generate_trochoid_points_for_layer_path(
 
     try:
         base_curve = _curve_from_gear(g0, relation)
-    except DslParseError:
+    except RsdlParseError:
         base_curve = None
 
     if base_curve is None or base_curve.length <= 0:
@@ -443,7 +443,7 @@ def generate_trochoid_points_for_layer_path(
     r = radius_from_size(wheel_size)
     if g1.gear_type == "anneau":
         tip_size = g1.outer_size or g1.size
-    elif g1.gear_type == "dsl" and g1.dsl_expression:
+    elif g1.gear_type == "rsdl" and g1.rsdl_expression:
         tip_size = wheel_size
     else:
         tip_size = g1.size
@@ -458,11 +458,11 @@ def generate_trochoid_points_for_layer_path(
             max_radius = max(max_radius, math.hypot(x, y))
         return max_radius
 
-    if g1.gear_type == "dsl" and g1.dsl_expression:
+    if g1.gear_type == "rsdl" and g1.rsdl_expression:
         wheel_curve = None
         try:
             wheel_curve = _curve_from_gear(g1, relation)
-        except DslParseError:
+        except RsdlParseError:
             wheel_curve = None
         tip_radius = _max_curve_radius(wheel_curve) if wheel_curve else radius_from_size(tip_size)
     else:
@@ -485,11 +485,11 @@ def generate_trochoid_points_for_layer_path(
         alpha0 = 0.0
 
     base_points = []
-    use_dsl_wheel = g1.gear_type == "dsl" and g1.dsl_expression
-    if use_dsl_wheel:
+    use_rsdl_wheel = g1.gear_type == "rsdl" and g1.rsdl_expression
+    if use_rsdl_wheel:
         try:
             wheel_curve = _curve_from_gear(g1, relation)
-        except DslParseError:
+        except RsdlParseError:
             wheel_curve = None
     else:
         wheel_curve = None
@@ -1393,8 +1393,8 @@ class LayerEditDialog(QDialog):
             modular_label = QLabel(tr(self.lang, "dlg_layer_gear_modular_notation"))
             modular_button = QPushButton("…")
             modular_button.setFixedWidth(28)
-            dsl_edit = QLineEdit()
-            dsl_label = QLabel(tr(self.lang, "dlg_layer_gear_dsl_expression"))
+            rsdl_edit = QLineEdit()
+            rsdl_label = QLabel(tr(self.lang, "dlg_layer_gear_rsdl_expression"))
 
             sub = QVBoxLayout()
             sub.addWidget(group_label)
@@ -1433,10 +1433,10 @@ class LayerEditDialog(QDialog):
             row6.addWidget(modular_button)
             sub.addLayout(row6)
 
-            # Ligne pour l'expression DSL
+            # Ligne pour l'expression RSDL
             row7 = QHBoxLayout()
-            row7.addWidget(dsl_label)
-            row7.addWidget(dsl_edit)
+            row7.addWidget(rsdl_label)
+            row7.addWidget(rsdl_edit)
             sub.addLayout(row7)
 
             layout.addRow(sub)
@@ -1458,8 +1458,8 @@ class LayerEditDialog(QDialog):
                 modular_label=modular_label,
                 modular_edit=modular_edit,
                 modular_button=modular_button,
-                dsl_label=dsl_label,
-                dsl_edit=dsl_edit,
+                rsdl_label=rsdl_label,
+                rsdl_edit=rsdl_edit,
             )
             modular_button.clicked.connect(
                 lambda _checked=False, gw=gw: self._open_modular_editor_from_widget(gw)
@@ -1505,9 +1505,9 @@ class LayerEditDialog(QDialog):
             gw["size_spin"].setValue(g.size)
             gw["outer_spin"].setValue(g.outer_size if g.outer_size > 0 else 0)
             modular_text = getattr(g, "modular_notation", "") or ""
-            dsl_text = getattr(g, "dsl_expression", "") or ""
-            gw["modular_edit"].setText(normalize_dsl_text(modular_text) if modular_text else "")
-            gw["dsl_edit"].setText(normalize_dsl_text(dsl_text) if dsl_text else "")
+            rsdl_text = getattr(g, "rsdl_expression", "") or ""
+            gw["modular_edit"].setText(normalize_rsdl_text(modular_text) if modular_text else "")
+            gw["rsdl_edit"].setText(normalize_rsdl_text(rsdl_text) if rsdl_text else "")
 
             rel_index = gw["rel_combo"].findData(g.relation)
             if rel_index < 0:
@@ -1542,9 +1542,9 @@ class LayerEditDialog(QDialog):
         gw["modular_label"].setVisible(is_modular)
         gw["modular_edit"].setVisible(is_modular)
         gw["modular_button"].setVisible(is_modular)
-        is_dsl = t == "dsl"
-        gw["dsl_label"].setVisible(is_dsl)
-        gw["dsl_edit"].setVisible(is_dsl)
+        is_rsdl = t == "rsdl"
+        gw["rsdl_label"].setVisible(is_rsdl)
+        gw["rsdl_edit"].setVisible(is_rsdl)
 
     def _open_modular_editor_from_widget(self, gw: dict):
         if gw.get("index", 0) != 0:
@@ -1552,7 +1552,7 @@ class LayerEditDialog(QDialog):
         if (gw["type_combo"].currentData() or gw["type_combo"].currentText()) != "modulaire":
             return
 
-        notation = normalize_dsl_text(gw["modular_edit"].text())
+        notation = normalize_rsdl_text(gw["modular_edit"].text())
         inner_size = gw["size_spin"].value()
         outer_size = gw["outer_spin"].value() or inner_size
 
@@ -1593,15 +1593,15 @@ class LayerEditDialog(QDialog):
 
             modular_notation = None
             if gear_type == "modulaire":
-                txt = normalize_dsl_text(gw["modular_edit"].text())
+                txt = normalize_rsdl_text(gw["modular_edit"].text())
                 if txt:
                     modular_notation = txt
 
-            dsl_expression = None
-            if gear_type == "dsl":
-                txt = normalize_dsl_text(gw["dsl_edit"].text())
+            rsdl_expression = None
+            if gear_type == "rsdl":
+                txt = normalize_rsdl_text(gw["rsdl_edit"].text())
                 if txt:
-                    dsl_expression = txt
+                    rsdl_expression = txt
 
             new_gears.append(
                 GearConfig(
@@ -1611,7 +1611,7 @@ class LayerEditDialog(QDialog):
                     outer_size=outer_size,
                     relation=rel,
                     modular_notation=modular_notation,
-                    dsl_expression=dsl_expression,
+                    rsdl_expression=rsdl_expression,
                 )
             )
         self.layer.gears = new_gears
@@ -1872,7 +1872,7 @@ class TrackTestDialog(QDialog):
         try:
             base_curve = _curve_from_gear(g0, relation)
             wheel_curve = _curve_from_gear(g1, relation)
-        except DslParseError:
+        except RsdlParseError:
             base_curve = None
             wheel_curve = None
 
@@ -1906,7 +1906,7 @@ class TrackTestDialog(QDialog):
         else:
             track = self._build_track_from_curve(base_curve)
 
-        tip_size = wheel_size if g1.gear_type == "dsl" else g1.size
+        tip_size = wheel_size if g1.gear_type == "rsdl" else g1.size
         side = 1 if relation == "dedans" else -1
         epsilon = side
         alpha0 = math.pi if relation == "dedans" and isinstance(base_curve, CircleCurve) else 0.0
@@ -2128,8 +2128,8 @@ class LayerManagerDialog(QDialog):
             else:
                 type_name = type_name.lower()
 
-            if g.gear_type == "dsl" and getattr(g, "dsl_expression", None):
-                size_str = g.dsl_expression
+            if g.gear_type == "rsdl" and getattr(g, "rsdl_expression", None):
+                size_str = g.rsdl_expression
             elif g.gear_type in ("anneau", "modulaire") and g.outer_size > 0:
                 size_str = f"{g.outer_size}/{g.size}"
             else:
@@ -2160,7 +2160,7 @@ class LayerManagerDialog(QDialog):
         try:
             base_curve = _curve_from_gear(g0, relation)
             wheel_curve = _curve_from_gear(g1, relation)
-        except DslParseError:
+        except RsdlParseError:
             return False
         return (
             base_curve is not None
@@ -2896,11 +2896,11 @@ class ModularTrackEditorDialog(QDialog):
         self.update_track()
 
     def result_notation(self) -> str:
-        return normalize_dsl_text(self.notation_edit.text())
+        return normalize_rsdl_text(self.notation_edit.text())
 
     def update_track(self):
         text = self.notation_edit.text()
-        normalized = normalize_dsl_text(text)
+        normalized = normalize_rsdl_text(text)
         if normalized != text:
             self.notation_edit.blockSignals(True)
             self.notation_edit.setText(normalized)
@@ -3663,7 +3663,7 @@ class SpiroWindow(QWidget):
                     "outer_size": g.outer_size,
                     "relation": g.relation,
                     "modular_notation": getattr(g, "modular_notation", None),
-                    "dsl_expression": getattr(g, "dsl_expression", None),
+                    "rsdl_expression": getattr(g, "rsdl_expression", None),
                 })
             for p in layer.paths:
                 data_layer["paths"].append({
@@ -3695,7 +3695,7 @@ class SpiroWindow(QWidget):
                         outer_size=int(gd.get("outer_size", 0)),
                         relation=gd.get("relation", "stationnaire"),
                         modular_notation=gd.get("modular_notation"),
-                        dsl_expression=gd.get("dsl_expression"),
+                        rsdl_expression=gd.get("rsdl_expression"),
                     )
                 )
             paths = []

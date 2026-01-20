@@ -98,7 +98,7 @@ configure:
 
 - **Name**: label displayed in the manager.
 - **Type**:
-  - `ring`, `wheel`, `dsl`
+  - `ring`, `wheel`, `rsdl`
   - `modular` (modular track base, only allowed for Gear 1)
 - **Size (wheel / inner ring)**: size for the wheel or inner ring.
 - **Outer size (ring)**: outer size for ring-type gears.
@@ -181,9 +181,9 @@ Angles and lengths can be integer or decimal values.
 This builds a 90° left arc, a 40-unit straight, an endcap, then continues
 on the next branch with another 90° left arc.
 
-## Shape Design Lab DSL (Analytic)
+## Shape Design Lab RSDL (Analytic)
 
-The DSL (domain-specific language) defines analytic expressions that describe
+The RSDL (rolling surface definition language) defines analytic expressions that describe
 single closed pitch curves used as gears, hoops, or tracks:
 
 - `C N` : circle with perimeter `N` (parentheses optional for single values)

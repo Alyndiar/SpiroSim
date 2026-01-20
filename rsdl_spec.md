@@ -1,10 +1,10 @@
-# Shape Design Lab – Algebraic DSL Specification
+# Shape Design Lab – Algebraic RSDL Specification
 
 ## 1. Purpose
 
-This document defines the **algebraic domain-specific language (DSL)** used by SpiroSim’s Shape Design Lab to describe **gears, hoops, and tracks**.
+This document defines the **algebraic rolling surface definition language (RSDL)** used by SpiroSim’s Shape Design Lab to describe **gears, hoops, and tracks**.
 
-The DSL is the **single source of truth** for shape definition. All geometry is derived from it.
+The RSDL is the **single source of truth** for shape definition. All geometry is derived from it.
 
 ---
 
@@ -16,7 +16,7 @@ The DSL is the **single source of truth** for shape definition. All geometry is 
 - “Size” refers to **arc-length perimeter** (or arc-length along a segment).
 - Shapes are assumed **continuous** and intended for **slipless rolling** in the solver.
 - Whitespace is ignored.
-- DSL is case-insensitive; canonical form uses **uppercase** identifiers.
+- RSDL is case-insensitive; canonical form uses **uppercase** identifiers.
 
 ### 2.1 Roles (Usage Context)
 
@@ -25,7 +25,7 @@ The same geometric curve can be used as:
 - **Hoop** (an inner boundary a gear rolls inside)
 - **Track** (modular piecewise path)
 
-The DSL itself does not encode role; role is assigned by the caller/UI at export time.
+The RSDL itself does not encode role; role is assigned by the caller/UI at export time.
 
 ---
 
@@ -144,7 +144,7 @@ L(100, 1/1)  # circle-like
 
 ---
 
-## 4. Modular Track DSL (Piecewise + Topology)
+## 4. Modular Track RSDL (Piecewise + Topology)
 
 Modular track expressions compile to a **curve graph** (`CurveGraph2D`) and optionally to one or more traversable `Curve2D` routes.
 
@@ -219,8 +219,8 @@ Rules:
 ## 5. Canonical Formatting and Round-Trip Editing
 
 The system should support:
-- DSL text → AST → canonical DSL text
-- UI parameter edits → AST update → canonical DSL text update
+- RSDL text → AST → canonical RSDL text
+- UI parameter edits → AST update → canonical RSDL text update
 
 Canonical formatting rules (recommended):
 - No extraneous whitespace
@@ -233,8 +233,8 @@ Canonical formatting rules (recommended):
 
 ## 6. Design Guarantees
 
-- Any valid DSL expression produces:
+- Any valid RSDL expression produces:
   - a closed `Curve2D` (analytic shapes), or
   - a `CurveGraph2D` (modular tracks)
-- The DSL does not encode UI, rendering style, or solver settings.
+- The RSDL does not encode UI, rendering style, or solver settings.
 - Self-intersections are permitted; correctness is based on arc-length continuity and tangent continuity.

@@ -62,7 +62,7 @@
     "dlg_layer_gear_outer": "Outer size (ring):",
     "dlg_layer_gear_relation": "Relation:",
     "dlg_layer_gear_modular_notation": "Modular track (notation):",
-    "dlg_layer_gear_dsl_expression": "DSL expression:",
+    "dlg_layer_gear_rsdl_expression": "RSDL expression:",
     "dlg_ok": "OK",
     "dlg_cancel": "Cancel",
     "dlg_about_title": "About",
@@ -133,7 +133,7 @@
   "gear_type_labels": {
     "anneau": "ring",
     "roue": "wheel",
-    "dsl": "DSL",
+    "rsdl": "RSDL",
     "modulaire": "modular"
   },
   "relation_labels": {

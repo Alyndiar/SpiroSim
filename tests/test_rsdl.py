@@ -1,8 +1,8 @@
-from shape_dsl import ArcPiece, PolygonSpec, normalize_dsl_text, parse_analytic_expression, parse_modular_expression
+from shape_rsdl import ArcPiece, PolygonSpec, normalize_rsdl_text, parse_analytic_expression, parse_modular_expression
 
 
-def test_normalize_dsl_text_uppercases_and_strips():
-    assert normalize_dsl_text(" c( 96 ) ") == "C(96)"
+def test_normalize_rsdl_text_uppercases_and_strips():
+    assert normalize_rsdl_text(" c( 96 ) ") == "C(96)"
 
 
 def test_parse_analytic_expression_case_insensitive():
