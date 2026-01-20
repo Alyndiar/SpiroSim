@@ -1,5 +1,5 @@
 """
-Modular track engine based on the DSL defined in dsl_spec.md.
+Modular track engine based on the RSDL defined in rsdl_spec.md.
 Implements arcs A(θ), straights S(L), endcaps E, and intersections I<n>.
 """
 from __future__ import annotations
@@ -8,8 +8,8 @@ import math
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from shape_dsl import (
-    DslParseError,
+from shape_rsdl import (
+    RsdlParseError,
     ModularTrackSpec,
     TrackOperator,
     TrackStep,
@@ -17,6 +17,7 @@ from shape_dsl import (
     StraightPiece,
     EndcapPiece,
     IntersectionPiece,
+    normalize_rsdl_text,
     parse_modular_expression,
 )
 from shape_geometry import ArcSegment, LineSegment, ModularTrackCurve, pen_position
@@ -437,7 +438,7 @@ def build_track_and_bundle_from_spec(
 
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
-    cleaned = "".join(ch for ch in text if not ch.isspace())
+    cleaned = normalize_rsdl_text(text)
     if not cleaned:
         return "", "", False
     idx = 0
@@ -490,7 +491,7 @@ def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
 def parse_track_notation(text: str) -> ModularTrackSpec:
     try:
         return parse_modular_expression(text)
-    except DslParseError:
+    except RsdlParseError:
         return ModularTrackSpec(steps=[])
 
 

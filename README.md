@@ -98,7 +98,7 @@ configure:
 
 - **Name**: label displayed in the manager.
 - **Type**:
-  - `ring`, `wheel`, `triangle`, `square`, `bar`, `cross`, `eye`
+  - `ring`, `wheel`, `rsdl`
   - `modular` (modular track base, only allowed for Gear 1)
 - **Size (wheel / inner ring)**: size for the wheel or inner ring.
 - **Outer size (ring)**: outer size for ring-type gears.
@@ -136,7 +136,8 @@ It also includes bulk enable/disable for all paths in a layer.
 
 Tracks are defined by a compact algebraic notation made of blocks, written as
 `letter + number` pieces separated by operators `+`, `-`, or `*`. Whitespace is
-ignored, and the entire string is case-insensitive.
+ignored, and the entire string is case-insensitive (canonical form uses
+uppercase).
 
 ## Local GitVersion metadata
 
@@ -180,10 +181,10 @@ Angles and lengths can be integer or decimal values.
 This builds a 90° left arc, a 40-unit straight, an endcap, then continues
 on the next branch with another 90° left arc.
 
-## Shape Design Lab DSL (Analytic)
+## Shape Design Lab RSDL (Analytic)
 
-Analytic expressions define single closed pitch curves that can be used as
-gears, hoops, or tracks:
+The RSDL (rolling surface definition language) defines analytic expressions that describe
+single closed pitch curves used as gears, hoops, or tracks:
 
 - `C N` : circle with perimeter `N` (parentheses optional for single values)
 - `R(Ni,No)` : ring reference with inner/outer perimeters

@@ -90,7 +90,7 @@ class ModularTrackSpec:
     steps: List[TrackStep]
 
 
-class DslParseError(ValueError):
+class RsdlParseError(ValueError):
     pass
 
 
@@ -98,10 +98,14 @@ def _clean_expr(expr: str) -> str:
     return "".join(ch for ch in expr if not ch.isspace())
 
 
+def normalize_rsdl_text(expr: str) -> str:
+    return _clean_expr(expr).upper()
+
+
 def parse_analytic_expression(expr: str) -> AnalyticSpec:
-    cleaned = _clean_expr(expr)
+    cleaned = normalize_rsdl_text(expr)
     if not cleaned:
-        raise DslParseError("Empty expression")
+        raise RsdlParseError("Empty expression")
 
     circle_match = re.fullmatch(rf"C(?:\(({_NUM_RE})\)|({_NUM_RE}))", cleaned)
     if circle_match:
@@ -142,11 +146,11 @@ def parse_analytic_expression(expr: str) -> AnalyticSpec:
             float(ellipse_match.group(3)),
         )
 
-    raise DslParseError(f"Unrecognized analytic DSL: {expr}")
+    raise RsdlParseError(f"Unrecognized analytic RSDL: {expr}")
 
 
 def parse_modular_expression(expr: str) -> ModularTrackSpec:
-    cleaned = _clean_expr(expr)
+    cleaned = normalize_rsdl_text(expr)
     if not cleaned:
         return ModularTrackSpec(steps=[])
 
@@ -175,7 +179,7 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
                 require_orientation = True
                 continue
         elif require_orientation:
-            raise DslParseError("Expected '+' or '-' after '*' to set orientation")
+            raise RsdlParseError("Expected '+' or '-' after '*' to set orientation")
         require_orientation = False
         if idx >= len(cleaned):
             break
@@ -186,14 +190,14 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
                 idx += 1
                 value, idx = _parse_number(idx)
                 if value is None:
-                    raise DslParseError("Expected arc sweep value")
+                    raise RsdlParseError("Expected arc sweep value")
                 if idx >= len(cleaned) or cleaned[idx] != ")":
-                    raise DslParseError("Expected ')' after arc value")
+                    raise RsdlParseError("Expected ')' after arc value")
                 idx += 1
             else:
                 value, idx = _parse_number(idx)
             if value is None:
-                raise DslParseError("Expected arc sweep value")
+                raise RsdlParseError("Expected arc sweep value")
             piece: TrackPiece = ArcPiece(value)
         elif cleaned[idx] in {"S", "L"}:
             idx += 1
@@ -201,14 +205,14 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
                 idx += 1
                 value, idx = _parse_number(idx)
                 if value is None:
-                    raise DslParseError("Expected straight length")
+                    raise RsdlParseError("Expected straight length")
                 if idx >= len(cleaned) or cleaned[idx] != ")":
-                    raise DslParseError("Expected ')' after straight length")
+                    raise RsdlParseError("Expected ')' after straight length")
                 idx += 1
             else:
                 value, idx = _parse_number(idx)
             if value is None:
-                raise DslParseError("Expected straight length")
+                raise RsdlParseError("Expected straight length")
             piece = StraightPiece(value)
         elif cleaned[idx] == "E":
             idx += 1
@@ -216,13 +220,13 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
         elif cleaned[idx] == "I":
             idx += 1
             if idx >= len(cleaned) or not cleaned[idx].isdigit():
-                raise DslParseError("Expected intersection branch count")
+                raise RsdlParseError("Expected intersection branch count")
             value, idx = _parse_number(idx)
             if value is None:
-                raise DslParseError("Expected intersection branch count")
+                raise RsdlParseError("Expected intersection branch count")
             piece = IntersectionPiece(int(value))
         else:
-            raise DslParseError(f"Unexpected token at position {idx}: '{cleaned[idx]}'")
+            raise RsdlParseError(f"Unexpected token at position {idx}: '{cleaned[idx]}'")
 
         steps.append(TrackStep(TrackOperator(op_char, jump_index), piece))
 
@@ -230,5 +234,5 @@ def parse_modular_expression(expr: str) -> ModularTrackSpec:
 
 
 def is_modular_expression(expr: str) -> bool:
-    cleaned = _clean_expr(expr)
+    cleaned = normalize_rsdl_text(expr)
     return cleaned.startswith(("A", "S", "L", "E", "I", "+", "-", "*"))

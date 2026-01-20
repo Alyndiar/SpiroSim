@@ -62,7 +62,7 @@
     "dlg_layer_gear_outer": "Taille ext. (anneau) :",
     "dlg_layer_gear_relation": "Relation :",
     "dlg_layer_gear_modular_notation": "Piste modulaire (notation) :",
-    "dlg_layer_gear_dsl_expression": "Expression DSL :",
+    "dlg_layer_gear_rsdl_expression": "Expression RSDL :",
     "dlg_ok": "OK",
     "dlg_cancel": "Annuler",
     "dlg_about_title": "À propos",
@@ -133,12 +133,7 @@
   "gear_type_labels": {
     "anneau": "anneau",
     "roue": "roue",
-    "triangle": "triangle",
-    "carré": "carré",
-    "barre": "barre",
-    "croix": "croix",
-    "oeil": "oeil",
-    "dsl": "DSL",
+    "rsdl": "RSDL",
     "modulaire": "modulaire"
   },
   "relation_labels": {

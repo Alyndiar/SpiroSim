@@ -144,11 +144,8 @@ class ModularTrackDemo(QWidget):
             points=[],
             width=0.0,
             half_width=0.0,
-            left_length=0.0,
-            right_length=0.0,
             inner_length=0.0,
             outer_length=0.0,
-            inner_side="both",
             origin_offset=0.0,
             origin_angle_offset=0.0,
             ring=modular_tracks.ReferenceRing(),
@@ -168,6 +165,9 @@ class ModularTrackDemo(QWidget):
         self.track_marker_indices: List[int] = []
         self.roll_sign = 0.0
         self.current_step = 0
+        self.wheel_orientations: List[Tuple[float, float]] = []
+        self.wheel_shape_local: List[Point] = []
+        self.wheel_marker_local: Point | None = None
 
         self.set_configuration(
             notation=notation,
@@ -240,6 +240,9 @@ class ModularTrackDemo(QWidget):
             self.track_marker_indices = []
             self.roll_sign = 0.0
             self.current_step = 0
+            self.wheel_orientations = []
+            self.wheel_shape_local = []
+            self.wheel_marker_local = None
             self._progress = 0.0
             self._full_path = False
             self._update_viewport()
@@ -268,6 +271,9 @@ class ModularTrackDemo(QWidget):
         self.track_marker_indices = track_marker_indices
         self.roll_sign = roll_sign
         self.current_step = 0
+        self.wheel_orientations = []
+        self.wheel_shape_local = []
+        self.wheel_marker_local = None
         self._progress = 0.0
         self._full_path = False
 
@@ -277,6 +283,97 @@ class ModularTrackDemo(QWidget):
         self.track.points = _scale_pts(centerline)
         self.inner_side = _scale_pts(inner)
         self.outer_side = _scale_pts(outer)
+
+        self._update_viewport()
+        self.update()
+
+    def set_debug_sequences(
+        self,
+        *,
+        track: modular_tracks.TrackBuildResult,
+        stylo_points: List[Point],
+        wheel_centers: List[Point],
+        contact_points: List[Point],
+        markers_angle0: List[Point],
+        track_markers: List[Tuple[Point, Point]],
+        r_wheel: float,
+        wheel_size_count: int,
+        track_size_count: int,
+        wheel_marker_indices: List[int],
+        track_marker_indices: List[int],
+        roll_sign: float,
+        wheel_orientations: List[Tuple[float, float]],
+        wheel_shape_local: List[Point],
+        wheel_marker_local: Point | None,
+        scale: float = 1.0,
+    ):
+        def _scale_pts(pts: List[Point]) -> List[Point]:
+            if scale == 1.0:
+                return pts
+            return [(x * scale, y * scale) for (x, y) in pts]
+
+        if not track.segments:
+            self.track = track
+            self.track.points = []
+            self.stylo_points = []
+            self.wheel_centers = []
+            self.contact_points = []
+            self.markers_angle0 = []
+            self.inner_side = []
+            self.outer_side = []
+            self.track_markers = []
+            self.half_width = 0.0
+            self.r_wheel = 0.0
+            self.wheel_size_count = 0
+            self.track_size_count = 0
+            self.wheel_marker_indices = []
+            self.track_marker_indices = []
+            self.roll_sign = 0.0
+            self.current_step = 0
+            self.wheel_orientations = []
+            self.wheel_shape_local = []
+            self.wheel_marker_local = None
+            self._progress = 0.0
+            self._full_path = False
+            self._update_viewport()
+            self.update()
+            return
+
+        self.track = track
+        self.track.points = _scale_pts(track.points or [])
+        self.stylo_points = _scale_pts(stylo_points)
+        self.wheel_centers = _scale_pts(wheel_centers)
+        self.contact_points = _scale_pts(contact_points)
+        self.markers_angle0 = _scale_pts(markers_angle0)
+        self.track_markers = [
+            (_scale_pts([a])[0], _scale_pts([b])[0]) for (a, b) in track_markers
+        ]
+        self.half_width = track.half_width * scale
+        self.r_wheel = r_wheel * scale
+        self.wheel_size_count = wheel_size_count
+        self.track_size_count = track_size_count
+        self.wheel_marker_indices = wheel_marker_indices
+        self.track_marker_indices = track_marker_indices
+        self.roll_sign = roll_sign
+        self.current_step = 0
+        self.wheel_orientations = wheel_orientations
+        self.wheel_shape_local = _scale_pts(wheel_shape_local)
+        self.wheel_marker_local = _scale_pts([wheel_marker_local])[0] if wheel_marker_local else None
+        self._progress = 0.0
+        self._full_path = False
+
+        centerline, inner, outer, _ = modular_tracks.compute_track_polylines(
+            track, samples=800, half_width=track.half_width
+        )
+        self.track.points = _scale_pts(centerline)
+        self.inner_side = _scale_pts(inner)
+        self.outer_side = _scale_pts(outer)
+
+        if self.wheel_centers and self.wheel_shape_local:
+            self.r_wheel = max(
+                self.r_wheel,
+                max(math.hypot(x, y) for x, y in self.wheel_shape_local) if self.wheel_shape_local else 0.0,
+            )
 
         self._update_viewport()
         self.update()
@@ -371,6 +468,26 @@ class ModularTrackDemo(QWidget):
             return
         painter.drawPolyline(self._map_points(pts))
 
+    def _draw_transformed_shape(
+        self,
+        painter: QPainter,
+        points: List[Point],
+        center: Point,
+        cos_a: float,
+        sin_a: float,
+    ):
+        if len(points) < 2:
+            return
+        dx, dy = getattr(self, "_offset", (0.0, 0.0))
+        mapped = [
+            QPointF(
+                center[0] + dx + (x * cos_a - y * sin_a),
+                center[1] + dy + (x * sin_a + y * cos_a),
+            )
+            for (x, y) in points
+        ]
+        painter.drawPolyline(mapped)
+
     def paintEvent(self, event):  # noqa: N802 - signature imposée par Qt
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
@@ -420,11 +537,15 @@ class ModularTrackDemo(QWidget):
 
         # Roue
         painter.setPen(QPen(QColor("#1f77b4"), 0))
-        painter.drawEllipse(
-            QPointF(wheel_center[0] + self._offset[0], wheel_center[1] + self._offset[1]),
-            self.r_wheel,
-            self.r_wheel,
-        )
+        if self.wheel_shape_local and idx < len(self.wheel_orientations):
+            cos_a, sin_a = self.wheel_orientations[idx]
+            self._draw_transformed_shape(painter, self.wheel_shape_local, wheel_center, cos_a, sin_a)
+        else:
+            painter.drawEllipse(
+                QPointF(wheel_center[0] + self._offset[0], wheel_center[1] + self._offset[1]),
+                self.r_wheel,
+                self.r_wheel,
+            )
 
         if self.wheel_size_count > 0:
             tick_len = max(self.r_wheel * 0.12, 0.8)
@@ -448,11 +569,17 @@ class ModularTrackDemo(QWidget):
 
         # Marqueur d'angle 0 sur le bord de la roue (permet de suivre la rotation).
         painter.setPen(QPen(QColor("#000000"), 0))
-        painter.drawEllipse(
-            QPointF(marker0[0] + self._offset[0], marker0[1] + self._offset[1]),
-            1.2,
-            1.2,
-        )
+        if self.wheel_marker_local and idx < len(self.wheel_orientations):
+            cos_a, sin_a = self.wheel_orientations[idx]
+            mx = wheel_center[0] + (self.wheel_marker_local[0] * cos_a - self.wheel_marker_local[1] * sin_a)
+            my = wheel_center[1] + (self.wheel_marker_local[0] * sin_a + self.wheel_marker_local[1] * cos_a)
+            painter.drawEllipse(QPointF(mx + self._offset[0], my + self._offset[1]), 1.2, 1.2)
+        else:
+            painter.drawEllipse(
+                QPointF(marker0[0] + self._offset[0], marker0[1] + self._offset[1]),
+                1.2,
+                1.2,
+            )
 
         # Point de contact
         painter.setPen(QPen(QColor("#ff9900"), 0))
@@ -460,7 +587,7 @@ class ModularTrackDemo(QWidget):
 
         # Trou / stylo courant
         painter.setPen(QPen(QColor("#e62739"), 0))
-        painter.drawEllipse(QPointF(hole[0] + self._offset[0], hole[1] + self._offset[1]), 1.5, 1.5)
+        painter.drawEllipse(QPointF(hole[0] + self._offset[0], hole[1] + self._offset[1]), 1.0, 1.0)
 
         painter.resetTransform()
         bg_color = self.palette().color(self.backgroundRole())

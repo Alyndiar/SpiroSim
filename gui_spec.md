@@ -40,11 +40,15 @@ Widgets:
 - `QComboBox`: `Analytic` / `Modular`
 - Changing mode updates visible inputs and compiler pipeline.
 
-### 3.2 DSL Editor
+### 3.2 RSDL Editor
 Widgets:
-- `QPlainTextEdit` for the main DSL expression
+- `QPlainTextEdit` for the main RSDL expression
 - `QCheckBox`: Auto-compile
 - `QPushButton`: Compile
+
+Notes:
+- RSDL stands for **rolling surface definition language**.
+- Canonical RSDL uses uppercase identifiers.
 
 Debounce:
 - Use `QTimer` to debounce edits when Auto-compile is enabled (e.g., 250–400 ms).
@@ -74,7 +78,7 @@ Widgets:
 
 Controls mapping:
 
-| DSL Node | Controls |
+| RSDL Node | Controls |
 |---|---|
 | `P<n>` | n, T, S, C |
 | `d` | T, O, H, L |
@@ -85,7 +89,7 @@ Controls mapping:
 
 Round-trip requirement:
 - UI edits update AST
-- AST prints canonical DSL back into the editor
+- AST prints canonical RSDL back into the editor
 
 ---
 
@@ -162,7 +166,7 @@ Widgets:
 - `QPushButton`: Export
 
 Export produces a `ShapeAsset` containing:
-- canonical DSL
+- canonical RSDL
 - compiled curve/graph
 - computed metrics
 - role metadata
@@ -203,7 +207,7 @@ Preview performance:
 
 ## 10. Design Guarantees
 
-- The GUI never mutates geometry directly; it edits DSL and parameters.
-- DSL is authoritative.
+- The GUI never mutates geometry directly; it edits RSDL and parameters.
+- RSDL is authoritative.
 - Any previewable analytic shape is exportable.
 - No changes are required to the existing rolling solver to adopt exported analytic shapes.
