@@ -243,6 +243,24 @@ def build_rounded_polygon(perimeter: float, sides: int, side_size: float, corner
             sequence.append((r_side, alpha))
             sequence.append((r_corner, beta))
     builder = PathBuilder()
+    if sequence:
+        first_radius, first_sweep = sequence[0]
+        half_sweep = first_sweep / 2.0
+        if half_sweep != 0:
+            delta = math.radians(half_sweep)
+            left_x = -math.sin(builder._heading)
+            left_y = math.cos(builder._heading)
+            sign = 1.0 if delta >= 0 else -1.0
+            center = (
+                builder._x + left_x * first_radius * sign,
+                builder._y + left_y * first_radius * sign,
+            )
+            angle_start = math.atan2(builder._y - center[1], builder._x - center[0])
+            angle_mid = angle_start + delta
+            builder._x = center[0] + first_radius * math.cos(angle_mid)
+            builder._y = center[1] + first_radius * math.sin(angle_mid)
+            builder._heading += delta
+            sequence = [(first_radius, half_sweep)] + sequence[1:] + [(first_radius, half_sweep)]
     for radius, sweep in sequence:
         builder.arc(radius, sweep)
     return build_piecewise_from_builder(builder, closed=True)

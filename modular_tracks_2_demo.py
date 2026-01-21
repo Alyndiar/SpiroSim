@@ -17,7 +17,7 @@ import math
 import sys
 from typing import List, Tuple
 
-from PySide6.QtCore import QPointF, QTimer
+from PySide6.QtCore import QPointF, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -113,6 +113,8 @@ def _compute_animation_sequences(
 class ModularTrackDemo(QWidget):
     """Widget simple qui anime le tracé d'une piste modulaire."""
 
+    animation_finished = Signal()
+
     def __init__(
         self,
         parent=None,
@@ -168,6 +170,7 @@ class ModularTrackDemo(QWidget):
         self.wheel_orientations: List[Tuple[float, float]] = []
         self.wheel_shape_local: List[Point] = []
         self.wheel_marker_local: Point | None = None
+        self.wheel_shape_center_local: Point | None = None
 
         self.set_configuration(
             notation=notation,
@@ -243,6 +246,7 @@ class ModularTrackDemo(QWidget):
             self.wheel_orientations = []
             self.wheel_shape_local = []
             self.wheel_marker_local = None
+            self.wheel_shape_center_local = None
             self._progress = 0.0
             self._full_path = False
             self._update_viewport()
@@ -274,6 +278,7 @@ class ModularTrackDemo(QWidget):
         self.wheel_orientations = []
         self.wheel_shape_local = []
         self.wheel_marker_local = None
+        self.wheel_shape_center_local = None
         self._progress = 0.0
         self._full_path = False
 
@@ -305,6 +310,7 @@ class ModularTrackDemo(QWidget):
         wheel_orientations: List[Tuple[float, float]],
         wheel_shape_local: List[Point],
         wheel_marker_local: Point | None,
+        wheel_shape_center_local: Point | None = None,
         scale: float = 1.0,
     ):
         def _scale_pts(pts: List[Point]) -> List[Point]:
@@ -333,6 +339,7 @@ class ModularTrackDemo(QWidget):
             self.wheel_orientations = []
             self.wheel_shape_local = []
             self.wheel_marker_local = None
+            self.wheel_shape_center_local = None
             self._progress = 0.0
             self._full_path = False
             self._update_viewport()
@@ -359,6 +366,9 @@ class ModularTrackDemo(QWidget):
         self.wheel_orientations = wheel_orientations
         self.wheel_shape_local = _scale_pts(wheel_shape_local)
         self.wheel_marker_local = _scale_pts([wheel_marker_local])[0] if wheel_marker_local else None
+        self.wheel_shape_center_local = (
+            _scale_pts([wheel_shape_center_local])[0] if wheel_shape_center_local else None
+        )
         self._progress = 0.0
         self._full_path = False
 
@@ -409,10 +419,14 @@ class ModularTrackDemo(QWidget):
         if not self.stylo_points or self._full_path:
             return
         dt = self._interval_ms / 1000.0
-        self._progress = (self._progress + self._speed_pts_per_s * dt) % float(
-            len(self.stylo_points)
-        )
-        self.current_step = int(self._progress) % len(self.stylo_points)
+        self._progress += self._speed_pts_per_s * dt
+        final_index = max(0, len(self.stylo_points) - 1)
+        if self._progress >= float(final_index):
+            self.current_step = final_index
+            self.stop_animation()
+            self.animation_finished.emit()
+        else:
+            self.current_step = int(self._progress)
         self.update()
 
     def _update_viewport(self):
@@ -422,6 +436,8 @@ class ModularTrackDemo(QWidget):
         all_points.extend(self.wheel_centers)
         all_points.extend(self.contact_points)
         all_points.extend(self.markers_angle0)
+        if self.wheel_shape_center_local:
+            all_points.append(self.wheel_shape_center_local)
         for a, b in self.track_markers:
             all_points.append(a)
             all_points.append(b)
@@ -580,6 +596,32 @@ class ModularTrackDemo(QWidget):
                 1.2,
                 1.2,
             )
+
+        if self.wheel_shape_center_local and idx < len(self.wheel_orientations):
+            cos_a, sin_a = self.wheel_orientations[idx]
+            cx = wheel_center[0] + (
+                self.wheel_shape_center_local[0] * cos_a - self.wheel_shape_center_local[1] * sin_a
+            )
+            cy = wheel_center[1] + (
+                self.wheel_shape_center_local[0] * sin_a + self.wheel_shape_center_local[1] * cos_a
+            )
+            screen_point = painter.transform().map(
+                QPointF(cx + self._offset[0], cy + self._offset[1])
+            )
+            painter.save()
+            painter.resetTransform()
+            pen = QPen(QColor("#e74c3c"), 1)
+            painter.setPen(pen)
+            half = 2.5
+            painter.drawLine(
+                QPointF(screen_point.x() - half, screen_point.y()),
+                QPointF(screen_point.x() + half, screen_point.y()),
+            )
+            painter.drawLine(
+                QPointF(screen_point.x(), screen_point.y() - half),
+                QPointF(screen_point.x(), screen_point.y() + half),
+            )
+            painter.restore()
 
         # Point de contact
         painter.setPen(QPen(QColor("#ff9900"), 0))
