@@ -10,13 +10,13 @@ import time
 import os
 import subprocess
 from pathlib import Path
-from html import escape  # <-- AJOUT ICI
+from html import escape
 from generated_colors import COLOR_NAME_TO_HEX
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-import modular_tracks_2 as modular_tracks
-import modular_tracks_2_demo as modular_track_demo
+import modular_tracks as modular_tracks
+import modular_tracks_demo as modular_track_demo
 from shape_lab import ShapeDesignLabDialog, ShapeDesignLabWindow
 from shape_rsdl import RsdlParseError, normalize_rsdl_text, parse_analytic_expression, parse_modular_expression
 from shape_geometry import (
@@ -58,9 +58,9 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QMenu,
     QFileDialog,
-    QSlider,          # <-- AJOUT
-    QListWidget,      # <-- AJOUT
-    QListWidgetItem,  # <-- AJOUT
+    QSlider,
+    QListWidget,
+    QListWidgetItem,
     QStyle,
     QSizePolicy,
 )
@@ -74,7 +74,7 @@ from PySide6.QtGui import (
     QPixmap,
     QDesktopServices,
     QPainterPath,
-    QPen,   # <-- AJOUT ICI
+    QPen,
 )
 from PySide6.QtCore import (
     QByteArray, 
@@ -88,7 +88,7 @@ from PySide6.QtCore import (
     QStandardPaths,
 )
 from PySide6.QtSvgWidgets import QSvgWidget
-from PySide6.QtSvg import QSvgRenderer   # <-- AJOUTÉ
+from PySide6.QtSvg import QSvgRenderer
 
 # ----- Constante : unités normalisées -----
 # Les tailles et distances sont désormais exprimées en unités abstraites,
