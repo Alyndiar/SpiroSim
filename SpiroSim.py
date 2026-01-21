@@ -495,6 +495,24 @@ def _align_base_curve_for_rsdl(
     return _align_stationary_polygon_curve(stationary_gear, base_curve)
 
 
+def _align_base_curve_start(
+    base_curve: Optional[BaseCurve],
+    stationary_gear: GearConfig,
+    rolling_gear: GearConfig,
+    relation: str,
+) -> Optional[BaseCurve]:
+    base_curve = _align_base_curve_for_rsdl(base_curve, stationary_gear, rolling_gear)
+    if base_curve is None:
+        return None
+    if (
+        relation == "dedans"
+        and isinstance(base_curve, CircleCurve)
+        and not (rolling_gear.gear_type == "rsdl" and rolling_gear.rsdl_expression)
+    ):
+        return _align_curve_start_to_top(base_curve)
+    return base_curve
+
+
 def generate_trochoid_points_for_layer_path(
     layer: LayerConfig,
     path: PathConfig,
@@ -543,7 +561,7 @@ def generate_trochoid_points_for_layer_path(
 
     try:
         base_curve = _curve_from_gear(g0, relation)
-        base_curve = _align_base_curve_for_rsdl(base_curve, g0, g1)
+        base_curve = _align_base_curve_start(base_curve, g0, g1, relation)
     except RsdlParseError:
         base_curve = None
 
@@ -2183,7 +2201,7 @@ class TrackTestDialog(QDialog):
 
         try:
             base_curve = _curve_from_gear(g0, relation)
-            base_curve = _align_base_curve_for_rsdl(base_curve, g0, g1)
+            base_curve = _align_base_curve_start(base_curve, g0, g1, relation)
             wheel_curve = _curve_from_gear(g1, relation)
         except RsdlParseError:
             base_curve = None
