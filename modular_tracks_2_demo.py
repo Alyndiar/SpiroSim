@@ -168,6 +168,7 @@ class ModularTrackDemo(QWidget):
         self.wheel_orientations: List[Tuple[float, float]] = []
         self.wheel_shape_local: List[Point] = []
         self.wheel_marker_local: Point | None = None
+        self.wheel_shape_center_local: Point | None = None
 
         self.set_configuration(
             notation=notation,
@@ -243,6 +244,7 @@ class ModularTrackDemo(QWidget):
             self.wheel_orientations = []
             self.wheel_shape_local = []
             self.wheel_marker_local = None
+            self.wheel_shape_center_local = None
             self._progress = 0.0
             self._full_path = False
             self._update_viewport()
@@ -274,6 +276,7 @@ class ModularTrackDemo(QWidget):
         self.wheel_orientations = []
         self.wheel_shape_local = []
         self.wheel_marker_local = None
+        self.wheel_shape_center_local = None
         self._progress = 0.0
         self._full_path = False
 
@@ -305,6 +308,7 @@ class ModularTrackDemo(QWidget):
         wheel_orientations: List[Tuple[float, float]],
         wheel_shape_local: List[Point],
         wheel_marker_local: Point | None,
+        wheel_shape_center_local: Point | None = None,
         scale: float = 1.0,
     ):
         def _scale_pts(pts: List[Point]) -> List[Point]:
@@ -333,6 +337,7 @@ class ModularTrackDemo(QWidget):
             self.wheel_orientations = []
             self.wheel_shape_local = []
             self.wheel_marker_local = None
+            self.wheel_shape_center_local = None
             self._progress = 0.0
             self._full_path = False
             self._update_viewport()
@@ -359,6 +364,9 @@ class ModularTrackDemo(QWidget):
         self.wheel_orientations = wheel_orientations
         self.wheel_shape_local = _scale_pts(wheel_shape_local)
         self.wheel_marker_local = _scale_pts([wheel_marker_local])[0] if wheel_marker_local else None
+        self.wheel_shape_center_local = (
+            _scale_pts([wheel_shape_center_local])[0] if wheel_shape_center_local else None
+        )
         self._progress = 0.0
         self._full_path = False
 
@@ -422,6 +430,8 @@ class ModularTrackDemo(QWidget):
         all_points.extend(self.wheel_centers)
         all_points.extend(self.contact_points)
         all_points.extend(self.markers_angle0)
+        if self.wheel_shape_center_local:
+            all_points.append(self.wheel_shape_center_local)
         for a, b in self.track_markers:
             all_points.append(a)
             all_points.append(b)
@@ -580,6 +590,17 @@ class ModularTrackDemo(QWidget):
                 1.2,
                 1.2,
             )
+
+        if self.wheel_shape_center_local and idx < len(self.wheel_orientations):
+            cos_a, sin_a = self.wheel_orientations[idx]
+            cx = wheel_center[0] + (
+                self.wheel_shape_center_local[0] * cos_a - self.wheel_shape_center_local[1] * sin_a
+            )
+            cy = wheel_center[1] + (
+                self.wheel_shape_center_local[0] * sin_a + self.wheel_shape_center_local[1] * cos_a
+            )
+            painter.setPen(QPen(QColor("#222222"), 0))
+            painter.drawEllipse(QPointF(cx + self._offset[0], cy + self._offset[1]), 1.5, 1.5)
 
         # Point de contact
         painter.setPen(QPen(QColor("#ff9900"), 0))

@@ -2087,6 +2087,7 @@ class TrackTestDialog(QDialog):
 
         wheel_marker_local = None
         wheel_shape_local: List[Tuple[float, float]] = []
+        wheel_shape_center_local = None
         if wheel_curve.length > 0:
             sample_count = 360
             for i in range(sample_count + 1):
@@ -2095,6 +2096,13 @@ class TrackTestDialog(QDialog):
                 wheel_shape_local.append((xw, yw))
             marker_x, marker_y, _, _ = wheel_curve.eval(0.0)
             wheel_marker_local = (marker_x, marker_y)
+            if wheel_shape_local:
+                sum_x = sum(x for x, _y in wheel_shape_local)
+                sum_y = sum(y for _x, y in wheel_shape_local)
+                wheel_shape_center_local = (
+                    sum_x / len(wheel_shape_local),
+                    sum_y / len(wheel_shape_local),
+                )
 
         if wheel_shape_local:
             tip_radius = max(math.hypot(x, y) for x, y in wheel_shape_local)
@@ -2155,6 +2163,7 @@ class TrackTestDialog(QDialog):
             wheel_orientations=wheel_orientations,
             wheel_shape_local=wheel_shape_local,
             wheel_marker_local=wheel_marker_local,
+            wheel_shape_center_local=wheel_shape_center_local,
             scale=scale,
         )
         if not self.demo_widget.stylo_points:

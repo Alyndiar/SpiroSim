@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QDialog,
     QFormLayout,
+    QGraphicsEllipseItem,
     QGraphicsPathItem,
     QGraphicsScene,
     QGraphicsView,
@@ -452,6 +453,8 @@ class ShapeDesignLabWidget(QWidget):
             points = self._compile_expression(variant.expression)
             if not points:
                 continue
+            center_x = sum(p[0] for p in points) / len(points)
+            center_y = sum(p[1] for p in points) / len(points)
             path = QPainterPath()
             path.moveTo(points[0][0], -points[0][1])
             for x, y in points[1:]:
@@ -460,6 +463,10 @@ class ShapeDesignLabWidget(QWidget):
             color = palette[idx % len(palette)]
             item.setPen(QPen(color, 0))
             self.scene.addItem(item)
+            marker = QGraphicsEllipseItem(center_x - 2.5, -center_y - 2.5, 5.0, 5.0)
+            marker.setPen(QPen(QColor("#111111"), 0))
+            marker.setBrush(QColor("#ffffff"))
+            self.scene.addItem(marker)
         self.scene.setSceneRect(self.scene.itemsBoundingRect())
         self.preview.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)
 
