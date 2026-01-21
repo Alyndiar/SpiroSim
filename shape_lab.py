@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
 from typing import List, Optional
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QStandardPaths, QTimer, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QDialog,
     QFormLayout,
     QGraphicsPathItem,
     QGraphicsScene,
@@ -40,6 +43,7 @@ from shape_rsdl import (
     OblongSpec,
     PolygonSpec,
     RingSpec,
+    is_modular_expression,
     normalize_rsdl_text,
     parse_analytic_expression,
 )
@@ -62,17 +66,28 @@ class ShapeVariant:
     visible: bool = True
 
 
-class ShapeDesignLabWindow(QMainWindow):
+def _shape_lab_data_path() -> str:
+    base_dir = QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation)
+    if not base_dir:
+        base_dir = os.path.expanduser("~")
+    try:
+        os.makedirs(base_dir, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(base_dir, "spirosim_rsdl_parts.json")
+
+
+class ShapeDesignLabWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Shape Design Lab")
-        self.resize(1100, 700)
 
         self._variants: List[ShapeVariant] = []
         self._variant_counter = 1
 
         splitter = QSplitter(Qt.Horizontal)
-        self.setCentralWidget(splitter)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(splitter)
 
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
@@ -174,6 +189,7 @@ class ShapeDesignLabWindow(QMainWindow):
         self.variants_table.itemChanged.connect(self._on_variant_item_changed)
 
         self._on_mode_changed(self.mode_combo.currentText())
+        self._load_persisted_data()
 
     def _normalize_editor_text(self) -> str:
         raw = self.rsdl_editor.toPlainText()
@@ -189,6 +205,89 @@ class ShapeDesignLabWindow(QMainWindow):
             self.reference_ring_edit.setText(ring_normalized)
             self.reference_ring_edit.blockSignals(False)
         return normalized
+
+    def set_expression(self, expression: str, *, mode: Optional[str] = None, reference_ring: Optional[str] = None) -> None:
+        normalized = normalize_rsdl_text(expression or "")
+        if mode is None and normalized:
+            mode = "Modular" if is_modular_expression(normalized) else "Analytic"
+        if mode in ("Analytic", "Modular"):
+            self.mode_combo.setCurrentText(mode)
+        if reference_ring is not None:
+            self.reference_ring_edit.setText(normalize_rsdl_text(reference_ring))
+        self.rsdl_editor.setPlainText(normalized)
+        self.compile_now()
+
+    def current_expression(self) -> str:
+        return normalize_rsdl_text(self.rsdl_editor.toPlainText())
+
+    def current_expression_valid(self) -> bool:
+        expr = normalize_rsdl_text(self.rsdl_editor.toPlainText())
+        if not expr:
+            return False
+        mode = self.mode_combo.currentText()
+        if mode == "Analytic":
+            try:
+                parse_analytic_expression(expr)
+            except RsdlParseError:
+                return False
+            return True
+        valid, rest, has_piece = modular_tracks.split_valid_modular_notation(expr)
+        return bool(valid) and not rest and has_piece
+
+    def _load_persisted_data(self) -> None:
+        data_path = _shape_lab_data_path()
+        if not os.path.exists(data_path):
+            return
+        try:
+            with open(data_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception:
+            return
+
+        mode = data.get("mode")
+        if mode in ("Analytic", "Modular"):
+            self.mode_combo.setCurrentText(mode)
+        expr = normalize_rsdl_text(data.get("expression", ""))
+        self.rsdl_editor.setPlainText(expr)
+        ring_expr = normalize_rsdl_text(data.get("reference_ring", ""))
+        self.reference_ring_edit.setText(ring_expr)
+        quality = data.get("quality")
+        if quality in {"Draft", "Normal", "High"}:
+            self.quality_combo.setCurrentText(quality)
+
+        variants = []
+        for item in data.get("variants", []) or []:
+            name = item.get("name", "Variant")
+            expression = normalize_rsdl_text(item.get("expression", ""))
+            visible = bool(item.get("visible", True))
+            variants.append(ShapeVariant(name, expression, visible))
+        if variants:
+            self._variants = variants
+            self._variant_counter = max(self._variant_counter, len(variants) + 1)
+            self._refresh_variants_table()
+        self.compile_now()
+
+    def save_persisted_data(self) -> None:
+        data = {
+            "mode": self.mode_combo.currentText(),
+            "expression": self.current_expression(),
+            "reference_ring": normalize_rsdl_text(self.reference_ring_edit.text()),
+            "quality": self.quality_combo.currentText(),
+            "variants": [
+                {
+                    "name": variant.name,
+                    "expression": normalize_rsdl_text(variant.expression),
+                    "visible": variant.visible,
+                }
+                for variant in self._variants
+            ],
+        }
+        data_path = _shape_lab_data_path()
+        try:
+            with open(data_path, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
 
     def _on_mode_changed(self, text: str) -> None:
         self.reference_ring_edit.setVisible(text == "Modular")
@@ -460,3 +559,71 @@ class ShapeDesignLabWindow(QMainWindow):
         self.rsdl_editor.setPlainText(expression)
         self.rsdl_editor.blockSignals(False)
         self.compile_now()
+
+
+class ShapeDesignLabWindow(QMainWindow):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Shape Design Lab")
+        self.resize(1100, 700)
+        self.lab_widget = ShapeDesignLabWidget(self)
+        self.setCentralWidget(self.lab_widget)
+
+    def closeEvent(self, event) -> None:
+        self.lab_widget.save_persisted_data()
+        super().closeEvent(event)
+
+
+class ShapeDesignLabDialog(QDialog):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        initial_expression: str = "",
+        mode: Optional[str] = None,
+        reference_ring: Optional[str] = None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Shape Design Lab")
+        self.resize(1100, 700)
+
+        self.lab_widget = ShapeDesignLabWidget(self)
+        self.lab_widget.set_expression(
+            initial_expression,
+            mode=mode,
+            reference_ring=reference_ring,
+        )
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.lab_widget)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch(1)
+        self.ok_button = QPushButton("OK")
+        self.cancel_button = QPushButton("Cancel")
+        btn_layout.addWidget(self.ok_button)
+        btn_layout.addWidget(self.cancel_button)
+        layout.addLayout(btn_layout)
+
+        self.ok_button.clicked.connect(self._accept)
+        self.cancel_button.clicked.connect(self.reject)
+        self.lab_widget.rsdl_editor.textChanged.connect(self._sync_ok_enabled)
+        self.lab_widget.mode_combo.currentTextChanged.connect(self._sync_ok_enabled)
+        self._result_expression = ""
+        self._sync_ok_enabled()
+
+    def _sync_ok_enabled(self) -> None:
+        self.ok_button.setEnabled(self.lab_widget.current_expression_valid())
+
+    def _accept(self) -> None:
+        if not self.lab_widget.current_expression_valid():
+            return
+        self._result_expression = self.lab_widget.current_expression()
+        self.accept()
+
+    def result_expression(self) -> str:
+        return self._result_expression
+
+    def closeEvent(self, event) -> None:
+        self.lab_widget.save_persisted_data()
+        super().closeEvent(event)

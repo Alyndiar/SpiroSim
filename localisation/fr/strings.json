@@ -69,6 +69,7 @@
     "dlg_path_edit_title": "Éditer le tracé",
     "dlg_path_name": "Nom du tracé :",
     "dlg_path_hole_index": "Décalage du trou :",
+    "dlg_path_hole_direction": "Direction du trou (deg) :",
     "dlg_path_phase": "Décalage de phase (unités le long de la piste) :",
     "dlg_path_color": "Couleur (nom CSS4 ou #hex) :",
     "dlg_path_width": "Largeur de trait :",

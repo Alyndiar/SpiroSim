@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 import modular_tracks_2 as modular_tracks
 import modular_tracks_2_demo as modular_track_demo
-from shape_lab import ShapeDesignLabWindow
+from shape_lab import ShapeDesignLabDialog, ShapeDesignLabWindow
 from shape_rsdl import RsdlParseError, normalize_rsdl_text, parse_analytic_expression, parse_modular_expression
 from shape_geometry import (
     BaseCurve,
@@ -73,6 +73,7 @@ from PySide6.QtGui import (
     QFont,
     QPixmap,
     QDesktopServices,
+    QPainterPath,
     QPen,   # <-- AJOUT ICI
 )
 from PySide6.QtCore import (
@@ -222,6 +223,7 @@ class PathConfig:
     name: str = "Tracé"
     enable: bool = True
     hole_offset: float = 1.0
+    hole_direction: float = 0.0
     phase_offset: float = 0.0
     color: str = "blue"            # chaîne telle que saisie / affichée
     color_norm: Optional[str] = None  # valeur normalisée (#rrggbb) pour le dessin
@@ -375,6 +377,30 @@ def generate_simple_circle_for_index(
     return pts
 
 
+def _rsdl_pen_local_vector(
+    wheel_curve: BaseCurve,
+    hole_offset: float,
+    hole_direction_deg: float,
+) -> Tuple[float, float]:
+    if wheel_curve.length > 0:
+        x0, y0, _, _ = wheel_curve.eval(0.0)
+    else:
+        x0, y0 = (1.0, 0.0)
+    norm = math.hypot(x0, y0)
+    if norm == 0:
+        ux, uy = 1.0, 0.0
+    else:
+        ux, uy = x0 / norm, y0 / norm
+    vx, vy = -uy, ux
+    theta = math.radians(hole_direction_deg)
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    return (
+        hole_offset * (cos_t * ux + sin_t * vx),
+        hole_offset * (cos_t * uy + sin_t * vy),
+    )
+
+
 def generate_trochoid_points_for_layer_path(
     layer: LayerConfig,
     path: PathConfig,
@@ -399,6 +425,7 @@ def generate_trochoid_points_for_layer_path(
     """
 
     hole_offset = float(path.hole_offset)
+    hole_direction = float(getattr(path, "hole_direction", 0.0))
 
     # Pas assez d’engrenages : cercle simple + rotation
     if len(layer.gears) < 2:
@@ -468,7 +495,10 @@ def generate_trochoid_points_for_layer_path(
     else:
         tip_radius = radius_from_size(tip_size)
 
-    d = tip_radius - hole_offset
+    if g1.gear_type == "rsdl" and g1.rsdl_expression:
+        d = hole_offset
+    else:
+        d = tip_radius - hole_offset
 
     if base_curve.closed:
         g = math.gcd(int(round(base_curve.length)), int(round(wheel_size))) or 1
@@ -494,7 +524,10 @@ def generate_trochoid_points_for_layer_path(
     else:
         wheel_curve = None
     if wheel_curve is not None:
-        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+        if g1.gear_type == "rsdl" and g1.rsdl_expression:
+            pen_local = _rsdl_pen_local_vector(wheel_curve, hole_offset, hole_direction)
+        else:
+            pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
         for i in range(steps):
             s = s_max * i / (steps - 1)
             x, y = roll_pen_position(s, base_curve, wheel_curve, d, side, alpha0, epsilon, pen_local=pen_local)
@@ -1395,8 +1428,14 @@ class LayerEditDialog(QDialog):
             modular_button.setFixedWidth(28)
             rsdl_edit = QLineEdit()
             rsdl_label = QLabel(tr(self.lang, "dlg_layer_gear_rsdl_expression"))
+            rsdl_button = QPushButton("…")
+            rsdl_button.setFixedWidth(28)
+            rsdl_preview = QLabel()
+            rsdl_preview.setFixedSize(120, 120)
+            rsdl_preview.setStyleSheet("border:1px solid #808080; background:#ffffff;")
 
-            sub = QVBoxLayout()
+            sub_widget = QWidget()
+            sub = QVBoxLayout(sub_widget)
             sub.addWidget(group_label)
 
             row1 = QHBoxLayout()
@@ -1408,6 +1447,14 @@ class LayerEditDialog(QDialog):
             row2.addWidget(QLabel(tr(self.lang, "dlg_layer_gear_type")))
             row2.addWidget(gear_type_combo)
             sub.addLayout(row2)
+
+            # Ligne pour l'expression RSDL
+            row7 = QHBoxLayout()
+            row7.addWidget(rsdl_label)
+            row7.addWidget(rsdl_edit)
+            row7.addWidget(rsdl_button)
+            row7.addWidget(rsdl_preview)
+            sub.addLayout(row7)
 
             row3 = QHBoxLayout()
             label_size = QLabel(tr(self.lang, "dlg_layer_gear_size"))
@@ -1433,13 +1480,7 @@ class LayerEditDialog(QDialog):
             row6.addWidget(modular_button)
             sub.addLayout(row6)
 
-            # Ligne pour l'expression RSDL
-            row7 = QHBoxLayout()
-            row7.addWidget(rsdl_label)
-            row7.addWidget(rsdl_edit)
-            sub.addLayout(row7)
-
-            layout.addRow(sub)
+            layout.addRow(sub_widget)
 
             # Restreindre "modulaire" aux engrenages d'indice 0 uniquement
             if i > 0:
@@ -1460,15 +1501,24 @@ class LayerEditDialog(QDialog):
                 modular_button=modular_button,
                 rsdl_label=rsdl_label,
                 rsdl_edit=rsdl_edit,
+                rsdl_button=rsdl_button,
+                rsdl_preview=rsdl_preview,
+                size_label=label_size,
+                container=sub_widget,
             )
             modular_button.clicked.connect(
                 lambda _checked=False, gw=gw: self._open_modular_editor_from_widget(gw)
+            )
+            rsdl_button.clicked.connect(
+                lambda _checked=False, gw=gw: self._open_rsdl_editor_from_widget(gw)
             )
             self.gear_widgets.append(gw)
 
             gear_type_combo.currentTextChanged.connect(
                 lambda text, gw=gw: self._update_gear_widget_visibility(gw)
             )
+            rsdl_edit.textChanged.connect(lambda _text, gw=gw: self._update_rsdl_preview(gw))
+            rel_combo.currentTextChanged.connect(lambda _text, gw=gw: self._update_rsdl_preview(gw))
 
         # Initialiser à partir du layer
         for idx, gw in enumerate(self.gear_widgets):
@@ -1514,10 +1564,14 @@ class LayerEditDialog(QDialog):
                 rel_index = 0
             gw["rel_combo"].setCurrentIndex(rel_index)
             self._update_gear_widget_visibility(gw)
+            self._update_rsdl_preview(gw)
 
         # premier engrenage stationnaire
         self.gear_widgets[0]["rel_combo"].setCurrentIndex(0)
         self.gear_widgets[0]["rel_combo"].setEnabled(False)
+
+        self.num_gears_spin.valueChanged.connect(self._update_gear_count_visibility)
+        self._update_gear_count_visibility()
 
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
@@ -1537,14 +1591,25 @@ class LayerEditDialog(QDialog):
         gw["outer_label"].setVisible(is_ring_like)
         gw["outer_spin"].setVisible(is_ring_like)
 
+        is_rsdl = t == "rsdl"
+        gw["size_label"].setVisible(not is_rsdl)
+        gw["size_spin"].setVisible(not is_rsdl)
+
         # La notation modulaire n’est visible que pour l’engrenage 1 et le type "modulaire"
         is_modular = (t == "modulaire" and idx == 0)
         gw["modular_label"].setVisible(is_modular)
         gw["modular_edit"].setVisible(is_modular)
         gw["modular_button"].setVisible(is_modular)
-        is_rsdl = t == "rsdl"
         gw["rsdl_label"].setVisible(is_rsdl)
         gw["rsdl_edit"].setVisible(is_rsdl)
+        gw["rsdl_button"].setVisible(is_rsdl)
+        gw["rsdl_preview"].setVisible(is_rsdl)
+        self._update_rsdl_preview(gw)
+
+    def _update_gear_count_visibility(self):
+        num_gears = self.num_gears_spin.value()
+        for idx, gw in enumerate(self.gear_widgets):
+            gw["container"].setVisible(idx < num_gears)
 
     def _open_modular_editor_from_widget(self, gw: dict):
         if gw.get("index", 0) != 0:
@@ -1565,6 +1630,68 @@ class LayerEditDialog(QDialog):
         )
         if dlg.exec() == QDialog.Accepted:
             gw["modular_edit"].setText(dlg.result_notation())
+
+    def _open_rsdl_editor_from_widget(self, gw: dict):
+        if (gw["type_combo"].currentData() or gw["type_combo"].currentText()) != "rsdl":
+            return
+        expr = normalize_rsdl_text(gw["rsdl_edit"].text())
+        dlg = ShapeDesignLabDialog(
+            parent=self,
+            initial_expression=expr,
+        )
+        if dlg.exec() == QDialog.Accepted:
+            gw["rsdl_edit"].setText(dlg.result_expression())
+
+    def _update_rsdl_preview(self, gw: dict):
+        expr = normalize_rsdl_text(gw["rsdl_edit"].text())
+        preview = gw["rsdl_preview"]
+        if not expr or not preview.isVisible():
+            preview.clear()
+            return
+        try:
+            spec = parse_analytic_expression(expr)
+        except RsdlParseError:
+            preview.clear()
+            return
+        relation = gw["rel_combo"].currentData() or gw["rel_combo"].currentText()
+        if relation not in ("dedans", "dehors"):
+            relation = "dedans"
+        curve = _curve_from_analytic_spec(spec, relation)
+        if curve.length <= 0:
+            preview.clear()
+            return
+        samples = 360
+        points = []
+        for i in range(samples):
+            s = curve.length * i / max(1, samples - 1)
+            x, y, _, _ = curve.eval(s)
+            points.append((x, y))
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        width = max(1e-6, max_x - min_x)
+        height = max(1e-6, max_y - min_y)
+        target = preview.size()
+        pixmap = QPixmap(target)
+        pixmap.fill(QColor("#ffffff"))
+        scale = min((target.width() - 8) / width, (target.height() - 8) / height)
+        offset_x = (target.width() - scale * width) / 2.0 - scale * min_x
+        offset_y = (target.height() - scale * height) / 2.0 - scale * min_y
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(QColor("#3366cc"))
+        pen.setWidthF(1.0)
+        painter.setPen(pen)
+        if points:
+            path = QPainterPath()
+            x0, y0 = points[0]
+            path.moveTo(QPointF(x0 * scale + offset_x, y0 * scale + offset_y))
+            for x, y in points[1:]:
+                path.lineTo(QPointF(x * scale + offset_x, y * scale + offset_y))
+            painter.drawPath(path)
+        painter.end()
+        preview.setPixmap(pixmap)
 
     def accept(self):
         self.layer.name = self.name_edit.text().strip() or tr(self.lang, "default_layer_name")
@@ -1623,6 +1750,7 @@ class PathEditDialog(QDialog):
     """
     Path :
       - hole_offset (float, positif ou négatif)
+      - direction du trou (si engrenage RSDL)
       - décalage de phase (déplacement en unités le long de la piste)
       - couleur (CSS4 ou hex) avec validation X11/CSS4/hex
       - largeur de trait
@@ -1630,11 +1758,12 @@ class PathEditDialog(QDialog):
       - translation / rotation
     """
 
-    def __init__(self, path: PathConfig, lang: str = "fr", parent=None):
+    def __init__(self, path: PathConfig, layer: Optional[LayerConfig] = None, lang: str = "fr", parent=None):
         super().__init__(parent)
         self.lang = lang
         self.setWindowTitle(tr(self.lang, "dlg_path_edit_title"))
         self.path = path
+        self.layer = layer
 
         layout = QFormLayout(self)
 
@@ -1644,6 +1773,11 @@ class PathEditDialog(QDialog):
         self.hole_spin.setRange(-1000.0, 1000.0)
         self.hole_spin.setDecimals(3)
         self.hole_spin.setValue(self.path.hole_offset)
+
+        self.hole_direction_spin = QDoubleSpinBox()
+        self.hole_direction_spin.setRange(-360.0, 360.0)
+        self.hole_direction_spin.setDecimals(3)
+        self.hole_direction_spin.setValue(getattr(self.path, "hole_direction", 0.0))
 
         self.phase_spin = QDoubleSpinBox()
         self.phase_spin.setRange(-1000.0, 1000.0)
@@ -1686,6 +1820,15 @@ class PathEditDialog(QDialog):
 
         layout.addRow(tr(self.lang, "dlg_path_name"), self.name_edit)
         layout.addRow(tr(self.lang, "dlg_path_hole_index"), self.hole_spin)
+        self._supports_hole_direction = False
+        if (
+            self.layer
+            and len(self.layer.gears) > 1
+            and self.layer.gears[1].gear_type == "rsdl"
+            and self.layer.gears[1].rsdl_expression
+        ):
+            self._supports_hole_direction = True
+            layout.addRow(tr(self.lang, "dlg_path_hole_direction"), self.hole_direction_spin)
         layout.addRow(tr(self.lang, "dlg_path_phase"), self.phase_spin)
         layout.addRow(tr(self.lang, "dlg_path_color"), color_row)
         layout.addRow(tr(self.lang, "dlg_path_width"), self.stroke_spin)
@@ -1712,6 +1855,8 @@ class PathEditDialog(QDialog):
     def accept(self):
         self.path.name = self.name_edit.text().strip() or tr(self.lang, "default_path_name")
         self.path.hole_offset = self.hole_spin.value()
+        if self._supports_hole_direction:
+            self.path.hole_direction = self.hole_direction_spin.value()
         self.path.phase_offset = self.phase_spin.value()
 
         new_color_input = self.color_edit.text().strip() or "#000000"
@@ -1942,8 +2087,14 @@ class TrackTestDialog(QDialog):
             tip_radius = max(math.hypot(x, y) for x, y in wheel_shape_local)
         else:
             tip_radius = radius_from_size(tip_size)
-        d = tip_radius - float(path.hole_offset)
-        pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+        hole_offset = float(path.hole_offset)
+        hole_direction = float(getattr(path, "hole_direction", 0.0))
+        if g1.gear_type == "rsdl" and g1.rsdl_expression:
+            d = hole_offset
+            pen_local = _rsdl_pen_local_vector(wheel_curve, hole_offset, hole_direction)
+        else:
+            d = tip_radius - hole_offset
+            pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
 
         for i in range(steps):
             s = s_max * i / max(1, steps - 1)
@@ -2460,7 +2611,8 @@ class LayerManagerDialog(QDialog):
                 parent=self,
             )
         else:
-            dlg = PathEditDialog(obj, lang=self.lang, parent=self)
+            layer = self.find_parent_layer(obj)
+            dlg = PathEditDialog(obj, layer=layer, lang=self.lang, parent=self)
         if dlg.exec() == QDialog.Accepted:
             self.refresh_tree()
 
@@ -3670,6 +3822,7 @@ class SpiroWindow(QWidget):
                     "name": p.name,
                     "enable": p.enable,
                     "hole_offset": p.hole_offset,
+                    "hole_direction": getattr(p, "hole_direction", 0.0),
                     "phase_offset": p.phase_offset,
                     "color": p.color,  # ce que tu as tapé
                     "color_norm": getattr(p, "color_norm", None),  # peut être None
@@ -3711,6 +3864,7 @@ class SpiroWindow(QWidget):
                         name=pd.get("name", "Tracé"),
                         enable=bool(pd.get("enable", True)),
                         hole_offset=float(pd.get("hole_offset", pd.get("hole_index", 1.0))),
+                        hole_direction=float(pd.get("hole_direction", 0.0)),
                         phase_offset=float(pd.get("phase_offset", 0.0)),
                         color=color_input,
                         color_norm=color_norm,
