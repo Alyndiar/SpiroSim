@@ -449,12 +449,14 @@ class ShapeDesignLabWidget(QWidget):
         if not variants:
             expr = normalize_rsdl_text(self.rsdl_editor.toPlainText())
             variants = [ShapeVariant("Current", expr, True)]
+        centers: List[tuple[float, float]] = []
         for idx, variant in enumerate(variants):
             points = self._compile_expression(variant.expression)
             if not points:
                 continue
             center_x = sum(p[0] for p in points) / len(points)
             center_y = sum(p[1] for p in points) / len(points)
+            centers.append((center_x, center_y))
             path = QPainterPath()
             path.moveTo(points[0][0], -points[0][1])
             for x, y in points[1:]:
@@ -463,9 +465,13 @@ class ShapeDesignLabWidget(QWidget):
             color = palette[idx % len(palette)]
             item.setPen(QPen(color, 0))
             self.scene.addItem(item)
-            marker_pen = QPen(QColor("#111111"), 0)
-            marker_pen.setCosmetic(True)
-            half = 2.5
+        self.scene.setSceneRect(self.scene.itemsBoundingRect())
+        self.preview.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+        scale = self.preview.transform().m11() or 1.0
+        half = 2.5 / scale
+        marker_pen = QPen(QColor("#111111"), 0)
+        marker_pen.setCosmetic(True)
+        for center_x, center_y in centers:
             marker_path = QPainterPath()
             marker_path.moveTo(center_x - half, -center_y)
             marker_path.lineTo(center_x + half, -center_y)
@@ -473,11 +479,8 @@ class ShapeDesignLabWidget(QWidget):
             marker_path.lineTo(center_x, -center_y + half)
             marker = QGraphicsPathItem(marker_path)
             marker.setPen(marker_pen)
-            marker.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             marker.setZValue(10)
             self.scene.addItem(marker)
-        self.scene.setSceneRect(self.scene.itemsBoundingRect())
-        self.preview.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)
 
     def _update_quick_params(self) -> None:
         for i in reversed(range(self.quick_params_layout.count())):

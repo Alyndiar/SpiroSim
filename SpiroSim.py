@@ -383,27 +383,14 @@ def _rsdl_pen_local_vector(
     hole_direction_deg: float,
 ) -> Tuple[float, float]:
     if wheel_curve.length > 0:
-        sample_count = 360
-        sum_x = 0.0
-        sum_y = 0.0
-        for i in range(sample_count):
-            s = wheel_curve.length * i / max(1, sample_count - 1)
-            x, y, _, _ = wheel_curve.eval(s)
-            sum_x += x
-            sum_y += y
-        cx = sum_x / sample_count
-        cy = sum_y / sample_count
         x0, y0, _, _ = wheel_curve.eval(0.0)
     else:
-        cx, cy = 0.0, 0.0
         x0, y0 = (1.0, 0.0)
-    dx = x0 - cx
-    dy = y0 - cy
-    norm = math.hypot(dx, dy)
+    norm = math.hypot(x0, y0)
     if norm == 0:
         ux, uy = 1.0, 0.0
     else:
-        ux, uy = dx / norm, dy / norm
+        ux, uy = x0 / norm, y0 / norm
     vx, vy = -uy, ux
     theta = math.radians(hole_direction_deg)
     cos_t = math.cos(theta)
@@ -412,6 +399,31 @@ def _rsdl_pen_local_vector(
         hole_offset * (cos_t * ux + sin_t * vx),
         hole_offset * (cos_t * uy + sin_t * vy),
     )
+
+
+def _rsdl_curve_center(curve: BaseCurve, samples: int = 360) -> Tuple[float, float]:
+    if curve.length <= 0:
+        return 0.0, 0.0
+    sum_x = 0.0
+    sum_y = 0.0
+    for i in range(samples):
+        s = curve.length * i / max(1, samples - 1)
+        x, y, _, _ = curve.eval(s)
+        sum_x += x
+        sum_y += y
+    return sum_x / samples, sum_y / samples
+
+
+class _OffsetCurve(BaseCurve):
+    def __init__(self, base: BaseCurve, offset: Tuple[float, float]):
+        self.base = base
+        self.offset = offset
+        super().__init__(base.length, closed=base.closed)
+
+    def eval(self, s: float) -> Tuple[float, float, Tuple[float, float], Tuple[float, float]]:
+        x, y, tangent, normal = self.base.eval(s)
+        ox, oy = self.offset
+        return x - ox, y - oy, tangent, normal
 
 
 def generate_trochoid_points_for_layer_path(
@@ -536,6 +548,9 @@ def generate_trochoid_points_for_layer_path(
             wheel_curve = None
     else:
         wheel_curve = None
+    if wheel_curve is not None and g1.gear_type == "rsdl" and g1.rsdl_expression:
+        center_offset = _rsdl_curve_center(wheel_curve)
+        wheel_curve = _OffsetCurve(wheel_curve, center_offset)
     if wheel_curve is not None:
         if g1.gear_type == "rsdl" and g1.rsdl_expression:
             pen_local = _rsdl_pen_local_vector(wheel_curve, hole_offset, hole_direction)
@@ -1658,7 +1673,7 @@ class LayerEditDialog(QDialog):
     def _update_rsdl_preview(self, gw: dict):
         expr = normalize_rsdl_text(gw["rsdl_edit"].text())
         preview = gw["rsdl_preview"]
-        if not expr or not preview.isVisible():
+        if not expr:
             preview.clear()
             return
         try:
@@ -2091,6 +2106,9 @@ class TrackTestDialog(QDialog):
         wheel_marker_local = None
         wheel_shape_local: List[Tuple[float, float]] = []
         wheel_shape_center_local = None
+        if g1.gear_type == "rsdl" and g1.rsdl_expression:
+            center_offset = _rsdl_curve_center(wheel_curve)
+            wheel_curve = _OffsetCurve(wheel_curve, center_offset)
         if wheel_curve.length > 0:
             sample_count = 360
             for i in range(sample_count + 1):
