@@ -1686,6 +1686,8 @@ class LayerEditDialog(QDialog):
         width = max(1e-6, max_x - min_x)
         height = max(1e-6, max_y - min_y)
         target = preview.size()
+        if target.width() < 2 or target.height() < 2:
+            target = QSize(120, 120)
         pixmap = QPixmap(target)
         pixmap.fill(QColor("#ffffff"))
         scale = min((target.width() - 8) / width, (target.height() - 8) / height)
@@ -1694,7 +1696,7 @@ class LayerEditDialog(QDialog):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
         pen = QPen(QColor("#3366cc"))
-        pen.setWidthF(1.0)
+        pen.setWidthF(1.4)
         painter.setPen(pen)
         if points:
             path = QPainterPath()
@@ -1702,6 +1704,7 @@ class LayerEditDialog(QDialog):
             path.moveTo(QPointF(x0 * scale + offset_x, y0 * scale + offset_y))
             for x, y in points[1:]:
                 path.lineTo(QPointF(x * scale + offset_x, y * scale + offset_y))
+            path.closeSubpath()
             painter.drawPath(path)
         painter.end()
         preview.setPixmap(pixmap)

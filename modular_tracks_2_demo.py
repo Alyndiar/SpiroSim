@@ -604,7 +604,7 @@ class ModularTrackDemo(QWidget):
             )
             painter.save()
             painter.resetTransform()
-            pen = QPen(QColor("#222222"), 1)
+            pen = QPen(QColor("#e74c3c"), 1)
             painter.setPen(pen)
             half = 2.5
             painter.drawLine(
