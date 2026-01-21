@@ -2357,8 +2357,8 @@ class TrackTestDialog(QDialog):
             self.btn_reset.setEnabled(False)
             return
         self._on_speed_changed(self.speed_spin.value())
-        self.demo_widget.start_animation()
-        self._update_start_button(self.demo_widget.timer.isActive())
+        self.demo_widget.stop_animation()
+        self._update_start_button(False)
 
     def _update_start_button(self, running: bool):
         self.btn_start.setText(
