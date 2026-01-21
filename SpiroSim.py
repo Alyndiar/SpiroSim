@@ -1461,6 +1461,9 @@ class LayerEditDialog(QDialog):
             rsdl_preview = QLabel()
             rsdl_preview.setFixedSize(120, 120)
             rsdl_preview.setStyleSheet("border:1px solid #808080; background:#ffffff;")
+            rsdl_info = QLabel()
+            rsdl_info.setTextFormat(Qt.RichText)
+            rsdl_info.setWordWrap(True)
 
             sub_widget = QWidget()
             sub = QVBoxLayout(sub_widget)
@@ -1483,6 +1486,10 @@ class LayerEditDialog(QDialog):
             row7.addWidget(rsdl_button)
             row7.addWidget(rsdl_preview)
             sub.addLayout(row7)
+
+            row7b = QHBoxLayout()
+            row7b.addWidget(rsdl_info)
+            sub.addLayout(row7b)
 
             row3 = QHBoxLayout()
             label_size = QLabel(tr(self.lang, "dlg_layer_gear_size"))
@@ -1531,6 +1538,7 @@ class LayerEditDialog(QDialog):
                 rsdl_edit=rsdl_edit,
                 rsdl_button=rsdl_button,
                 rsdl_preview=rsdl_preview,
+                rsdl_info=rsdl_info,
                 size_label=label_size,
                 container=sub_widget,
             )
@@ -1547,6 +1555,10 @@ class LayerEditDialog(QDialog):
             )
             rsdl_edit.textChanged.connect(lambda _text, gw=gw: self._update_rsdl_preview(gw))
             rel_combo.currentTextChanged.connect(lambda _text, gw=gw: self._update_rsdl_preview(gw))
+            rsdl_edit.textChanged.connect(lambda _text: self._update_rsdl_conflict_highlights())
+            gear_type_combo.currentTextChanged.connect(
+                lambda _text: self._update_rsdl_conflict_highlights()
+            )
 
         # Initialiser à partir du layer
         for idx, gw in enumerate(self.gear_widgets):
@@ -1593,6 +1605,7 @@ class LayerEditDialog(QDialog):
             gw["rel_combo"].setCurrentIndex(rel_index)
             self._update_gear_widget_visibility(gw)
             self._update_rsdl_preview(gw)
+            self._update_rsdl_conflict_highlights()
 
         # premier engrenage stationnaire
         self.gear_widgets[0]["rel_combo"].setCurrentIndex(0)
@@ -1632,7 +1645,9 @@ class LayerEditDialog(QDialog):
         gw["rsdl_edit"].setVisible(is_rsdl)
         gw["rsdl_button"].setVisible(is_rsdl)
         gw["rsdl_preview"].setVisible(is_rsdl)
+        gw["rsdl_info"].setVisible(is_rsdl)
         self._update_rsdl_preview(gw)
+        self._update_rsdl_conflict_highlights()
 
     def _update_gear_count_visibility(self):
         num_gears = self.num_gears_spin.value()
@@ -1723,6 +1738,54 @@ class LayerEditDialog(QDialog):
             painter.drawPath(path)
         painter.end()
         preview.setPixmap(pixmap)
+
+    def _update_rsdl_conflict_highlights(self):
+        if len(self.gear_widgets) < 2:
+            return
+        g0 = self.gear_widgets[0]
+        g1 = self.gear_widgets[1]
+        if (
+            (g0["type_combo"].currentData() or g0["type_combo"].currentText()) != "rsdl"
+            or (g1["type_combo"].currentData() or g1["type_combo"].currentText()) != "rsdl"
+        ):
+            g0["rsdl_info"].setText("")
+            g1["rsdl_info"].setText("")
+            return
+        expr0 = normalize_rsdl_text(g0["rsdl_edit"].text())
+        expr1 = normalize_rsdl_text(g1["rsdl_edit"].text())
+        try:
+            spec0 = parse_analytic_expression(expr0)
+            spec1 = parse_analytic_expression(expr1)
+        except RsdlParseError:
+            g0["rsdl_info"].setText("")
+            g1["rsdl_info"].setText("")
+            return
+        if spec0.__class__.__name__ != "PolygonSpec" or spec1.__class__.__name__ != "PolygonSpec":
+            g0["rsdl_info"].setText("")
+            g1["rsdl_info"].setText("")
+            return
+        track_min_arc = min(spec0.side_size, spec0.corner_size)
+        wheel_max_arc = max(spec1.side_size, spec1.corner_size)
+        wheel_size = spec1.perimeter
+        highlight = "background-color:#fff59d;"
+
+        def _fmt(value: float, should_highlight: bool) -> str:
+            if should_highlight:
+                return f\"<span style='{highlight}'>{value:g}</span>\"
+            return f\"{value:g}\"
+
+        g0_info = (
+            f\"min arc: {_fmt(track_min_arc, wheel_max_arc > track_min_arc or wheel_size > track_min_arc)}\"
+        )
+        g1_info = (
+            \"size: \" + _fmt(wheel_size, wheel_size > track_min_arc)
+            + \", arcs: \"
+            + _fmt(spec1.side_size, spec1.side_size > track_min_arc)
+            + \"/\"
+            + _fmt(spec1.corner_size, spec1.corner_size > track_min_arc)
+        )
+        g0[\"rsdl_info\"].setText(g0_info)
+        g1[\"rsdl_info\"].setText(g1_info)
 
     def accept(self):
         self.layer.name = self.name_edit.text().strip() or tr(self.lang, "default_layer_name")
