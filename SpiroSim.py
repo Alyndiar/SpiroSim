@@ -1993,6 +1993,7 @@ class TrackTestDialog(QDialog):
 
         self.demo_widget = modular_track_demo.ModularTrackDemo(auto_start=False)
         self.points_per_path = max(2, int(points_per_path))
+        self.demo_widget.animation_finished.connect(self._on_animation_finished)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -2010,7 +2011,7 @@ class TrackTestDialog(QDialog):
         self.speed_spin.setRange(0.0, 1_000_000.0)
         self.speed_spin.setDecimals(2)
         self.speed_spin.setSingleStep(0.25)
-        self.speed_spin.setValue(1.0)
+        self.speed_spin.setValue(1024.0)
         self.speed_spin.setSpecialValueText(tr(self.lang, "anim_speed_infinite"))
         self.speed_spin.setSuffix(tr(self.lang, "anim_speed_suffix"))
         self.btn_half = QPushButton("/2")
@@ -2288,6 +2289,9 @@ class TrackTestDialog(QDialog):
         self.demo_widget.set_speed(value)
         is_running = value > 0.0 and self.demo_widget.timer.isActive()
         self._update_start_button(is_running)
+
+    def _on_animation_finished(self):
+        self._update_start_button(False)
 
 # ---------- 6) Fenêtre superposée : gestion layers & paths ----------
 

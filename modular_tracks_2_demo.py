@@ -17,7 +17,7 @@ import math
 import sys
 from typing import List, Tuple
 
-from PySide6.QtCore import QPointF, QTimer
+from PySide6.QtCore import QPointF, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -112,6 +112,8 @@ def _compute_animation_sequences(
 
 class ModularTrackDemo(QWidget):
     """Widget simple qui anime le tracé d'une piste modulaire."""
+
+    animation_finished = Signal()
 
     def __init__(
         self,
@@ -417,10 +419,14 @@ class ModularTrackDemo(QWidget):
         if not self.stylo_points or self._full_path:
             return
         dt = self._interval_ms / 1000.0
-        self._progress = (self._progress + self._speed_pts_per_s * dt) % float(
-            len(self.stylo_points)
-        )
-        self.current_step = int(self._progress) % len(self.stylo_points)
+        self._progress += self._speed_pts_per_s * dt
+        final_index = max(0, len(self.stylo_points) - 1)
+        if self._progress >= float(final_index):
+            self.current_step = final_index
+            self.stop_animation()
+            self.animation_finished.emit()
+        else:
+            self.current_step = int(self._progress)
         self.update()
 
     def _update_viewport(self):
