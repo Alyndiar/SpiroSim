@@ -479,6 +479,22 @@ def _align_stationary_polygon_curve(gear: GearConfig, curve: Optional[BaseCurve]
     return _align_curve_start_to_top(curve)
 
 
+def _align_base_curve_for_rsdl(
+    base_curve: Optional[BaseCurve],
+    stationary_gear: GearConfig,
+    rolling_gear: GearConfig,
+) -> Optional[BaseCurve]:
+    if base_curve is None:
+        return None
+    if (
+        rolling_gear.gear_type == "rsdl"
+        and rolling_gear.rsdl_expression
+        and isinstance(base_curve, CircleCurve)
+    ):
+        return _align_curve_start_to_top(base_curve)
+    return _align_stationary_polygon_curve(stationary_gear, base_curve)
+
+
 def generate_trochoid_points_for_layer_path(
     layer: LayerConfig,
     path: PathConfig,
@@ -527,7 +543,7 @@ def generate_trochoid_points_for_layer_path(
 
     try:
         base_curve = _curve_from_gear(g0, relation)
-        base_curve = _align_stationary_polygon_curve(g0, base_curve)
+        base_curve = _align_base_curve_for_rsdl(base_curve, g0, g1)
     except RsdlParseError:
         base_curve = None
 
@@ -588,7 +604,9 @@ def generate_trochoid_points_for_layer_path(
 
     side = 1 if relation == "dedans" else -1
     epsilon = side
-    if relation == "dedans" and isinstance(base_curve, CircleCurve):
+    if relation == "dedans" and (
+        isinstance(base_curve, CircleCurve) or (g0.gear_type == "rsdl" and g0.rsdl_expression)
+    ):
         alpha0 = math.pi
     else:
         alpha0 = 0.0
@@ -2165,7 +2183,7 @@ class TrackTestDialog(QDialog):
 
         try:
             base_curve = _curve_from_gear(g0, relation)
-            base_curve = _align_stationary_polygon_curve(g0, base_curve)
+            base_curve = _align_base_curve_for_rsdl(base_curve, g0, g1)
             wheel_curve = _curve_from_gear(g1, relation)
         except RsdlParseError:
             base_curve = None
@@ -2204,7 +2222,12 @@ class TrackTestDialog(QDialog):
         tip_size = wheel_size if g1.gear_type == "rsdl" else g1.size
         side = 1 if relation == "dedans" else -1
         epsilon = side
-        alpha0 = math.pi if relation == "dedans" and isinstance(base_curve, CircleCurve) else 0.0
+        alpha0 = (
+            math.pi
+            if relation == "dedans"
+            and (isinstance(base_curve, CircleCurve) or (g0.gear_type == "rsdl" and g0.rsdl_expression))
+            else 0.0
+        )
 
         steps = self.points_per_path
         base_len = max(base_curve.length, 1e-9)
