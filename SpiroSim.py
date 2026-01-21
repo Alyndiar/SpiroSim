@@ -426,6 +426,59 @@ class _OffsetCurve(BaseCurve):
         return x - ox, y - oy, tangent, normal
 
 
+class _RotateCurve(BaseCurve):
+    def __init__(self, base: BaseCurve, pivot: Tuple[float, float], cos_a: float, sin_a: float):
+        self.base = base
+        self.pivot = pivot
+        self.cos_a = cos_a
+        self.sin_a = sin_a
+        super().__init__(base.length, closed=base.closed)
+
+    def eval(self, s: float) -> Tuple[float, float, Tuple[float, float], Tuple[float, float]]:
+        x, y, tangent, normal = self.base.eval(s)
+        px, py = self.pivot
+        rel_x = x - px
+        rel_y = y - py
+        rot_x = rel_x * self.cos_a - rel_y * self.sin_a
+        rot_y = rel_x * self.sin_a + rel_y * self.cos_a
+        tx, ty = tangent
+        nx, ny = normal
+        rot_tx = tx * self.cos_a - ty * self.sin_a
+        rot_ty = tx * self.sin_a + ty * self.cos_a
+        rot_nx = nx * self.cos_a - ny * self.sin_a
+        rot_ny = nx * self.sin_a + ny * self.cos_a
+        return rot_x + px, rot_y + py, (rot_tx, rot_ty), (rot_nx, rot_ny)
+
+
+def _align_curve_start_to_top(curve: BaseCurve) -> BaseCurve:
+    if curve.length <= 0:
+        return curve
+    cx, cy = _rsdl_curve_center(curve)
+    x0, y0, _, _ = curve.eval(0.0)
+    vx = x0 - cx
+    vy = y0 - cy
+    if math.hypot(vx, vy) == 0:
+        return curve
+    current_angle = math.atan2(vy, vx)
+    target_angle = math.pi / 2.0
+    delta = target_angle - current_angle
+    cos_a = math.cos(delta)
+    sin_a = math.sin(delta)
+    return _RotateCurve(curve, (cx, cy), cos_a, sin_a)
+
+
+def _align_stationary_polygon_curve(gear: GearConfig, curve: Optional[BaseCurve]) -> Optional[BaseCurve]:
+    if curve is None or gear.gear_type != "rsdl" or not gear.rsdl_expression:
+        return curve
+    try:
+        spec = parse_analytic_expression(gear.rsdl_expression)
+    except RsdlParseError:
+        return curve
+    if spec.__class__.__name__ != "PolygonSpec":
+        return curve
+    return _align_curve_start_to_top(curve)
+
+
 def generate_trochoid_points_for_layer_path(
     layer: LayerConfig,
     path: PathConfig,
@@ -474,6 +527,7 @@ def generate_trochoid_points_for_layer_path(
 
     try:
         base_curve = _curve_from_gear(g0, relation)
+        base_curve = _align_stationary_polygon_curve(g0, base_curve)
     except RsdlParseError:
         base_curve = None
 
@@ -2111,6 +2165,7 @@ class TrackTestDialog(QDialog):
 
         try:
             base_curve = _curve_from_gear(g0, relation)
+            base_curve = _align_stationary_polygon_curve(g0, base_curve)
             wheel_curve = _curve_from_gear(g1, relation)
         except RsdlParseError:
             base_curve = None
