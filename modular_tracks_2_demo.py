@@ -599,8 +599,23 @@ class ModularTrackDemo(QWidget):
             cy = wheel_center[1] + (
                 self.wheel_shape_center_local[0] * sin_a + self.wheel_shape_center_local[1] * cos_a
             )
-            painter.setPen(QPen(QColor("#222222"), 0))
-            painter.drawEllipse(QPointF(cx + self._offset[0], cy + self._offset[1]), 1.5, 1.5)
+            screen_point = painter.transform().map(
+                QPointF(cx + self._offset[0], cy + self._offset[1])
+            )
+            painter.save()
+            painter.resetTransform()
+            pen = QPen(QColor("#222222"), 1)
+            painter.setPen(pen)
+            half = 2.5
+            painter.drawLine(
+                QPointF(screen_point.x() - half, screen_point.y()),
+                QPointF(screen_point.x() + half, screen_point.y()),
+            )
+            painter.drawLine(
+                QPointF(screen_point.x(), screen_point.y() - half),
+                QPointF(screen_point.x(), screen_point.y() + half),
+            )
+            painter.restore()
 
         # Point de contact
         painter.setPen(QPen(QColor("#ff9900"), 0))
