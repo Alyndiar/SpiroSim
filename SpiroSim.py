@@ -1771,21 +1771,21 @@ class LayerEditDialog(QDialog):
 
         def _fmt(value: float, should_highlight: bool) -> str:
             if should_highlight:
-                return f\"<span style='{highlight}'>{value:g}</span>\"
-            return f\"{value:g}\"
+                return f"<span style='{highlight}'>{value:g}</span>"
+            return f"{value:g}"
 
         g0_info = (
-            f\"min arc: {_fmt(track_min_arc, wheel_max_arc > track_min_arc or wheel_size > track_min_arc)}\"
+            f"min arc: {_fmt(track_min_arc, wheel_max_arc > track_min_arc or wheel_size > track_min_arc)}"
         )
         g1_info = (
-            \"size: \" + _fmt(wheel_size, wheel_size > track_min_arc)
-            + \", arcs: \"
+            "size: " + _fmt(wheel_size, wheel_size > track_min_arc)
+            + ", arcs: "
             + _fmt(spec1.side_size, spec1.side_size > track_min_arc)
-            + \"/\"
+            + "/"
             + _fmt(spec1.corner_size, spec1.corner_size > track_min_arc)
         )
-        g0[\"rsdl_info\"].setText(g0_info)
-        g1[\"rsdl_info\"].setText(g1_info)
+        g0["rsdl_info"].setText(g0_info)
+        g1["rsdl_info"].setText(g1_info)
 
     def accept(self):
         self.layer.name = self.name_edit.text().strip() or tr(self.lang, "default_layer_name")
