@@ -383,14 +383,27 @@ def _rsdl_pen_local_vector(
     hole_direction_deg: float,
 ) -> Tuple[float, float]:
     if wheel_curve.length > 0:
+        sample_count = 360
+        sum_x = 0.0
+        sum_y = 0.0
+        for i in range(sample_count):
+            s = wheel_curve.length * i / max(1, sample_count - 1)
+            x, y, _, _ = wheel_curve.eval(s)
+            sum_x += x
+            sum_y += y
+        cx = sum_x / sample_count
+        cy = sum_y / sample_count
         x0, y0, _, _ = wheel_curve.eval(0.0)
     else:
+        cx, cy = 0.0, 0.0
         x0, y0 = (1.0, 0.0)
-    norm = math.hypot(x0, y0)
+    dx = x0 - cx
+    dy = y0 - cy
+    norm = math.hypot(dx, dy)
     if norm == 0:
         ux, uy = 1.0, 0.0
     else:
-        ux, uy = x0 / norm, y0 / norm
+        ux, uy = dx / norm, dy / norm
     vx, vy = -uy, ux
     theta = math.radians(hole_direction_deg)
     cos_t = math.cos(theta)
