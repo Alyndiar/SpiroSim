@@ -125,6 +125,10 @@ class ShapeDesignLabWidget(QWidget):
         self.diagnostics.setHeaderLabels(["Diagnostics"])
         left_layout.addWidget(self.diagnostics, stretch=1)
 
+        self.arc_center_label = QLabel()
+        self.arc_center_label.setWordWrap(True)
+        left_layout.addWidget(self.arc_center_label)
+
         self.quick_params_group = QGroupBox("Quick parameters")
         self.quick_params_layout = QFormLayout(self.quick_params_group)
         left_layout.addWidget(self.quick_params_group)
@@ -302,6 +306,7 @@ class ShapeDesignLabWidget(QWidget):
         self._set_diagnostics([])
         self._normalize_editor_text()
         self._update_quick_params()
+        self._update_arc_center_info()
         self._update_preview()
 
     def _set_diagnostics(self, messages: List[str]) -> None:
@@ -565,6 +570,41 @@ class ShapeDesignLabWidget(QWidget):
             self.quick_params_layout.addRow("T", spin_t)
             self.quick_params_layout.addRow("A", spin_a)
             self.quick_params_layout.addRow("B", spin_b)
+
+    def _update_arc_center_info(self) -> None:
+        expr = normalize_rsdl_text(self.rsdl_editor.toPlainText())
+        if not expr or self.mode_combo.currentText() != "Analytic":
+            self.arc_center_label.setText("")
+            return
+        try:
+            spec = parse_analytic_expression(expr)
+        except RsdlParseError:
+            self.arc_center_label.setText("")
+            return
+        if not isinstance(spec, PolygonSpec):
+            self.arc_center_label.setText("")
+            return
+        if spec.sides < 2:
+            self.arc_center_label.setText("")
+            return
+        if spec.side_size == spec.corner_size:
+            self.arc_center_label.setText("Arc center rotations: single radius")
+            return
+        if spec.sides == 2:
+            alpha = 180.0 * (spec.perimeter - spec.corner_size) / (spec.side_size - spec.corner_size)
+            beta = 180.0 - alpha
+        else:
+            alpha = 360.0 * (spec.perimeter - spec.corner_size) / (
+                spec.sides * (spec.side_size - spec.corner_size)
+            )
+            beta = 360.0 / spec.sides - alpha
+        side_center = alpha / 2.0
+        corner_center = alpha + (beta / 2.0)
+        self.arc_center_label.setText(
+            "Arc center rotations (deg): "
+            f"size {spec.side_size:g} → {side_center:.2f}, "
+            f"size {spec.corner_size:g} → {corner_center:.2f}"
+        )
 
     def _make_spin(self, value: float, min_value: float = 0.1, max_value: float = 10000.0, decimals: int = 3) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
