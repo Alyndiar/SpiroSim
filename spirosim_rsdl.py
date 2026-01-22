@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
+import functools
 
 
 import modular_tracks
@@ -28,8 +29,14 @@ from shape_rsdl import (
 )
 
 
+@functools.lru_cache(maxsize=256)
+def _parse_analytic_cached(expression: str):
+    return parse_analytic_expression(expression)
+
+
+@functools.lru_cache(maxsize=256)
 def curve_from_expression(expression: str, relation: str) -> Optional[BaseCurve]:
-    spec = parse_analytic_expression(expression)
+    spec = _parse_analytic_cached(expression)
     if spec.__class__.__name__ == "CircleSpec":
         return build_circle(spec.perimeter)
     if spec.__class__.__name__ == "RingSpec":
@@ -49,14 +56,20 @@ def curve_from_expression(expression: str, relation: str) -> Optional[BaseCurve]
 
 def is_polygon_expression(expression: str) -> bool:
     try:
-        spec = parse_analytic_expression(expression)
+        spec = _parse_analytic_cached(expression)
     except RsdlParseError:
         return False
     return spec.__class__.__name__ == "PolygonSpec"
 
 
 
-def build_modular_curve(notation: str, inner_size: int, outer_size: int, steps_per_unit: int = 3) -> ModularTrackCurve:
+@functools.lru_cache(maxsize=128)
+def _build_modular_curve_cached(
+    notation: str,
+    inner_size: int,
+    outer_size: int,
+    steps_per_unit: int,
+) -> ModularTrackCurve:
     track = modular_tracks.build_track_from_notation(
         notation,
         inner_size=inner_size,
@@ -77,6 +90,20 @@ def build_modular_curve(notation: str, inner_size: int, outer_size: int, steps_p
                 )
             )
     return ModularTrackCurve(segments, closed=False)
+
+
+def build_modular_curve(
+    notation: str,
+    inner_size: int,
+    outer_size: int,
+    steps_per_unit: int = 3,
+) -> ModularTrackCurve:
+    return _build_modular_curve_cached(
+        notation,
+        inner_size,
+        outer_size,
+        steps_per_unit,
+    )
 
 
 __all__ = [
