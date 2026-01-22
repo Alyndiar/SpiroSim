@@ -354,7 +354,7 @@ def generate_trochoid_points_for_layer_path(
     if len(layer.gears) < 2:
         base_points = generate_simple_circle_for_index(hole_offset, steps)
         phase_turns = phase_offset_turns(path.phase_offset, 1)
-        total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
+        total_angle = -(2.0 * math.pi * phase_turns)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
@@ -389,7 +389,7 @@ def generate_trochoid_points_for_layer_path(
     if base_curve is None or base_curve.length <= 0:
         base_points = generate_simple_circle_for_index(hole_offset, steps)
         phase_turns = phase_offset_turns(path.phase_offset, 1)
-        total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
+        total_angle = -(2.0 * math.pi * phase_turns)
 
         cos_a = math.cos(total_angle)
         sin_a = math.sin(total_angle)
@@ -478,7 +478,7 @@ def generate_trochoid_points_for_layer_path(
             base_points.append((x, y))
 
     phase_turns = phase_offset_turns(path.phase_offset, max(1, int(round(base_curve.length))))
-    total_angle = math.pi / 2.0 - (2.0 * math.pi * phase_turns)
+    total_angle = -(2.0 * math.pi * phase_turns)
 
     cos_a = math.cos(total_angle)
     sin_a = math.sin(total_angle)
