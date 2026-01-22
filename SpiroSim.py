@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 import modular_tracks as modular_tracks
 import modular_tracks_demo as modular_track_demo
-from spirosim_core import (
+from spirosim_math import (
     GearConfig,
     LayerConfig,
     PathConfig,
@@ -32,7 +32,15 @@ from spirosim_core import (
     _rsdl_pen_local_vector,
 )
 from shape_lab import ShapeDesignLabDialog, ShapeDesignLabWindow
-from shape_rsdl import RsdlParseError, normalize_rsdl_text, parse_analytic_expression, parse_modular_expression
+from spirosim_rsdl import (
+    RsdlParseError,
+    build_modular_curve,
+    curve_from_expression,
+    is_polygon_expression,
+    normalize_rsdl_text,
+    parse_analytic_expression,
+    parse_modular_expression,
+)
 from shape_geometry import (
     BaseCurve,
     ArcSegment,
@@ -116,6 +124,19 @@ GITHUB_REPO_URL = "https://github.com/alyndiar/SpiroSim"
 
 def split_valid_modular_notation(text: str) -> Tuple[str, str, bool]:
     return modular_tracks.split_valid_modular_notation(text)
+
+
+def _rsdl_curve_builder(expression: str, relation: str) -> Optional[BaseCurve]:
+    return curve_from_expression(expression, relation)
+
+
+def _modular_curve_builder(notation: str, inner_size: int, outer_size: int) -> BaseCurve:
+    return build_modular_curve(
+        notation,
+        inner_size=inner_size,
+        outer_size=outer_size,
+        steps_per_unit=3,
+    )
 
 def wavelength_to_rgb(nm: float) -> Tuple[int, int, int]:
     """
@@ -216,7 +237,7 @@ RELATIONS = [
     "dehors",        # gear outside (épitrochoïde)
 ]
 
-# ---------- 2) Géométrie (voir spirosim_core) ----------
+# ---------- 2) Géométrie (voir spirosim_math) ----------
 
 # ---------- 3) Validation de couleur ----------
 
@@ -846,6 +867,9 @@ def layers_to_svg(
                 layer,
                 path,
                 steps=points_per_path,
+                rsdl_curve_builder=_rsdl_curve_builder,
+                modular_curve_builder=_modular_curve_builder,
+                rsdl_is_polygon=is_polygon_expression,
             )
             if not pts:
                 continue
@@ -1744,13 +1768,31 @@ class TrackTestDialog(QDialog):
         g1 = layer.gears[1]
 
         relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
-        wheel_size = max(1.0, _gear_perimeter(g1, relation))
+        wheel_size = max(
+            1.0,
+            _gear_perimeter(g1, relation, rsdl_curve_builder=_rsdl_curve_builder),
+        )
         scale = getattr(layer, "zoom", 1.0) * getattr(path, "zoom", 1.0)
 
         try:
-            base_curve = _curve_from_gear(g0, relation)
-            base_curve = _align_base_curve_start(base_curve, g0, g1, relation)
-            wheel_curve = _curve_from_gear(g1, relation)
+            base_curve = _curve_from_gear(
+                g0,
+                relation,
+                rsdl_curve_builder=_rsdl_curve_builder,
+                modular_curve_builder=_modular_curve_builder,
+            )
+            base_curve = _align_base_curve_start(
+                base_curve,
+                g0,
+                g1,
+                relation,
+                rsdl_is_polygon=is_polygon_expression,
+            )
+            wheel_curve = _curve_from_gear(
+                g1,
+                relation,
+                rsdl_curve_builder=_rsdl_curve_builder,
+            )
         except RsdlParseError:
             base_curve = None
             wheel_curve = None
@@ -2063,8 +2105,17 @@ class LayerManagerDialog(QDialog):
         g1 = layer.gears[1]
         relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
         try:
-            base_curve = _curve_from_gear(g0, relation)
-            wheel_curve = _curve_from_gear(g1, relation)
+            base_curve = _curve_from_gear(
+                g0,
+                relation,
+                rsdl_curve_builder=_rsdl_curve_builder,
+                modular_curve_builder=_modular_curve_builder,
+            )
+            wheel_curve = _curve_from_gear(
+                g1,
+                relation,
+                rsdl_curve_builder=_rsdl_curve_builder,
+            )
         except RsdlParseError:
             return False
         return (

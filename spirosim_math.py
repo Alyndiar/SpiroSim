@@ -4,24 +4,17 @@ from dataclasses import dataclass, field
 import math
 from typing import List, Optional, Tuple
 
-import modular_tracks
 from shape_geometry import (
-    ArcSegment,
     BaseCurve,
     CircleCurve,
     EllipseCurve,
-    LineSegment,
-    ModularTrackCurve,
     build_circle,
     build_drop,
     build_oblong,
     build_rounded_polygon,
     pen_position,
     roll_pen_position,
-    wheel_orientation,
-    wheel_pen_local_vector,
 )
-from shape_rsdl import RsdlParseError, parse_analytic_expression
 
 Point = Tuple[float, float]
 
@@ -124,32 +117,22 @@ def _curve_from_analytic_spec(spec, relation: str) -> BaseCurve:
     return build_circle(1.0)
 
 
-def _curve_from_gear(gear: GearConfig, relation: str) -> Optional[BaseCurve]:
-    if gear.gear_type == "modulaire" and gear.modular_notation:
-        track = modular_tracks.build_track_from_notation(
+def _curve_from_gear(
+    gear: GearConfig,
+    relation: str,
+    *,
+    rsdl_curve_builder=None,
+    modular_curve_builder=None,
+) -> Optional[BaseCurve]:
+    if gear.gear_type == "modulaire" and gear.modular_notation and modular_curve_builder:
+        return modular_curve_builder(
             gear.modular_notation,
             inner_size=gear.size or 1,
             outer_size=gear.outer_size or (gear.size + 1),
-            steps_per_unit=3,
         )
-        segments = []
-        for seg in track.segments:
-            if seg.kind == "line":
-                segments.append(LineSegment(seg.start, seg.end))
-            elif seg.kind == "arc" and seg.center is not None and seg.radius is not None:
-                segments.append(
-                    ArcSegment(
-                        seg.center,
-                        seg.radius,
-                        seg.angle_start or 0.0,
-                        seg.angle_end or 0.0,
-                    )
-                )
-        return ModularTrackCurve(segments, closed=False)
 
-    if gear.gear_type == "rsdl" and gear.rsdl_expression:
-        spec = parse_analytic_expression(gear.rsdl_expression)
-        return _curve_from_analytic_spec(spec, relation)
+    if gear.gear_type == "rsdl" and gear.rsdl_expression and rsdl_curve_builder:
+        return rsdl_curve_builder(gear.rsdl_expression, relation)
 
     if gear.gear_type == "anneau":
         return build_circle(contact_size_for_relation(gear, relation))
@@ -157,14 +140,16 @@ def _curve_from_gear(gear: GearConfig, relation: str) -> Optional[BaseCurve]:
     return build_circle(gear.size or 1)
 
 
-def _gear_perimeter(gear: GearConfig, relation: str) -> float:
-    if gear.gear_type == "rsdl" and gear.rsdl_expression:
-        try:
-            spec = parse_analytic_expression(gear.rsdl_expression)
-        except RsdlParseError:
-            return float(contact_size_for_relation(gear, relation))
-        curve = _curve_from_analytic_spec(spec, relation)
-        return curve.length
+def _gear_perimeter(
+    gear: GearConfig,
+    relation: str,
+    *,
+    rsdl_curve_builder=None,
+) -> float:
+    if gear.gear_type == "rsdl" and gear.rsdl_expression and rsdl_curve_builder:
+        curve = rsdl_curve_builder(gear.rsdl_expression, relation)
+        if curve is not None:
+            return curve.length
     return float(contact_size_for_relation(gear, relation))
 
 
@@ -284,22 +269,24 @@ def _align_curve_start_to_top(curve: BaseCurve) -> BaseCurve:
     return _RotateCurve(curve, (cx, cy), cos_a, sin_a)
 
 
-def _align_stationary_polygon_curve(gear: GearConfig, curve: Optional[BaseCurve]) -> Optional[BaseCurve]:
+def _align_stationary_polygon_curve(
+    gear: GearConfig,
+    curve: Optional[BaseCurve],
+    rsdl_is_polygon=None,
+) -> Optional[BaseCurve]:
     if curve is None or gear.gear_type != "rsdl" or not gear.rsdl_expression:
         return curve
-    try:
-        spec = parse_analytic_expression(gear.rsdl_expression)
-    except RsdlParseError:
-        return curve
-    if spec.__class__.__name__ != "PolygonSpec":
-        return curve
-    return _align_curve_start_to_top(curve)
+    if rsdl_is_polygon and rsdl_is_polygon(gear.rsdl_expression):
+        return _align_curve_start_to_top(curve)
+    return curve
 
 
 def _align_base_curve_for_rsdl(
     base_curve: Optional[BaseCurve],
     stationary_gear: GearConfig,
     rolling_gear: GearConfig,
+    *,
+    rsdl_is_polygon=None,
 ) -> Optional[BaseCurve]:
     if base_curve is None:
         return None
@@ -309,7 +296,11 @@ def _align_base_curve_for_rsdl(
         and isinstance(base_curve, CircleCurve)
     ):
         return _align_curve_start_to_top(base_curve)
-    return _align_stationary_polygon_curve(stationary_gear, base_curve)
+    return _align_stationary_polygon_curve(
+        stationary_gear,
+        base_curve,
+        rsdl_is_polygon=rsdl_is_polygon,
+    )
 
 
 def _align_base_curve_start(
@@ -317,8 +308,15 @@ def _align_base_curve_start(
     stationary_gear: GearConfig,
     rolling_gear: GearConfig,
     relation: str,
+    *,
+    rsdl_is_polygon=None,
 ) -> Optional[BaseCurve]:
-    base_curve = _align_base_curve_for_rsdl(base_curve, stationary_gear, rolling_gear)
+    base_curve = _align_base_curve_for_rsdl(
+        base_curve,
+        stationary_gear,
+        rolling_gear,
+        rsdl_is_polygon=rsdl_is_polygon,
+    )
     if base_curve is None:
         return None
     if (
@@ -334,6 +332,10 @@ def generate_trochoid_points_for_layer_path(
     layer: LayerConfig,
     path: PathConfig,
     steps: int = 5000,
+    *,
+    rsdl_curve_builder=None,
+    modular_curve_builder=None,
+    rsdl_is_polygon=None,
 ):
     if not layer.gears:
         return []
@@ -352,46 +354,35 @@ def generate_trochoid_points_for_layer_path(
     if g1 is None:
         return generate_simple_circle_for_index(path.hole_offset, steps)
 
-    if g0.gear_type == "modulaire" and g0.modular_notation:
-        track = modular_tracks.build_track_from_notation(
-            g0.modular_notation,
-            inner_size=g0.size or 1,
-            outer_size=g0.outer_size or (g0.size + 1),
-            steps_per_unit=3,
-        )
-        segments = []
-        for seg in track.segments:
-            if seg.kind == "line":
-                segments.append(LineSegment(seg.start, seg.end))
-            elif seg.kind == "arc" and seg.center is not None and seg.radius is not None:
-                segments.append(
-                    ArcSegment(
-                        seg.center,
-                        seg.radius,
-                        seg.angle_start or 0.0,
-                        seg.angle_end or 0.0,
-                    )
-                )
-        base_curve = ModularTrackCurve(segments, closed=False)
-    else:
-        base_curve = _curve_from_gear(g0, relation)
+    base_curve = _curve_from_gear(
+        g0,
+        relation,
+        rsdl_curve_builder=rsdl_curve_builder,
+        modular_curve_builder=modular_curve_builder,
+    )
 
     if base_curve is None or base_curve.length <= 0:
         return []
 
-    base_curve = _align_base_curve_start(base_curve, g0, g1, relation)
+    base_curve = _align_base_curve_start(
+        base_curve,
+        g0,
+        g1,
+        relation,
+        rsdl_is_polygon=rsdl_is_polygon,
+    )
 
     if relation == "dedans":
         side = -1
     elif relation == "dehors":
         side = 1
 
-    wheel_size = max(1.0, _gear_perimeter(g1, relation))
+    wheel_size = max(1.0, _gear_perimeter(g1, relation, rsdl_curve_builder=rsdl_curve_builder))
     r = contact_radius_for_relation(g1, relation)
 
     use_rsdl_wheel = g1.gear_type == "rsdl" and g1.rsdl_expression
     if use_rsdl_wheel:
-        wheel_curve = _curve_from_gear(g1, relation)
+        wheel_curve = _curve_from_gear(g1, relation, rsdl_curve_builder=rsdl_curve_builder)
     elif relation == "stationnaire":
         wheel_curve = CircleCurve(wheel_size)
     elif relation == "dedans":
