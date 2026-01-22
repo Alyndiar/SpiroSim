@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from shape_geometry import (
     BaseCurve,
@@ -18,6 +18,43 @@ from shape_geometry import (
 )
 
 Point = Tuple[float, float]
+
+
+@dataclass(frozen=True)
+class MathBackend:
+    name: str
+    label: str
+    available: bool
+    generator: Callable
+
+
+_BACKENDS: dict[str, MathBackend] = {}
+_ACTIVE_BACKEND = "python"
+
+
+def register_backend(backend: MathBackend) -> None:
+    _BACKENDS[backend.name] = backend
+
+
+def list_backends(*, available_only: bool = False) -> list[MathBackend]:
+    backends = list(_BACKENDS.values())
+    if available_only:
+        backends = [b for b in backends if b.available]
+    return sorted(backends, key=lambda b: b.name)
+
+
+def get_backend_name() -> str:
+    return _ACTIVE_BACKEND
+
+
+def set_backend(name: str) -> None:
+    backend = _BACKENDS.get(name)
+    if backend is None:
+        raise ValueError(f"Unknown math backend: {name}")
+    if not backend.available:
+        raise ValueError(f"Math backend not available: {name}")
+    global _ACTIVE_BACKEND
+    _ACTIVE_BACKEND = backend.name
 
 
 @dataclass
@@ -329,7 +366,7 @@ def _align_base_curve_start(
     return base_curve
 
 
-def generate_trochoid_points_for_layer_path(
+def _generate_trochoid_points_python(
     layer: LayerConfig,
     path: PathConfig,
     steps: int = 5000,
@@ -491,16 +528,53 @@ def generate_trochoid_points_for_layer_path(
     return rotated_points
 
 
+def generate_trochoid_points_for_layer_path(
+    layer: LayerConfig,
+    path: PathConfig,
+    steps: int = 5000,
+    *,
+    rsdl_curve_builder=None,
+    modular_curve_builder=None,
+    rsdl_is_polygon=None,
+):
+    backend = _BACKENDS.get(_ACTIVE_BACKEND)
+    if backend is None:
+        raise ValueError(f"Unknown math backend: {_ACTIVE_BACKEND}")
+    return backend.generator(
+        layer,
+        path,
+        steps,
+        rsdl_curve_builder=rsdl_curve_builder,
+        modular_curve_builder=modular_curve_builder,
+        rsdl_is_polygon=rsdl_is_polygon,
+    )
+
+
+register_backend(
+    MathBackend(
+        name="python",
+        label="Python",
+        available=True,
+        generator=_generate_trochoid_points_python,
+    )
+)
+
+
 __all__ = [
     "GearConfig",
     "LayerConfig",
     "PathConfig",
+    "MathBackend",
     "contact_radius_for_relation",
     "contact_size_for_relation",
     "generate_simple_circle_for_index",
     "generate_trochoid_points_for_layer_path",
+    "get_backend_name",
+    "list_backends",
     "phase_offset_turns",
     "radius_from_size",
+    "register_backend",
+    "set_backend",
     "_curve_from_analytic_spec",
     "_curve_from_gear",
     "_gear_perimeter",

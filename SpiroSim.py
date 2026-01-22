@@ -22,7 +22,10 @@ from spirosim_math import (
     PathConfig,
     contact_size_for_relation,
     generate_trochoid_points_for_layer_path,
+    get_backend_name,
+    list_backends,
     radius_from_size,
+    set_backend,
     _OffsetCurve,
     _align_base_curve_start,
     _curve_from_analytic_spec,
@@ -3578,9 +3581,19 @@ class SpiroWindow(QWidget):
         spin_pts.setRange(500, 100000)
         spin_pts.setValue(self.points_per_path)
 
+        backend_combo = QComboBox()
+        backend_items = list_backends(available_only=True)
+        for backend in backend_items:
+            backend_combo.addItem(backend.label, backend.name)
+        current_backend = get_backend_name()
+        current_idx = backend_combo.findData(current_backend)
+        if current_idx >= 0:
+            backend_combo.setCurrentIndex(current_idx)
+
         layout.addRow(tr(self.language, "canvas_label_width"), spin_w)
         layout.addRow(tr(self.language, "canvas_label_height"), spin_h)
         layout.addRow(tr(self.language, "canvas_label_points"), spin_pts)
+        layout.addRow(tr(self.language, "canvas_label_math_backend"), backend_combo)
 
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.language, "dlg_ok"))
@@ -3595,6 +3608,12 @@ class SpiroWindow(QWidget):
             self.canvas_width = spin_w.value()
             self.canvas_height = spin_h.value()
             self.points_per_path = spin_pts.value()
+            selected_backend = backend_combo.currentData()
+            if selected_backend:
+                try:
+                    set_backend(str(selected_backend))
+                except ValueError:
+                    pass
             self.update_svg()
 
     # ----- Sauvegarde / chargement JSON -----
@@ -3723,6 +3742,7 @@ class SpiroWindow(QWidget):
             "canvas_width": self.canvas_width,
             "canvas_height": self.canvas_height,
             "points_per_path": self.points_per_path,
+            "math_backend": get_backend_name(),
             "animation_enabled": self.animation_enabled,
             "animation_speed": self.anim_speed_spin.value(),
             "show_track": self.show_track,
@@ -3749,6 +3769,12 @@ class SpiroWindow(QWidget):
         self.canvas_width = int(data.get("canvas_width", self.canvas_width))
         self.canvas_height = int(data.get("canvas_height", self.canvas_height))
         self.points_per_path = int(data.get("points_per_path", self.points_per_path))
+        backend_name = data.get("math_backend")
+        if backend_name:
+            try:
+                set_backend(str(backend_name))
+            except ValueError:
+                pass
 
         anim_enabled_val = data.get("animation_enabled")
         if anim_enabled_val is not None:
