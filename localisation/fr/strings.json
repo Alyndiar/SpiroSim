@@ -1,5 +1,4 @@
 {
-  "canvas_label_math_backend": "Moteur mathématique :",
   "gear_type_labels": {
     "anneau": "anneau",
     "modulaire": "modulaire",
@@ -23,6 +22,7 @@
     "bgcolor_label": "Couleur de fond (nom CSS4 ou #hex) :",
     "canvas_dialog_title": "Taille du canevas et précision",
     "canvas_label_height": "Hauteur du canevas (px) :",
+    "canvas_label_math_backend": "Moteur mathématique :",
     "canvas_label_points": "Points par tracé :",
     "canvas_label_width": "Largeur du canevas (px) :",
     "color_invalid_text": "La couleur saisie n'est pas une couleur X11/CSS4 ou hexadécimale valide.",

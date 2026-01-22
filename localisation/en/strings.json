@@ -1,5 +1,4 @@
 {
-  "canvas_label_math_backend": "Math backend:",
   "gear_type_labels": {
     "anneau": "ring",
     "modulaire": "modular",
@@ -23,6 +22,7 @@
     "bgcolor_label": "Background color (CSS4 name or #hex):",
     "canvas_dialog_title": "Canvas size and precision",
     "canvas_label_height": "Canvas height (px):",
+    "canvas_label_math_backend": "Math backend:",
     "canvas_label_points": "Points per path:",
     "canvas_label_width": "Canvas width (px):",
     "color_invalid_text": "The color you entered is not a valid X11/CSS4 or hexadecimal color.",
