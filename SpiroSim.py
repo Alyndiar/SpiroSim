@@ -3329,10 +3329,12 @@ class SpiroWindow(QWidget):
 
     def update_svg(self):
         bg_norm = normalize_color_string(self.bg_color) or "#ffffff"
+        display_width = max(1, min(self.canvas_width, self.svg_widget.width()))
+        display_height = max(1, min(self.canvas_height, self.svg_widget.height()))
         result = layers_to_svg(
             self.layers,
-            width=self.canvas_width,
-            height=self.canvas_height,
+            width=display_width,
+            height=display_height,
             bg_color=bg_norm,
             points_per_path=self.points_per_path,
             show_tracks=self.show_track,
