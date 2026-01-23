@@ -406,6 +406,7 @@ def _generate_trochoid_points_python(
       - path.hole_offset est un float, peut être négatif.
     """
     hole_offset = float(path.hole_offset)
+    hole_direction = float(getattr(path, "hole_direction", 0.0))
 
     if len(layer.gears) < 2:
         base_points = generate_simple_circle_for_index(hole_offset, steps)
