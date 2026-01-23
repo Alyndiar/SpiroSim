@@ -5,15 +5,19 @@ import math
 from typing import Callable, List, Optional, Tuple
 
 from shape_geometry import (
+    ArcSegment,
     BaseCurve,
     CircleCurve,
     EllipseCurve,
+    LineSegment,
+    ModularTrackCurve,
     build_circle,
     build_drop,
     build_oblong,
     build_rounded_polygon,
     pen_position,
     roll_pen_position,
+    wheel_orientation,
     wheel_pen_local_vector,
 )
 
@@ -561,20 +565,29 @@ register_backend(
 
 
 __all__ = [
+    "ArcSegment",
+    "BaseCurve",
+    "CircleCurve",
     "GearConfig",
     "LayerConfig",
-    "PathConfig",
+    "LineSegment",
     "MathBackend",
+    "ModularTrackCurve",
+    "PathConfig",
     "contact_radius_for_relation",
     "contact_size_for_relation",
     "generate_simple_circle_for_index",
     "generate_trochoid_points_for_layer_path",
     "get_backend_name",
     "list_backends",
+    "pen_position",
     "phase_offset_turns",
     "radius_from_size",
     "register_backend",
+    "roll_pen_position",
     "set_backend",
+    "wheel_orientation",
+    "wheel_pen_local_vector",
     "_curve_from_analytic_spec",
     "_curve_from_gear",
     "_gear_perimeter",

@@ -17,15 +17,24 @@ from typing import Dict, List, Optional, Tuple
 import modular_tracks as modular_tracks
 import modular_tracks_demo as modular_track_demo
 from spirosim_math import (
+    ArcSegment,
+    BaseCurve,
+    CircleCurve,
     GearConfig,
     LayerConfig,
+    LineSegment,
+    ModularTrackCurve,
     PathConfig,
     contact_size_for_relation,
     generate_trochoid_points_for_layer_path,
     get_backend_name,
     list_backends,
+    pen_position,
     radius_from_size,
+    roll_pen_position,
     set_backend,
+    wheel_orientation,
+    wheel_pen_local_vector,
     _OffsetCurve,
     _align_base_curve_start,
     _curve_from_analytic_spec,
@@ -43,17 +52,6 @@ from spirosim_rsdl import (
     normalize_rsdl_text,
     parse_analytic_expression,
     parse_modular_expression,
-)
-from shape_geometry import (
-    BaseCurve,
-    ArcSegment,
-    CircleCurve,
-    LineSegment,
-    ModularTrackCurve,
-    pen_position,
-    roll_pen_position,
-    wheel_orientation,
-    wheel_pen_local_vector,
 )
 import localisation
 from localisation import gear_type_label, relation_label, tr
