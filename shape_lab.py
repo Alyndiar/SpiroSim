@@ -35,8 +35,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import modular_tracks_2 as modular_tracks
-from shape_rsdl import (
+import modular_tracks as modular_tracks
+from spirosim_rsdl import (
     CircleSpec,
     DropSpec,
     RsdlParseError,

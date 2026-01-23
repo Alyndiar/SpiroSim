@@ -1,8 +1,8 @@
 """
-Démonstration simple pour `modular_tracks_2.py`.
+Démonstration simple pour `modular_tracks.py`.
 
 Ce module construit une piste modulaire uniquement avec les fonctions de
-`modular_tracks_2` puis anime une roue qui la parcourt. Sont dessinés :
+`modular_tracks` puis anime une roue qui la parcourt. Sont dessinés :
   - les deux côtés de la piste et sa médiane,
   - un indicateur de départ pour la roue,
   - la roue, le point de contact courant, le trou utilisé et le tracé final
@@ -10,7 +10,7 @@ Ce module construit une piste modulaire uniquement avec les fonctions de
     pour apparaître mobiles).
 
 Exécution rapide :
-    python modular_tracks_2_demo.py
+    python modular_tracks_demo.py
 """
 
 import math
@@ -21,7 +21,7 @@ from PySide6.QtCore import QPointF, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
-import modular_tracks_2 as modular_tracks
+import modular_tracks as modular_tracks
 
 Point = Tuple[float, float]
 
@@ -131,7 +131,7 @@ class ModularTrackDemo(QWidget):
         scale: float = 1.0,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Démo modular_tracks_2")
+        self.setWindowTitle("Démo modular_tracks")
 
         self._interval_ms = 20
         self._speed_pts_per_s: float = 1.0
