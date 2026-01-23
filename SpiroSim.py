@@ -810,6 +810,23 @@ def layers_to_svg(
             )
             for (x, y) in points
         ]
+    def filter_finite(points):
+        if not points:
+            return points
+        return [
+            (x, y)
+            for (x, y) in points
+            if math.isfinite(x) and math.isfinite(y)
+        ]
+    def split_points(points, max_points: int):
+        if not points:
+            return []
+        total = len(points)
+        if total <= max_points:
+            return [points]
+        chunk_count = math.ceil(total / max_points)
+        chunk_size = math.ceil(total / chunk_count)
+        return [points[i:i + chunk_size] for i in range(0, total, chunk_size)]
     all_points = []
     trace_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
@@ -872,6 +889,7 @@ def layers_to_svg(
                 modular_curve_builder=_modular_curve_builder,
                 rsdl_is_polygon=is_polygon_expression,
             )
+            pts = filter_finite(pts)
             if not pts:
                 continue
             path_zoom = getattr(path, "zoom", 1.0)
@@ -893,6 +911,9 @@ def layers_to_svg(
             layer_transformed = apply_transform(
                 path_transformed, layer_rotate, layer_tx, layer_ty
             )
+            layer_transformed = filter_finite(layer_transformed)
+            if not layer_transformed:
+                continue
             layer_paths.append((path, layer_transformed, path_zoom))
 
         if layer_paths:
@@ -907,6 +928,9 @@ def layers_to_svg(
             track_zoomed = [
                 (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
             ]
+            track_zoomed = filter_finite(track_zoomed)
+            if not track_zoomed:
+                continue
             if track_zoomed:
                 track_cx = sum(p[0] for p in track_zoomed) / len(track_zoomed)
                 track_cy = sum(p[1] for p in track_zoomed) / len(track_zoomed)
@@ -996,33 +1020,36 @@ def layers_to_svg(
 
         for _, _, path_cfg, pts_zoomed, _ in layer_paths:
             t_points = [transform(p) for p in pts_zoomed]
-            x0, y0 = t_points[0]
-            path_cmds = [f"M {x0:.3f} {y0:.3f}"]
-            for (x, y) in t_points[1:]:
-                path_cmds.append(f"L {x:.3f} {y:.3f}")
-            path_d = " ".join(path_cmds)
-
             stroke_color = getattr(path_cfg, "color_norm", None)
             if not stroke_color:
                 # sécurité : normalisation à la volée si pas encore calculée (vieux JSON, etc.)
                 stroke_color = normalize_color_string(path_cfg.color) or "#000000"
                 path_cfg.color_norm = stroke_color
 
-            render_paths.append(
-                {
-                    "layer_name": layer.name,
-                    "path_name": path_cfg.name,
-                    "points": t_points,
-                    "color": stroke_color,
-                    "stroke_width": path_cfg.stroke_width,
-                }
-            )
+            for idx, chunk in enumerate(split_points(t_points, 32000), start=1):
+                if not chunk:
+                    continue
+                x0, y0 = chunk[0]
+                path_cmds = [f"M {x0:.3f} {y0:.3f}"]
+                for (x, y) in chunk[1:]:
+                    path_cmds.append(f"L {x:.3f} {y:.3f}")
+                path_d = " ".join(path_cmds)
 
-            svg_parts.append(
-                f'    <path d="{path_d}" fill="none" '
-                f'stroke="{stroke_color}" stroke-width="{path_cfg.stroke_width}" '
-                f'id="{layer.name}-{path_cfg.name}"/>'
-            )
+                render_paths.append(
+                    {
+                        "layer_name": layer.name,
+                        "path_name": path_cfg.name,
+                        "points": chunk,
+                        "color": stroke_color,
+                        "stroke_width": path_cfg.stroke_width,
+                    }
+                )
+
+                svg_parts.append(
+                    f'    <path d="{path_d}" fill="none" '
+                    f'stroke="{stroke_color}" stroke-width="{path_cfg.stroke_width}" '
+                    f'id="{layer.name}-{path_cfg.name}-{idx}"/>'
+                )
         svg_parts.append('  </g>')
 
     svg_parts.append('</svg>')
@@ -3302,10 +3329,12 @@ class SpiroWindow(QWidget):
 
     def update_svg(self):
         bg_norm = normalize_color_string(self.bg_color) or "#ffffff"
+        display_width = max(1, min(self.canvas_width, self.svg_widget.width()))
+        display_height = max(1, min(self.canvas_height, self.svg_widget.height()))
         result = layers_to_svg(
             self.layers,
-            width=self.canvas_width,
-            height=self.canvas_height,
+            width=display_width,
+            height=display_height,
             bg_color=bg_norm,
             points_per_path=self.points_per_path,
             show_tracks=self.show_track,
