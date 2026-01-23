@@ -6,7 +6,7 @@ import os
 from typing import List, Optional
 
 from PySide6.QtCore import QStandardPaths, QTimer, Qt
-from PySide6.QtGui import QColor, QPainterPath, QPen
+from PySide6.QtGui import QColor, QKeySequence, QPainterPath, QPen, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -660,6 +660,10 @@ class ShapeDesignLabDialog(QDialog):
         btn_layout.addStretch(1)
         self.ok_button = QPushButton("OK")
         self.cancel_button = QPushButton("Cancel")
+        self.ok_button.setDefault(True)
+        self.ok_button.setAutoDefault(True)
+        self.cancel_button.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.reject)
         btn_layout.addWidget(self.ok_button)
         btn_layout.addWidget(self.cancel_button)
         layout.addLayout(btn_layout)
