@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import importlib.util
 import math
 from typing import Callable, List, Optional, Tuple
 
@@ -22,6 +23,10 @@ from shape_geometry import (
 )
 
 Point = Tuple[float, float]
+_NUMBA_AVAILABLE = importlib.util.find_spec("numba") is not None
+if _NUMBA_AVAILABLE:
+    import numpy as np
+    import numba
 
 
 @dataclass(frozen=True)
@@ -258,6 +263,17 @@ def _rsdl_curve_center(curve: BaseCurve, samples: int = 360) -> Tuple[float, flo
     return sum_x / samples, sum_y / samples
 
 
+def _max_curve_radius(curve: Optional[BaseCurve], samples: int = 720) -> float:
+    if curve is None or curve.length <= 0:
+        return 0.0
+    max_radius = 0.0
+    for i in range(samples):
+        s = curve.length * i / max(1, samples - 1)
+        x, y, _, _ = curve.eval(s)
+        max_radius = max(max_radius, math.hypot(x, y))
+    return max_radius
+
+
 class _OffsetCurve(BaseCurve):
     def __init__(self, base: BaseCurve, offset: Tuple[float, float]):
         self.base = base
@@ -390,7 +406,6 @@ def _generate_trochoid_points_python(
       - path.hole_offset est un float, peut être négatif.
     """
     hole_offset = float(path.hole_offset)
-    hole_direction = float(getattr(path, "hole_direction", 0.0))
 
     if len(layer.gears) < 2:
         base_points = generate_simple_circle_for_index(hole_offset, steps)
@@ -449,16 +464,6 @@ def _generate_trochoid_points_python(
         tip_size = wheel_size
     else:
         tip_size = g1.size
-
-    def _max_curve_radius(curve: BaseCurve, samples: int = 720) -> float:
-        if curve.length <= 0:
-            return 0.0
-        max_radius = 0.0
-        for i in range(samples):
-            s = curve.length * i / max(1, samples - 1)
-            x, y, _, _ = curve.eval(s)
-            max_radius = max(max_radius, math.hypot(x, y))
-        return max_radius
 
     if g1.gear_type == "rsdl" and g1.rsdl_expression:
         wheel_curve = None
@@ -532,6 +537,183 @@ def _generate_trochoid_points_python(
     return rotated_points
 
 
+def _generate_trochoid_points_numba(
+    layer: LayerConfig,
+    path: PathConfig,
+    steps: int = 5000,
+    *,
+    rsdl_curve_builder=None,
+    modular_curve_builder=None,
+    rsdl_is_polygon=None,
+):
+    if not _NUMBA_AVAILABLE:
+        return _generate_trochoid_points_python(
+            layer,
+            path,
+            steps,
+            rsdl_curve_builder=rsdl_curve_builder,
+            modular_curve_builder=modular_curve_builder,
+            rsdl_is_polygon=rsdl_is_polygon,
+        )
+
+    hole_offset = float(path.hole_offset)
+
+    if len(layer.gears) < 2:
+        return _generate_trochoid_points_python(
+            layer,
+            path,
+            steps,
+            rsdl_curve_builder=rsdl_curve_builder,
+            modular_curve_builder=modular_curve_builder,
+            rsdl_is_polygon=rsdl_is_polygon,
+        )
+
+    g0 = layer.gears[0]
+    g1 = layer.gears[1]
+    relation = g1.relation
+
+    try:
+        base_curve = _curve_from_gear(
+            g0,
+            relation,
+            rsdl_curve_builder=rsdl_curve_builder,
+            modular_curve_builder=modular_curve_builder,
+        )
+        base_curve = _align_base_curve_start(
+            base_curve,
+            g0,
+            g1,
+            relation,
+            rsdl_is_polygon=rsdl_is_polygon,
+        )
+    except Exception:
+        base_curve = None
+
+    if base_curve is None or base_curve.length <= 0:
+        return _generate_trochoid_points_python(
+            layer,
+            path,
+            steps,
+            rsdl_curve_builder=rsdl_curve_builder,
+            modular_curve_builder=modular_curve_builder,
+            rsdl_is_polygon=rsdl_is_polygon,
+        )
+
+    wheel_size = max(1.0, _gear_perimeter(g1, relation, rsdl_curve_builder=rsdl_curve_builder))
+    r = radius_from_size(wheel_size)
+    if g1.gear_type == "anneau":
+        tip_size = g1.outer_size or g1.size
+    elif g1.gear_type == "rsdl" and g1.rsdl_expression:
+        tip_size = wheel_size
+    else:
+        tip_size = g1.size
+
+    if g1.gear_type == "rsdl" and g1.rsdl_expression:
+        wheel_curve = None
+        try:
+            wheel_curve = _curve_from_gear(g1, relation, rsdl_curve_builder=rsdl_curve_builder)
+        except Exception:
+            wheel_curve = None
+        tip_radius = _max_curve_radius(wheel_curve) if wheel_curve else radius_from_size(tip_size)
+    else:
+        tip_radius = radius_from_size(tip_size)
+
+    if g1.gear_type == "rsdl" and g1.rsdl_expression:
+        d = hole_offset
+    else:
+        d = tip_radius - hole_offset
+
+    if base_curve.closed:
+        g = math.gcd(int(round(base_curve.length)), int(round(wheel_size))) or 1
+        s_max = base_curve.length * (wheel_size / g)
+    else:
+        s_max = base_curve.length
+    s_max = max(s_max, base_curve.length)
+
+    side = 1 if relation == "dedans" else -1
+    epsilon = side
+    if relation == "dedans" and (
+        isinstance(base_curve, CircleCurve) or (g0.gear_type == "rsdl" and g0.rsdl_expression)
+    ):
+        alpha0 = math.pi
+    else:
+        alpha0 = 0.0
+
+    use_rsdl_wheel = g1.gear_type == "rsdl" and g1.rsdl_expression
+    if use_rsdl_wheel:
+        return _generate_trochoid_points_python(
+            layer,
+            path,
+            steps,
+            rsdl_curve_builder=rsdl_curve_builder,
+            modular_curve_builder=modular_curve_builder,
+            rsdl_is_polygon=rsdl_is_polygon,
+        )
+
+    s_values = np.linspace(0.0, s_max, steps, dtype=np.float64)
+    xb = np.empty(steps, dtype=np.float64)
+    yb = np.empty(steps, dtype=np.float64)
+    tx = np.empty(steps, dtype=np.float64)
+    ty = np.empty(steps, dtype=np.float64)
+    nx = np.empty(steps, dtype=np.float64)
+    ny = np.empty(steps, dtype=np.float64)
+
+    for i, s in enumerate(s_values):
+        x, y, tangent, normal = base_curve.eval(float(s))
+        xb[i] = x
+        yb[i] = y
+        tx[i] = tangent[0]
+        ty[i] = tangent[1]
+        nx[i] = normal[0]
+        ny[i] = normal[1]
+
+    px, py = _pen_positions_numba(s_values, xb, yb, tx, ty, nx, ny, r, d, side, alpha0, epsilon)
+
+    phase_turns = phase_offset_turns(path.phase_offset, max(1, int(round(base_curve.length))))
+    total_angle = -(2.0 * math.pi * phase_turns)
+    cos_a = math.cos(total_angle)
+    sin_a = math.sin(total_angle)
+
+    rotated_points = []
+    for x, y in zip(px, py):
+        xr = float(x) * cos_a - float(y) * sin_a
+        yr = float(x) * sin_a + float(y) * cos_a
+        rotated_points.append((xr, yr))
+
+    return rotated_points
+
+
+if _NUMBA_AVAILABLE:
+
+    @numba.njit(cache=True)
+    def _pen_positions_numba(
+        s_values: np.ndarray,
+        xb: np.ndarray,
+        yb: np.ndarray,
+        tx: np.ndarray,
+        ty: np.ndarray,
+        nx: np.ndarray,
+        ny: np.ndarray,
+        r: float,
+        d: float,
+        side: int,
+        alpha0: float,
+        epsilon: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        n = len(s_values)
+        out_x = np.empty(n, dtype=np.float64)
+        out_y = np.empty(n, dtype=np.float64)
+        for i in range(n):
+            alpha = alpha0 + epsilon * s_values[i] / r
+            cos_a = math.cos(alpha)
+            sin_a = math.sin(alpha)
+            cx = xb[i] + side * r * nx[i]
+            cy = yb[i] + side * r * ny[i]
+            out_x[i] = cx + d * (cos_a * nx[i] + sin_a * tx[i])
+            out_y[i] = cy + d * (cos_a * ny[i] + sin_a * ty[i])
+        return out_x, out_y
+
+
 def generate_trochoid_points_for_layer_path(
     layer: LayerConfig,
     path: PathConfig,
@@ -560,6 +742,14 @@ register_backend(
         label="Python",
         available=True,
         generator=_generate_trochoid_points_python,
+    )
+)
+register_backend(
+    MathBackend(
+        name="numba",
+        label="Numba",
+        available=_NUMBA_AVAILABLE,
+        generator=_generate_trochoid_points_numba,
     )
 )
 
