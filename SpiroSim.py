@@ -818,6 +818,15 @@ def layers_to_svg(
             for (x, y) in points
             if math.isfinite(x) and math.isfinite(y)
         ]
+    def split_points(points, max_points: int):
+        if not points:
+            return []
+        total = len(points)
+        if total <= max_points:
+            return [points]
+        chunk_count = math.ceil(total / max_points)
+        chunk_size = math.ceil(total / chunk_count)
+        return [points[i:i + chunk_size] for i in range(0, total, chunk_size)]
     all_points = []
     trace_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
@@ -1011,33 +1020,36 @@ def layers_to_svg(
 
         for _, _, path_cfg, pts_zoomed, _ in layer_paths:
             t_points = [transform(p) for p in pts_zoomed]
-            x0, y0 = t_points[0]
-            path_cmds = [f"M {x0:.3f} {y0:.3f}"]
-            for (x, y) in t_points[1:]:
-                path_cmds.append(f"L {x:.3f} {y:.3f}")
-            path_d = " ".join(path_cmds)
-
             stroke_color = getattr(path_cfg, "color_norm", None)
             if not stroke_color:
                 # sécurité : normalisation à la volée si pas encore calculée (vieux JSON, etc.)
                 stroke_color = normalize_color_string(path_cfg.color) or "#000000"
                 path_cfg.color_norm = stroke_color
 
-            render_paths.append(
-                {
-                    "layer_name": layer.name,
-                    "path_name": path_cfg.name,
-                    "points": t_points,
-                    "color": stroke_color,
-                    "stroke_width": path_cfg.stroke_width,
-                }
-            )
+            for idx, chunk in enumerate(split_points(t_points, 32000), start=1):
+                if not chunk:
+                    continue
+                x0, y0 = chunk[0]
+                path_cmds = [f"M {x0:.3f} {y0:.3f}"]
+                for (x, y) in chunk[1:]:
+                    path_cmds.append(f"L {x:.3f} {y:.3f}")
+                path_d = " ".join(path_cmds)
 
-            svg_parts.append(
-                f'    <path d="{path_d}" fill="none" '
-                f'stroke="{stroke_color}" stroke-width="{path_cfg.stroke_width}" '
-                f'id="{layer.name}-{path_cfg.name}"/>'
-            )
+                render_paths.append(
+                    {
+                        "layer_name": layer.name,
+                        "path_name": path_cfg.name,
+                        "points": chunk,
+                        "color": stroke_color,
+                        "stroke_width": path_cfg.stroke_width,
+                    }
+                )
+
+                svg_parts.append(
+                    f'    <path d="{path_d}" fill="none" '
+                    f'stroke="{stroke_color}" stroke-width="{path_cfg.stroke_width}" '
+                    f'id="{layer.name}-{path_cfg.name}-{idx}"/>'
+                )
         svg_parts.append('  </g>')
 
     svg_parts.append('</svg>')
