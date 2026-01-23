@@ -6,7 +6,6 @@ import copy
 import json
 import re
 import colorsys
-import time
 import os
 import subprocess
 from pathlib import Path
@@ -63,6 +62,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QDialog,
+    QGroupBox,
     QTreeWidget,
     QTreeWidgetItem,
     QFormLayout,
@@ -73,14 +73,16 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QLabel,
     QComboBox,
-    QMenuBar,
     QMenu,
     QFileDialog,
     QSlider,
     QListWidget,
     QListWidgetItem,
+    QScrollArea,
+    QStackedWidget,
     QStyle,
     QSizePolicy,
+    QToolButton,
 )
 from PySide6.QtGui import (
     QAction,
@@ -93,6 +95,8 @@ from PySide6.QtGui import (
     QDesktopServices,
     QPainterPath,
     QPen,
+    QShortcut,
+    QKeySequence,
 )
 from PySide6.QtCore import (
     QByteArray, 
@@ -102,7 +106,6 @@ from PySide6.QtCore import (
     QPointF,
     QSize,
     QUrl,
-    QTimer,
     QStandardPaths,
 )
 from PySide6.QtSvgWidgets import QSvgWidget
@@ -522,6 +525,10 @@ class ColorPickerDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
         btn_cancel = QPushButton(tr(self.lang, "dlg_cancel"))
+        btn_ok.setDefault(True)
+        btn_ok.setAutoDefault(True)
+        btn_cancel.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.reject)
         btn_ok.clicked.connect(self.accept)
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addStretch(1)
@@ -1307,6 +1314,10 @@ class LayerEditDialog(QDialog):
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
         btn_cancel = QPushButton(tr(self.lang, "dlg_cancel"))
+        btn_ok.setDefault(True)
+        btn_ok.setAutoDefault(True)
+        btn_cancel.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.reject)
         btn_ok.clicked.connect(self.accept)
         btn_cancel.clicked.connect(self.reject)
         btn_box.addWidget(btn_ok)
@@ -1624,6 +1635,10 @@ class PathEditDialog(QDialog):
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
         btn_cancel = QPushButton(tr(self.lang, "dlg_cancel"))
+        btn_ok.setDefault(True)
+        btn_ok.setAutoDefault(True)
+        btn_cancel.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.reject)
         btn_ok.clicked.connect(self.accept)
         btn_cancel.clicked.connect(self.reject)
         btn_box.addWidget(btn_ok)
@@ -1717,6 +1732,14 @@ class TrackTestDialog(QDialog):
         controls.addStretch(1)
         controls.addWidget(self.btn_close)
         layout.addLayout(controls)
+
+        self.btn_close.setDefault(True)
+        self.btn_close.setAutoDefault(True)
+        self.btn_start.setAutoDefault(False)
+        self.btn_reset.setAutoDefault(False)
+        self.btn_half.setAutoDefault(False)
+        self.btn_double.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.reject)
 
         self.btn_start.clicked.connect(self._toggle_animation)
         self.btn_reset.clicked.connect(self._reset_animation)
@@ -2007,6 +2030,735 @@ class TrackTestDialog(QDialog):
     def _on_animation_finished(self):
         self._update_start_button(False)
 
+class S0PreviewWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._track_points: List[Tuple[float, float]] = []
+        self._wheel_center: Optional[Tuple[float, float]] = None
+        self._wheel_radius: float = 0.0
+        self._contact_point: Optional[Tuple[float, float]] = None
+        self._pen_point: Optional[Tuple[float, float]] = None
+        self._marker_point: Optional[Tuple[float, float]] = None
+        self._placeholder_text: str = ""
+
+    def set_placeholder_text(self, text: str):
+        self._placeholder_text = text
+        self.update()
+
+    def clear(self):
+        self._track_points = []
+        self._wheel_center = None
+        self._wheel_radius = 0.0
+        self._contact_point = None
+        self._pen_point = None
+        self._marker_point = None
+        self.update()
+
+    def set_preview_data(
+        self,
+        *,
+        track_points: List[Tuple[float, float]],
+        wheel_center: Tuple[float, float],
+        wheel_radius: float,
+        contact_point: Tuple[float, float],
+        pen_point: Tuple[float, float],
+        marker_point: Optional[Tuple[float, float]] = None,
+    ):
+        self._track_points = track_points
+        self._wheel_center = wheel_center
+        self._wheel_radius = float(wheel_radius)
+        self._contact_point = contact_point
+        self._pen_point = pen_point
+        self._marker_point = marker_point
+        self.update()
+
+    def paintEvent(self, event):  # noqa: N802 - signature imposée par Qt
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        bg = self.palette().color(self.backgroundRole())
+        painter.fillRect(self.rect(), bg)
+
+        if (
+            not self._track_points
+            or self._wheel_center is None
+            or self._contact_point is None
+            or self._pen_point is None
+        ):
+            painter.setPen(QPen(QColor("#666666")))
+            if self._placeholder_text:
+                painter.drawText(self.rect(), Qt.AlignCenter, self._placeholder_text)
+            painter.end()
+            return
+
+        cx, cy = self._wheel_center
+        all_xs = [p[0] for p in self._track_points] + [cx]
+        all_ys = [p[1] for p in self._track_points] + [cy]
+        all_xs.extend([self._contact_point[0], self._pen_point[0]])
+        all_ys.extend([self._contact_point[1], self._pen_point[1]])
+        all_xs.extend([cx - self._wheel_radius, cx + self._wheel_radius])
+        all_ys.extend([cy - self._wheel_radius, cy + self._wheel_radius])
+        if self._marker_point:
+            all_xs.append(self._marker_point[0])
+            all_ys.append(self._marker_point[1])
+
+        min_x, max_x = min(all_xs), max(all_xs)
+        min_y, max_y = min(all_ys), max(all_ys)
+        width = max(max_x - min_x, 1e-6)
+        height = max(max_y - min_y, 1e-6)
+        center_x = (min_x + max_x) / 2.0
+        center_y = (min_y + max_y) / 2.0
+
+        margin = 0.85
+        scale = margin * min(self.width() / width, self.height() / height)
+        painter.translate(self.width() * 0.5, self.height() * 0.5)
+        painter.scale(scale, -scale)
+        painter.translate(-center_x, -center_y)
+
+        painter.setPen(QPen(QColor("#888888"), 0))
+        if len(self._track_points) > 1:
+            painter.drawPolyline(
+                [QPointF(x, y) for (x, y) in self._track_points]
+            )
+
+        painter.setPen(QPen(QColor("#1f77b4"), 0))
+        painter.drawEllipse(QPointF(cx, cy), self._wheel_radius, self._wheel_radius)
+
+        painter.setPen(QPen(QColor("#ff9900"), 0))
+        painter.drawEllipse(QPointF(self._contact_point[0], self._contact_point[1]), 0.6, 0.6)
+
+        painter.setPen(QPen(QColor("#e62739"), 0))
+        painter.drawEllipse(QPointF(self._pen_point[0], self._pen_point[1]), 0.6, 0.6)
+
+        if self._marker_point:
+            painter.setPen(QPen(QColor("#000000"), 0))
+            painter.drawLine(
+                QPointF(cx, cy),
+                QPointF(self._marker_point[0], self._marker_point[1]),
+            )
+            painter.drawEllipse(QPointF(self._marker_point[0], self._marker_point[1]), 0.5, 0.5)
+
+        painter.end()
+
+
+class LayerListPanel(QWidget):
+    layers_changed = Signal()
+    selection_changed = Signal(object, str)
+
+    def __init__(
+        self,
+        layers: List[LayerConfig],
+        *,
+        lang: str = "fr",
+        parent=None,
+        points_per_path: int = 6000,
+    ):
+        super().__init__(parent)
+        self.lang = lang
+        self.layers = layers
+        self.points_per_path = max(2, int(points_per_path))
+
+        self.selected_layer_idx: int = 0
+        self.selected_path_idx: Optional[int] = 0
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels([
+            tr(self.lang, "dlg_layers_col_name"),
+            tr(self.lang, "dlg_layers_col_type"),
+            tr(self.lang, "dlg_layers_col_details"),
+        ])
+        layout.addWidget(self.tree)
+
+        btn_layout = QHBoxLayout()
+        self.btn_add_layer = QPushButton(tr(self.lang, "dlg_layers_add_layer"))
+        self.btn_add_path = QPushButton(tr(self.lang, "dlg_layers_add_path"))
+        self.btn_edit = QPushButton(tr(self.lang, "dlg_layers_edit"))
+        self.btn_toggle_enable = QPushButton()
+        self.btn_toggle_paths = QPushButton()
+        self.btn_move_up = QPushButton(tr(self.lang, "dlg_layers_move_up"))
+        self.btn_move_down = QPushButton(tr(self.lang, "dlg_layers_move_down"))
+        self.btn_test_track = QPushButton(tr(self.lang, "dlg_layers_test_track"))
+        self.btn_remove = QPushButton(tr(self.lang, "dlg_layers_remove"))
+        btn_layout.addWidget(self.btn_add_layer)
+        btn_layout.addWidget(self.btn_add_path)
+        btn_layout.addWidget(self.btn_edit)
+        btn_layout.addWidget(self.btn_toggle_enable)
+        btn_layout.addWidget(self.btn_toggle_paths)
+        btn_layout.addWidget(self.btn_move_up)
+        btn_layout.addWidget(self.btn_move_down)
+        btn_layout.addWidget(self.btn_test_track)
+        btn_layout.addWidget(self.btn_remove)
+        layout.addLayout(btn_layout)
+
+        self.btn_add_layer.clicked.connect(self.on_add_layer)
+        self.btn_add_path.clicked.connect(self.on_add_path)
+        self.btn_edit.clicked.connect(self.on_edit)
+        self.btn_move_up.clicked.connect(self.on_move_up)
+        self.btn_move_down.clicked.connect(self.on_move_down)
+        self.btn_test_track.clicked.connect(self.on_test_track)
+        self.btn_remove.clicked.connect(self.on_remove)
+        self.btn_toggle_enable.clicked.connect(self.on_toggle_enable)
+        self.btn_toggle_paths.clicked.connect(self.on_toggle_paths)
+
+        self.tree.currentItemChanged.connect(self.on_selection_changed)
+        self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
+
+        self.refresh_tree()
+
+    def set_language(self, lang: str):
+        self.lang = lang
+        self.tree.setHeaderLabels([
+            tr(self.lang, "dlg_layers_col_name"),
+            tr(self.lang, "dlg_layers_col_type"),
+            tr(self.lang, "dlg_layers_col_details"),
+        ])
+        self.btn_add_layer.setText(tr(self.lang, "dlg_layers_add_layer"))
+        self.btn_add_path.setText(tr(self.lang, "dlg_layers_add_path"))
+        self.btn_edit.setText(tr(self.lang, "dlg_layers_edit"))
+        self.btn_move_up.setText(tr(self.lang, "dlg_layers_move_up"))
+        self.btn_move_down.setText(tr(self.lang, "dlg_layers_move_down"))
+        self.btn_test_track.setText(tr(self.lang, "dlg_layers_test_track"))
+        self.btn_remove.setText(tr(self.lang, "dlg_layers_remove"))
+        self.refresh_tree()
+
+    def _layer_summary(self, layer: LayerConfig) -> str:
+        parts = []
+        gears_label = tr(self.lang, "layer_summary_gears_short")
+        parts.append(f"{len(layer.gears)} {gears_label}, {tr(self.lang, 'layer_summary_zoom')} {layer.zoom:g}")
+        gear_descs = []
+        for i, g in enumerate(layer.gears):
+            type_name = gear_type_label(g.gear_type, self.lang)
+            if i == 0:
+                type_name = type_name.capitalize()
+            else:
+                type_name = type_name.lower()
+
+            if g.gear_type == "rsdl" and getattr(g, "rsdl_expression", None):
+                size_str = g.rsdl_expression
+            elif g.gear_type in ("anneau", "modulaire") and g.outer_size > 0:
+                size_str = f"{g.outer_size}/{g.size}"
+            else:
+                size_str = f"{g.size}"
+
+            rel = relation_label(g.relation, self.lang)
+            gear_descs.append(f"{type_name} {size_str} {rel}")
+        if gear_descs:
+            parts.append(", ".join(gear_descs))
+
+        if layer.gears and layer.gears[0].gear_type == "modulaire":
+            notation = getattr(layer.gears[0], "modular_notation", None)
+            if notation:
+                parts.append(f"mod: {notation}")
+
+        return ", ".join(parts)
+
+    def _path_summary(self, path: PathConfig) -> str:
+        return f"{path.hole_offset:g}, {path.phase_offset:g}, {path.color}, {path.stroke_width:g}, zoom {path.zoom:g}"
+
+    def _layer_allows_test(self, layer: Optional[LayerConfig]) -> bool:
+        if not layer or len(layer.gears) < 2:
+            return False
+        g0 = layer.gears[0]
+        g1 = layer.gears[1]
+        relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
+        try:
+            base_curve = _curve_from_gear(
+                g0,
+                relation,
+                rsdl_curve_builder=_rsdl_curve_builder,
+                modular_curve_builder=_modular_curve_builder,
+            )
+            wheel_curve = _curve_from_gear(
+                g1,
+                relation,
+                rsdl_curve_builder=_rsdl_curve_builder,
+            )
+        except RsdlParseError:
+            return False
+        return (
+            base_curve is not None
+            and wheel_curve is not None
+            and base_curve.length > 0
+            and wheel_curve.length > 0
+        )
+
+    def _update_test_button_state(self):
+        obj, kind = self.get_selected_object()
+        enabled = False
+        if kind == "path":
+            layer = self.find_parent_layer(obj)
+            enabled = self._layer_allows_test(layer)
+        self.btn_test_track.setEnabled(enabled)
+
+    def _update_move_buttons_state(self):
+        obj, kind = self.get_selected_object()
+        can_move_up = False
+        can_move_down = False
+
+        if kind == "layer":
+            li = self.layers.index(obj)
+            can_move_up = li > 0
+            can_move_down = li < len(self.layers) - 1
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if layer:
+                pi = layer.paths.index(obj)
+                can_move_up = pi > 0
+                can_move_down = pi < len(layer.paths) - 1
+
+        self.btn_move_up.setEnabled(can_move_up)
+        self.btn_move_down.setEnabled(can_move_down)
+
+    def _visibility_icon(self, enabled: bool) -> QIcon:
+        icon_name = "visibility" if enabled else "visibility-off"
+        icon = QIcon.fromTheme(icon_name)
+        if icon.isNull():
+            fallback = QStyle.SP_DialogYesButton if enabled else QStyle.SP_DialogNoButton
+            icon = self.style().standardIcon(fallback)
+        return icon
+
+    def _enabled_layers_count(self) -> int:
+        return sum(1 for layer in self.layers if layer.enable)
+
+    def _enabled_paths_count(self, layer: LayerConfig) -> int:
+        return sum(1 for path in layer.paths if path.enable)
+
+    def _is_last_enabled_layer(self, layer: LayerConfig) -> bool:
+        return layer.enable and self._enabled_layers_count() == 1
+
+    def _is_last_enabled_path_in_last_layer(
+        self, layer: LayerConfig, path: PathConfig
+    ) -> bool:
+        return (
+            path.enable
+            and layer.enable
+            and self._enabled_layers_count() == 1
+            and self._enabled_paths_count(layer) == 1
+        )
+
+    def _update_enable_button_state(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            self.btn_toggle_enable.setEnabled(False)
+            self.btn_toggle_enable.setText("")
+            return
+        if kind == "layer":
+            if obj.enable:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_disable_layer"))
+                self.btn_toggle_enable.setEnabled(not self._is_last_enabled_layer(obj))
+            else:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_layer"))
+                self.btn_toggle_enable.setEnabled(True)
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                self.btn_toggle_enable.setEnabled(False)
+                return
+            if obj.enable:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_disable_path"))
+                self.btn_toggle_enable.setEnabled(
+                    not self._is_last_enabled_path_in_last_layer(layer, obj)
+                )
+            else:
+                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_path"))
+                self.btn_toggle_enable.setEnabled(True)
+
+    def _update_paths_toggle_button_state(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            self.btn_toggle_paths.setEnabled(False)
+            self.btn_toggle_paths.setText("")
+            return
+        if kind == "layer":
+            layer = obj
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                self.btn_toggle_paths.setEnabled(False)
+                return
+        else:
+            self.btn_toggle_paths.setEnabled(False)
+            return
+        if not layer.paths:
+            self.btn_toggle_paths.setEnabled(False)
+            self.btn_toggle_paths.setText("")
+            return
+
+        any_disabled = any(not path.enable for path in layer.paths)
+        if any_disabled:
+            self.btn_toggle_paths.setText(tr(self.lang, "dlg_layers_enable_all_paths"))
+            self.btn_toggle_paths.setEnabled(True)
+            return
+
+        self.btn_toggle_paths.setText(tr(self.lang, "dlg_layers_disable_all_paths"))
+        if self._is_last_enabled_layer(layer):
+            self.btn_toggle_paths.setEnabled(False)
+            return
+        self.btn_toggle_paths.setEnabled(True)
+
+    def refresh_tree(self):
+        self.tree.clear()
+        current_item_to_select = None
+
+        for li, layer in enumerate(self.layers):
+            layer_item = QTreeWidgetItem(
+                [layer.name, tr(self.lang, "tree_type_layer"), self._layer_summary(layer)]
+            )
+            layer_item.setData(0, Qt.UserRole, layer)
+            layer_item.setIcon(0, self._visibility_icon(layer.enable))
+            self.tree.addTopLevelItem(layer_item)
+
+            if li == self.selected_layer_idx and self.selected_path_idx is None:
+                current_item_to_select = layer_item
+
+            for pi, path in enumerate(layer.paths):
+                path_item = QTreeWidgetItem(
+                    [path.name, tr(self.lang, "tree_type_path"), self._path_summary(path)]
+                )
+                path_item.setData(0, Qt.UserRole, path)
+                path_item.setIcon(0, self._visibility_icon(path.enable))
+                layer_item.addChild(path_item)
+
+                if (
+                    li == self.selected_layer_idx
+                    and self.selected_path_idx is not None
+                    and pi == self.selected_path_idx
+                ):
+                    current_item_to_select = path_item
+
+            layer_item.setExpanded(True)
+
+        if self.selected_layer_idx >= len(self.layers):
+            self.selected_layer_idx = max(0, len(self.layers) - 1)
+            self.selected_path_idx = None
+
+        if not current_item_to_select and self.tree.topLevelItemCount() > 0:
+            current_item_to_select = self.tree.topLevelItem(self.selected_layer_idx)
+
+        if current_item_to_select:
+            self.tree.setCurrentItem(current_item_to_select)
+        self._update_test_button_state()
+        self._update_move_buttons_state()
+        self._update_enable_button_state()
+        self._update_paths_toggle_button_state()
+
+    def get_selected_object(self):
+        item = self.tree.currentItem()
+        if not item:
+            return None, None
+        obj = item.data(0, Qt.UserRole)
+        if isinstance(obj, LayerConfig):
+            return obj, "layer"
+        if isinstance(obj, PathConfig):
+            return obj, "path"
+        return None, None
+
+    def find_parent_layer(self, path_obj: PathConfig) -> Optional[LayerConfig]:
+        for layer in self.layers:
+            if path_obj in layer.paths:
+                return layer
+        return None
+
+    def on_selection_changed(
+        self,
+        current: Optional[QTreeWidgetItem],
+        previous: Optional[QTreeWidgetItem],
+    ):
+        if current is None:
+            self.btn_test_track.setEnabled(False)
+            self.btn_move_up.setEnabled(False)
+            self.btn_move_down.setEnabled(False)
+            self._update_enable_button_state()
+            self._update_paths_toggle_button_state()
+            self.selection_changed.emit(None, "")
+            return
+
+        obj = current.data(0, Qt.UserRole)
+        if isinstance(obj, LayerConfig):
+            for li, layer in enumerate(self.layers):
+                if layer is obj:
+                    self.selected_layer_idx = li
+                    self.selected_path_idx = None
+                    break
+
+        elif isinstance(obj, PathConfig):
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                return
+            li = self.layers.index(layer)
+            pi = layer.paths.index(obj)
+            self.selected_layer_idx = li
+            self.selected_path_idx = pi
+        self._update_test_button_state()
+        self._update_move_buttons_state()
+        self._update_enable_button_state()
+        self._update_paths_toggle_button_state()
+        selected, kind = self.get_selected_object()
+        self.selection_changed.emit(selected, kind or "")
+
+    def on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
+        self.on_edit()
+
+    def on_add_layer(self):
+        g0 = GearConfig(
+            name=tr(self.lang, "default_ring_name"),
+            gear_type="anneau",
+            size=105,
+            outer_size=150,
+            relation="stationnaire",
+        )
+        g1 = GearConfig(
+            name=tr(self.lang, "default_wheel_name"),
+            gear_type="roue",
+            size=30,
+            relation="dedans",
+        )
+        new_layer = LayerConfig(
+            name=f"{tr(self.lang, 'default_layer_name')} {len(self.layers) + 1}",
+            enable=True,
+            zoom=1.0,
+            gears=[g0, g1],
+            paths=[
+                PathConfig(
+                    name=f"{tr(self.lang, 'default_path_name')} 1",
+                    hole_offset=1.0,
+                    zoom=1.0,
+                    enable=True,
+                )
+            ],
+        )
+        self.layers.append(new_layer)
+
+        self.selected_layer_idx = len(self.layers) - 1
+        self.selected_path_idx = None
+        self.refresh_tree()
+        self.layers_changed.emit()
+
+    def on_add_path(self):
+        obj, kind = self.get_selected_object()
+        if kind == "layer":
+            layer = obj
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+        else:
+            QMessageBox.warning(
+                self,
+                tr(self.lang, "dlg_layers_need_layer_title"),
+                tr(self.lang, "dlg_layers_need_layer_text"),
+            )
+            return
+        new_path = PathConfig(
+            name=f"{tr(self.lang, 'default_path_name')} {len(layer.paths) + 1}",
+            hole_offset=1.0,
+            zoom=1.0,
+            enable=layer.enable,
+        )
+        layer.paths.append(new_path)
+
+        li = self.layers.index(layer)
+        pi = len(layer.paths) - 1
+        self.selected_layer_idx = li
+        self.selected_path_idx = pi
+
+        self.refresh_tree()
+        self.layers_changed.emit()
+
+    def on_edit(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+        if kind == "layer":
+            dlg = LayerEditDialog(
+                obj,
+                lang=self.lang,
+                parent=self,
+            )
+        else:
+            layer = self.find_parent_layer(obj)
+            dlg = PathEditDialog(obj, layer=layer, lang=self.lang, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.refresh_tree()
+            self.layers_changed.emit()
+
+    def on_toggle_enable(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+        if kind == "layer":
+            if obj.enable:
+                if self._is_last_enabled_layer(obj):
+                    return
+                obj.enable = False
+            else:
+                obj.enable = True
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if not layer:
+                return
+            if obj.enable:
+                if self._is_last_enabled_path_in_last_layer(layer, obj):
+                    return
+                obj.enable = False
+                if not any(path.enable for path in layer.paths):
+                    layer.enable = False
+            else:
+                obj.enable = True
+        self.refresh_tree()
+        self.layers_changed.emit()
+
+    def on_toggle_paths(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+        if kind == "layer":
+            layer = obj
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+        else:
+            return
+        if not layer:
+            return
+        if not layer.paths:
+            return
+
+        any_disabled = any(not path.enable for path in layer.paths)
+        if any_disabled:
+            for path in layer.paths:
+                path.enable = True
+        else:
+            if self._is_last_enabled_layer(layer):
+                return
+            for path in layer.paths:
+                path.enable = False
+            if not any(path.enable for path in layer.paths):
+                layer.enable = False
+        self.refresh_tree()
+        self.layers_changed.emit()
+
+    def on_move_up(self):
+        obj, kind = self.get_selected_object()
+        if kind == "layer":
+            li = self.layers.index(obj)
+            if li > 0:
+                self.layers[li - 1], self.layers[li] = self.layers[li], self.layers[li - 1]
+                self.selected_layer_idx = li - 1
+                self.selected_path_idx = None
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if layer:
+                pi = layer.paths.index(obj)
+                if pi > 0:
+                    layer.paths[pi - 1], layer.paths[pi] = layer.paths[pi], layer.paths[pi - 1]
+                    self.selected_layer_idx = self.layers.index(layer)
+                    self.selected_path_idx = pi - 1
+
+        self.refresh_tree()
+        self.layers_changed.emit()
+
+    def on_move_down(self):
+        obj, kind = self.get_selected_object()
+        if kind == "layer":
+            li = self.layers.index(obj)
+            if li < len(self.layers) - 1:
+                self.layers[li], self.layers[li + 1] = self.layers[li + 1], self.layers[li]
+                self.selected_layer_idx = li + 1
+                self.selected_path_idx = None
+        elif kind == "path":
+            layer = self.find_parent_layer(obj)
+            if layer:
+                pi = layer.paths.index(obj)
+                if pi < len(layer.paths) - 1:
+                    layer.paths[pi], layer.paths[pi + 1] = layer.paths[pi + 1], layer.paths[pi]
+                    self.selected_layer_idx = self.layers.index(layer)
+                    self.selected_path_idx = pi + 1
+
+        self.refresh_tree()
+        self.layers_changed.emit()
+
+    def on_test_track(self):
+        obj, kind = self.get_selected_object()
+        if kind != "path":
+            QMessageBox.information(
+                self,
+                tr(self.lang, "track_test_title"),
+                tr(self.lang, "track_test_unavailable"),
+            )
+            return
+
+        layer = self.find_parent_layer(obj)
+        if not self._layer_allows_test(layer):
+            QMessageBox.information(
+                self,
+                tr(self.lang, "track_test_title"),
+                tr(self.lang, "track_test_unavailable"),
+            )
+            return
+
+        dlg = TrackTestDialog(
+            layer,
+            obj,
+            lang=self.lang,
+            parent=self,
+            points_per_path=self.points_per_path,
+        )
+        dlg.setWindowState(dlg.windowState() | Qt.WindowFullScreen)
+        dlg.exec()
+
+    def on_remove(self):
+        obj, kind = self.get_selected_object()
+        if not obj:
+            return
+
+        if kind == "layer":
+            if len(self.layers) == 1:
+                QMessageBox.warning(
+                    self,
+                    tr(self.lang, "dlg_layers_must_keep_layer_title"),
+                    tr(self.lang, "dlg_layers_must_keep_layer_text"),
+                )
+                return
+            li = self.layers.index(obj)
+            del self.layers[li]
+            if li >= len(self.layers):
+                li = len(self.layers) - 1
+            self.selected_layer_idx = max(li, 0)
+            self.selected_path_idx = None
+
+        else:
+            layer = self.find_parent_layer(obj)
+            if layer is not None:
+                li = self.layers.index(layer)
+                pi = layer.paths.index(obj)
+                if len(layer.paths) == 1:
+                    ret = QMessageBox.question(
+                        self,
+                        tr(self.lang, "dlg_layers_remove_last_path_title"),
+                        tr(self.lang, "dlg_layers_remove_last_path_text"),
+                        QMessageBox.Yes | QMessageBox.No,
+                    )
+                    if ret != QMessageBox.Yes:
+                        return
+                del layer.paths[pi]
+                if layer.paths:
+                    pi = min(pi, len(layer.paths) - 1)
+                    self.selected_layer_idx = li
+                    self.selected_path_idx = pi
+                else:
+                    self.selected_layer_idx = li
+                    self.selected_path_idx = None
+
+        if self.layers and not any(layer.enable for layer in self.layers):
+            self.layers[0].enable = True
+            for path in self.layers[0].paths:
+                path.enable = True
+
+        self.refresh_tree()
+        self.layers_changed.emit()
+
+
 # ---------- 6) Fenêtre superposée : gestion layers & paths ----------
 
 class LayerManagerDialog(QDialog):
@@ -2068,6 +2820,10 @@ class LayerManagerDialog(QDialog):
         bottom_layout = QHBoxLayout()
         self.btn_ok = QPushButton(tr(self.lang, "dlg_layers_ok"))
         self.btn_cancel = QPushButton(tr(self.lang, "dlg_layers_cancel"))
+        self.btn_ok.setDefault(True)
+        self.btn_ok.setAutoDefault(True)
+        self.btn_cancel.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.reject)
         bottom_layout.addWidget(self.btn_ok)
         bottom_layout.addWidget(self.btn_cancel)
         main_layout.addLayout(bottom_layout)
@@ -2864,6 +3620,10 @@ class ModularTrackEditorDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_ok = QPushButton(tr(self.lang, "dlg_ok"))
         btn_cancel = QPushButton(tr(self.lang, "dlg_cancel"))
+        btn_ok.setDefault(True)
+        btn_ok.setAutoDefault(True)
+        btn_cancel.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.reject)
         btn_ok.clicked.connect(self.accept)
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addStretch(1)
@@ -2978,102 +3738,127 @@ class SpiroWindow(QWidget):
         self.points_per_path: int = 6000
 
         # Affichage optionnel
-        self.animation_enabled: bool = True
         self.show_track: bool = True
 
-        main_layout = QVBoxLayout(self)
+        self.layers: List[LayerConfig] = []
+
+        main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_layout.setSpacing(6)
 
-        # ----- Barre de menus -----
-        menubar = QMenuBar()
-        self.menu_bar = menubar
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        # Menu Fichier
-        self.menu_file = QMenu(menubar)
-        menubar.addMenu(self.menu_file)
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(8, 8, 8, 8)
+        left_layout.setSpacing(10)
 
-        self.act_load_json = QAction(menubar)
-        self.act_save_json = QAction(menubar)
-        self.act_export_svg = QAction(menubar)
-        self.act_export_png = QAction(menubar)
-        self.act_quit = QAction(menubar)
+        self.file_group = QGroupBox()
+        file_layout = QVBoxLayout(self.file_group)
+        self.btn_load_json = QPushButton()
+        self.btn_save_json = QPushButton()
+        self.btn_export_svg = QPushButton()
+        self.btn_export_png = QPushButton()
+        self.btn_quit = QPushButton()
+        for btn in (
+            self.btn_load_json,
+            self.btn_save_json,
+            self.btn_export_svg,
+            self.btn_export_png,
+            self.btn_quit,
+        ):
+            file_layout.addWidget(btn)
+        self.btn_load_json.clicked.connect(self.load_from_json)
+        self.btn_save_json.clicked.connect(self.save_to_json)
+        self.btn_export_svg.clicked.connect(self.export_svg)
+        self.btn_export_png.clicked.connect(self.export_png)
+        self.btn_quit.clicked.connect(self.close)
+        left_layout.addWidget(self.file_group)
 
-        self.menu_file.addAction(self.act_load_json)
-        self.menu_file.addAction(self.act_save_json)
-        self.menu_file.addSeparator()
-        self.menu_file.addAction(self.act_export_svg)
-        self.menu_file.addAction(self.act_export_png)
-        self.menu_file.addSeparator()
-        self.menu_file.addAction(self.act_quit)
+        self.options_group = QGroupBox()
+        options_layout = QVBoxLayout(self.options_group)
+        self.btn_bg_color = QPushButton()
+        self.btn_bg_color.clicked.connect(self.edit_bg_color)
+        self.btn_shape_lab = QPushButton()
+        self.btn_shape_lab.clicked.connect(self.open_shape_lab)
+        self.btn_canvas = QPushButton()
+        self.btn_canvas.clicked.connect(self.edit_canvas_settings)
+        options_layout.addWidget(self.btn_bg_color)
+        options_layout.addWidget(self.btn_shape_lab)
+        options_layout.addWidget(self.btn_canvas)
 
-        self.act_load_json.triggered.connect(self.load_from_json)
-        self.act_save_json.triggered.connect(self.save_to_json)
-        self.act_export_svg.triggered.connect(self.export_svg)
-        self.act_export_png.triggered.connect(self.export_png)
-        self.act_quit.triggered.connect(self.close)
-
-        # Menu Couches
-        self.menu_layers = QMenu(menubar)
-        menubar.addMenu(self.menu_layers)
-        self.act_manage_layers = QAction(menubar)
-        self.menu_layers.addAction(self.act_manage_layers)
-        self.act_manage_layers.triggered.connect(self.open_layer_manager)
-
-        # Menu Options
-        self.menu_options = QMenu(menubar)
-        menubar.addMenu(self.menu_options)
-        self.act_bg_color = QAction(menubar)
-        self.act_bg_color.triggered.connect(self.edit_bg_color)
-        self.menu_options.addAction(self.act_bg_color)
-
-        self.act_shape_lab = QAction(menubar)
-        self.act_shape_lab.triggered.connect(self.open_shape_lab)
-        self.menu_options.addAction(self.act_shape_lab)
-
-        # NOUVELLE OPTION : taille du canevas et précision
-        self.act_canvas = QAction(menubar)
-        self.act_canvas.triggered.connect(self.edit_canvas_settings)
-        self.menu_options.addAction(self.act_canvas)
-
-        # Sous-menu Langue
-        self.menu_lang = QMenu(menubar)
-        self.menu_options.addMenu(self.menu_lang)
+        language_row = QHBoxLayout()
+        self.language_label = QLabel()
+        self.menu_lang = QMenu(self)
         self.language_actions: Dict[str, QAction] = {}
-        self._build_language_menu(menubar)
+        self._build_language_menu(self.menu_lang)
+        self.language_button = QToolButton()
+        self.language_button.setPopupMode(QToolButton.InstantPopup)
+        self.language_button.setMenu(self.menu_lang)
+        language_row.addWidget(self.language_label)
+        language_row.addWidget(self.language_button, 1)
+        options_layout.addLayout(language_row)
+        left_layout.addWidget(self.options_group)
 
+        self.help_group = QGroupBox()
+        help_layout = QVBoxLayout(self.help_group)
+        self.btn_help_manual = QPushButton()
+        self.btn_help_about = QPushButton()
+        self.btn_help_manual.clicked.connect(self.open_manual)
+        self.btn_help_about.clicked.connect(self.show_about)
+        help_layout.addWidget(self.btn_help_manual)
+        help_layout.addWidget(self.btn_help_about)
+        left_layout.addWidget(self.help_group)
 
-        # Menu Régénérer
-        self.menu_regen = QMenu(menubar)
-        menubar.addMenu(self.menu_regen)
-        self.act_animation_enabled = QAction(menubar)
-        self.act_animation_enabled.setCheckable(True)
-        self.act_animation_enabled.setChecked(True)
-        self.act_animation_enabled.triggered.connect(self._set_animation_enabled)
-        self.menu_regen.addAction(self.act_animation_enabled)
+        self.regen_group = QGroupBox()
+        regen_layout = QVBoxLayout(self.regen_group)
+        self.show_track_checkbox = QCheckBox()
+        self.show_track_checkbox.setChecked(True)
+        self.show_track_checkbox.toggled.connect(self._toggle_show_track)
+        self.btn_regen = QPushButton()
+        self.btn_regen.clicked.connect(self.update_svg)
+        regen_layout.addWidget(self.show_track_checkbox)
+        regen_layout.addWidget(self.btn_regen)
+        left_layout.addWidget(self.regen_group)
 
-        self.act_show_track = QAction(menubar)
-        self.act_show_track.setCheckable(True)
-        self.act_show_track.setChecked(True)
-        self.act_show_track.triggered.connect(self._set_show_track)
-        self.menu_regen.addAction(self.act_show_track)
+        self.layers_group = QGroupBox()
+        layers_layout = QVBoxLayout(self.layers_group)
+        self.layer_panel = LayerListPanel(
+            self.layers,
+            lang=self.language,
+            parent=self,
+            points_per_path=self.points_per_path,
+        )
+        self.layer_panel.layers_changed.connect(self._on_layers_changed)
+        self.layer_panel.selection_changed.connect(self._on_layer_selection_changed)
+        layers_layout.addWidget(self.layer_panel)
+        left_layout.addWidget(self.layers_group)
 
-        self.menu_regen.addSeparator()
-        self.act_regen = QAction(menubar)
-        self.act_regen.triggered.connect(self.update_svg)
-        self.menu_regen.addAction(self.act_regen)
+        self.details_group = QGroupBox()
+        details_layout = QVBoxLayout(self.details_group)
+        self.details_stack = QStackedWidget()
+        self.details_empty_label = QLabel()
+        self.details_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.details_stack.addWidget(self.details_empty_label)
+        self.layer_details_widget = self._build_layer_details_panel()
+        self.path_details_widget = self._build_path_details_panel()
+        self.details_stack.addWidget(self.layer_details_widget)
+        self.details_stack.addWidget(self.path_details_widget)
+        details_layout.addWidget(self.details_stack)
+        left_layout.addWidget(self.details_group)
 
-        # Menu Aide
-        self.menu_help = QMenu(menubar)
-        menubar.addMenu(self.menu_help)
-        self.act_help_manual = QAction(menubar)
-        self.act_help_about = QAction(menubar)
-        self.menu_help.addAction(self.act_help_manual)
-        self.menu_help.addAction(self.act_help_about)
-        self.act_help_manual.triggered.connect(self.open_manual)
-        self.act_help_about.triggered.connect(self.show_about)
+        self.preview_group = QGroupBox()
+        preview_layout = QVBoxLayout(self.preview_group)
+        self.preview_widget = S0PreviewWidget()
+        self.preview_widget.setMinimumHeight(200)
+        preview_layout.addWidget(self.preview_widget)
+        left_layout.addWidget(self.preview_group)
 
-        main_layout.addWidget(menubar)
+        left_layout.addStretch(1)
+        left_scroll.setWidget(left_panel)
+        main_layout.addWidget(left_scroll)
 
         self.svg_widget = QSvgWidget()
         self.svg_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -3086,51 +3871,6 @@ class SpiroWindow(QWidget):
         )
         self.svg_container = svg_container
         main_layout.addWidget(svg_container, stretch=1)
-
-        # ----- Animation du tracé -----
-        self._last_svg_data: Optional[str] = None
-        self._animation_render_data = None
-        self._animation_timer = QTimer(self)
-        self._animation_timer.timeout.connect(self._on_animation_tick)
-        self._animation_running = False
-        self._animation_progress = 0.0
-        self._animation_last_time: Optional[float] = None
-        self._animation_speed = 1.0
-
-        anim_layout = QHBoxLayout()
-        anim_layout.setContentsMargins(0, 0, 0, 0)
-        anim_layout.setSpacing(4)
-        self.anim_start_btn = QPushButton(tr(self.language, "anim_start"))
-        self.anim_reset_btn = QPushButton(tr(self.language, "anim_reset"))
-        self.anim_speed_label = QLabel(tr(self.language, "anim_speed_label"))
-        self.anim_speed_spin = QDoubleSpinBox()
-        self.anim_speed_spin.setRange(0.0, 1_000_000.0)
-        self.anim_speed_spin.setDecimals(2)
-        self.anim_speed_spin.setSingleStep(0.25)
-        self.anim_speed_spin.setValue(1.0)
-        self.anim_speed_spin.setSpecialValueText(tr(self.language, "anim_speed_infinite"))
-        self.anim_speed_spin.setSuffix(tr(self.language, "anim_speed_suffix"))
-        self.anim_btn_half = QPushButton("/2")
-        self.anim_btn_double = QPushButton("x2")
-
-        self.anim_start_btn.clicked.connect(self._toggle_animation)
-        self.anim_reset_btn.clicked.connect(self._reset_animation)
-        self.anim_speed_spin.valueChanged.connect(self._on_anim_speed_changed)
-        self.anim_btn_half.clicked.connect(lambda: self._apply_anim_speed_factor(0.5))
-        self.anim_btn_double.clicked.connect(lambda: self._apply_anim_speed_factor(2.0))
-
-        anim_layout.addWidget(self.anim_start_btn)
-        anim_layout.addWidget(self.anim_reset_btn)
-        anim_layout.addWidget(self.anim_speed_label)
-        anim_layout.addWidget(self.anim_speed_spin)
-        anim_layout.addWidget(self.anim_btn_half)
-        anim_layout.addWidget(self.anim_btn_double)
-        anim_layout.addStretch(1)
-        anim_container = QWidget()
-        anim_container.setLayout(anim_layout)
-        self.anim_container = anim_container
-        self.anim_container.setVisible(self.animation_enabled)
-        main_layout.addWidget(anim_container)
 
         # Layer par défaut : anneau 150/105 + roue 30 dedans
         g0 = GearConfig(
@@ -3172,14 +3912,16 @@ class SpiroWindow(QWidget):
                 ),
             ],
         )
-        self.layers: List[LayerConfig] = [base_layer]
+        self.layers.append(base_layer)
 
         self.setLayout(main_layout)
 
         loaded_from_disk = self._load_persisted_state()
 
-        self._update_animation_controls()
         self._update_svg_size()
+        self.layer_panel.refresh_tree()
+        self._refresh_details_panel()
+        self._refresh_preview()
 
         # Appliquer la langue et générer le premier SVG si rien n'a été chargé
         if not loaded_from_disk:
@@ -3195,78 +3937,516 @@ class SpiroWindow(QWidget):
     def apply_language(self):
         self.setWindowTitle(tr(self.language, "app_title"))
 
-        # Menus
-        self.menu_file.setTitle(tr(self.language, "menu_file"))
-        self.menu_layers.setTitle(tr(self.language, "menu_layers"))
-        self.menu_options.setTitle(tr(self.language, "menu_options"))
-        self.menu_regen.setTitle(tr(self.language, "menu_regen"))
-        self.menu_help.setTitle(tr(self.language, "menu_help"))
+        # Group titles
+        self.file_group.setTitle(tr(self.language, "menu_file"))
+        self.options_group.setTitle(tr(self.language, "menu_options"))
+        self.layers_group.setTitle(tr(self.language, "menu_layers"))
+        self.regen_group.setTitle(tr(self.language, "menu_regen"))
+        self.help_group.setTitle(tr(self.language, "menu_help"))
+        self.details_group.setTitle(tr(self.language, "panel_details_title"))
+        self.preview_group.setTitle(tr(self.language, "panel_preview_title"))
 
-        # Actions Fichier
-        self.act_load_json.setText(tr(self.language, "menu_file_load_json"))
-        self.act_save_json.setText(tr(self.language, "menu_file_save_json"))
-        self.act_export_svg.setText(tr(self.language, "menu_file_export_svg"))
-        self.act_export_png.setText(tr(self.language, "menu_file_export_png"))
-        self.act_quit.setText(tr(self.language, "menu_file_quit"))
+        # File buttons
+        self.btn_load_json.setText(tr(self.language, "menu_file_load_json"))
+        self.btn_save_json.setText(tr(self.language, "menu_file_save_json"))
+        self.btn_export_svg.setText(tr(self.language, "menu_file_export_svg"))
+        self.btn_export_png.setText(tr(self.language, "menu_file_export_png"))
+        self.btn_quit.setText(tr(self.language, "menu_file_quit"))
 
-        # Actions Options
-        self.act_manage_layers.setText(tr(self.language, "menu_layers_manage"))
-        self.act_bg_color.setText(tr(self.language, "menu_options_bgcolor"))
-        self.act_shape_lab.setText(tr(self.language, "menu_options_shape_lab"))
-        self.act_canvas.setText(tr(self.language, "menu_options_canvas"))
-        self.menu_lang.setTitle(tr(self.language, "menu_options_language"))
-        self.act_animation_enabled.setText(tr(self.language, "menu_regen_animation"))
-        self.act_show_track.setText(tr(self.language, "menu_regen_show_track"))
-        self.act_regen.setText(tr(self.language, "menu_regen_draw"))
-        self.act_help_manual.setText(tr(self.language, "menu_help_manual"))
-        self.act_help_about.setText(tr(self.language, "menu_help_about"))
+        # Options buttons
+        self.btn_bg_color.setText(tr(self.language, "menu_options_bgcolor"))
+        self.btn_shape_lab.setText(tr(self.language, "menu_options_shape_lab"))
+        self.btn_canvas.setText(tr(self.language, "menu_options_canvas"))
+        self.language_label.setText(tr(self.language, "menu_options_language"))
+        self.language_button.setText(localisation.language_display_name(self.language))
 
-        self._refresh_animation_texts()
+        # Regenerate/track options
+        self.show_track_checkbox.setText(tr(self.language, "menu_regen_show_track"))
+        self.btn_regen.setText(tr(self.language, "menu_regen_draw"))
+
+        # Help buttons
+        self.btn_help_manual.setText(tr(self.language, "menu_help_manual"))
+        self.btn_help_about.setText(tr(self.language, "menu_help_about"))
+
+        # Details panel texts
+        self.details_empty_label.setText(tr(self.language, "panel_details_empty"))
+        self.preview_widget.set_placeholder_text(tr(self.language, "panel_preview_empty"))
 
         # Checkmarks langue
         for code, action in self.language_actions.items():
             action.setText(localisation.language_display_name(code))
             action.setChecked(code == self.language)
 
+        self._update_detail_labels()
+        self.layer_panel.set_language(self.language)
+        self._refresh_details_panel()
+        self._refresh_preview()
+
+    def _update_detail_labels(self):
+        self.layer_detail_label_name.setText(tr(self.language, "dlg_layer_name"))
+        self.layer_detail_label_zoom.setText(tr(self.language, "dlg_layer_zoom"))
+        self.layer_detail_label_tx.setText(tr(self.language, "dlg_layer_translate_x"))
+        self.layer_detail_label_ty.setText(tr(self.language, "dlg_layer_translate_y"))
+        self.layer_detail_label_rotate.setText(tr(self.language, "dlg_layer_rotate"))
+        self.layer_detail_label_num_gears.setText(tr(self.language, "dlg_layer_num_gears"))
+
+        for idx, gw in enumerate(self.layer_gear_details):
+            gw["gear_title_label"].setText(tr(self.language, "dlg_layer_gear_label").format(index=idx + 1))
+            gw["name_label"].setText(tr(self.language, "dlg_layer_gear_name"))
+            gw["type_label"].setText(tr(self.language, "dlg_layer_gear_type"))
+            gw["size_label"].setText(tr(self.language, "dlg_layer_gear_size"))
+            gw["outer_label"].setText(tr(self.language, "dlg_layer_gear_outer"))
+            gw["relation_label"].setText(tr(self.language, "dlg_layer_gear_relation"))
+            gw["modular_label"].setText(tr(self.language, "dlg_layer_gear_modular_notation"))
+            gw["rsdl_label"].setText(tr(self.language, "dlg_layer_gear_rsdl_expression"))
+            for i in range(gw["type_combo"].count()):
+                data = gw["type_combo"].itemData(i)
+                gw["type_combo"].setItemText(i, gear_type_label(data, self.language))
+            for i in range(gw["rel_combo"].count()):
+                data = gw["rel_combo"].itemData(i)
+                gw["rel_combo"].setItemText(i, relation_label(data, self.language))
+
+        self.path_detail_label_name.setText(tr(self.language, "dlg_path_name"))
+        self.path_detail_label_hole.setText(tr(self.language, "dlg_path_hole_index"))
+        self.path_detail_hole_dir_label.setText(tr(self.language, "dlg_path_hole_direction"))
+        self.path_detail_label_phase.setText(tr(self.language, "dlg_path_phase"))
+        self.path_detail_label_color.setText(tr(self.language, "dlg_path_color"))
+        self.path_detail_label_width.setText(tr(self.language, "dlg_path_width"))
+        self.path_detail_label_zoom.setText(tr(self.language, "dlg_path_zoom"))
+        self.path_detail_label_tx.setText(tr(self.language, "dlg_path_translate_x"))
+        self.path_detail_label_ty.setText(tr(self.language, "dlg_path_translate_y"))
+        self.path_detail_label_rotate.setText(tr(self.language, "dlg_path_rotate"))
+
+    def _build_layer_details_panel(self) -> QWidget:
+        widget = QWidget()
+        layout = QFormLayout(widget)
+
+        self.layer_detail_name = QLineEdit()
+        self.layer_detail_name.setReadOnly(True)
+
+        self.layer_detail_zoom = QDoubleSpinBox()
+        self.layer_detail_zoom.setRange(0.01, 100.0)
+        self.layer_detail_zoom.setDecimals(3)
+        self.layer_detail_zoom.setEnabled(False)
+
+        self.layer_detail_tx = QDoubleSpinBox()
+        self.layer_detail_tx.setRange(-10000.0, 10000.0)
+        self.layer_detail_tx.setDecimals(3)
+        self.layer_detail_tx.setEnabled(False)
+
+        self.layer_detail_ty = QDoubleSpinBox()
+        self.layer_detail_ty.setRange(-10000.0, 10000.0)
+        self.layer_detail_ty.setDecimals(3)
+        self.layer_detail_ty.setEnabled(False)
+
+        self.layer_detail_rotate = QDoubleSpinBox()
+        self.layer_detail_rotate.setRange(-360.0, 360.0)
+        self.layer_detail_rotate.setDecimals(3)
+        self.layer_detail_rotate.setEnabled(False)
+
+        self.layer_detail_num_gears = QSpinBox()
+        self.layer_detail_num_gears.setRange(2, 3)
+        self.layer_detail_num_gears.setEnabled(False)
+
+        self.layer_detail_label_name = QLabel()
+        self.layer_detail_label_zoom = QLabel()
+        self.layer_detail_label_tx = QLabel()
+        self.layer_detail_label_ty = QLabel()
+        self.layer_detail_label_rotate = QLabel()
+        self.layer_detail_label_num_gears = QLabel()
+
+        layout.addRow(self.layer_detail_label_name, self.layer_detail_name)
+        layout.addRow(self.layer_detail_label_zoom, self.layer_detail_zoom)
+        layout.addRow(self.layer_detail_label_tx, self.layer_detail_tx)
+        layout.addRow(self.layer_detail_label_ty, self.layer_detail_ty)
+        layout.addRow(self.layer_detail_label_rotate, self.layer_detail_rotate)
+        layout.addRow(self.layer_detail_label_num_gears, self.layer_detail_num_gears)
+
+        self.layer_gear_details = []
+        for i in range(3):
+            sub_widget = QWidget()
+            sub_layout = QVBoxLayout(sub_widget)
+            gear_title_label = QLabel()
+            sub_layout.addWidget(gear_title_label)
+
+            name_edit = QLineEdit()
+            name_edit.setReadOnly(True)
+            type_combo = QComboBox()
+            for gear_type in GEAR_TYPES:
+                type_combo.addItem(gear_type_label(gear_type, self.language), gear_type)
+            type_combo.setEnabled(False)
+            size_spin = QSpinBox()
+            size_spin.setRange(1, 10000)
+            size_spin.setEnabled(False)
+            outer_spin = QSpinBox()
+            outer_spin.setRange(0, 20000)
+            outer_spin.setEnabled(False)
+            rel_combo = QComboBox()
+            for relation in RELATIONS:
+                rel_combo.addItem(relation_label(relation, self.language), relation)
+            rel_combo.setEnabled(False)
+
+            modular_edit = QLineEdit()
+            modular_edit.setReadOnly(True)
+            rsdl_edit = QLineEdit()
+            rsdl_edit.setReadOnly(True)
+
+            row1 = QHBoxLayout()
+            name_label = QLabel()
+            row1.addWidget(name_label)
+            row1.addWidget(name_edit)
+            sub_layout.addLayout(row1)
+
+            row2 = QHBoxLayout()
+            type_label = QLabel()
+            row2.addWidget(type_label)
+            row2.addWidget(type_combo)
+            sub_layout.addLayout(row2)
+
+            row3 = QHBoxLayout()
+            size_label = QLabel()
+            row3.addWidget(size_label)
+            row3.addWidget(size_spin)
+            sub_layout.addLayout(row3)
+
+            row4 = QHBoxLayout()
+            outer_label = QLabel()
+            row4.addWidget(outer_label)
+            row4.addWidget(outer_spin)
+            sub_layout.addLayout(row4)
+
+            row5 = QHBoxLayout()
+            relation_label_widget = QLabel()
+            row5.addWidget(relation_label_widget)
+            row5.addWidget(rel_combo)
+            sub_layout.addLayout(row5)
+
+            row6 = QHBoxLayout()
+            modular_label = QLabel()
+            row6.addWidget(modular_label)
+            row6.addWidget(modular_edit)
+            sub_layout.addLayout(row6)
+
+            row7 = QHBoxLayout()
+            rsdl_label = QLabel()
+            row7.addWidget(rsdl_label)
+            row7.addWidget(rsdl_edit)
+            sub_layout.addLayout(row7)
+
+            layout.addRow(sub_widget)
+            self.layer_gear_details.append(
+                dict(
+                    container=sub_widget,
+                    name_edit=name_edit,
+                    type_combo=type_combo,
+                    size_spin=size_spin,
+                    outer_spin=outer_spin,
+                    outer_label=outer_label,
+                    rel_combo=rel_combo,
+                    relation_label=relation_label_widget,
+                    modular_label=modular_label,
+                    modular_edit=modular_edit,
+                    rsdl_label=rsdl_label,
+                    rsdl_edit=rsdl_edit,
+                    gear_title_label=gear_title_label,
+                    name_label=name_label,
+                    type_label=type_label,
+                    size_label=size_label,
+                )
+            )
+
+        return widget
+
+    def _build_path_details_panel(self) -> QWidget:
+        widget = QWidget()
+        layout = QFormLayout(widget)
+
+        self.path_detail_name = QLineEdit()
+        self.path_detail_name.setReadOnly(True)
+
+        self.path_detail_hole = QDoubleSpinBox()
+        self.path_detail_hole.setRange(-1000.0, 1000.0)
+        self.path_detail_hole.setDecimals(3)
+        self.path_detail_hole.setEnabled(False)
+
+        self.path_detail_hole_dir = QDoubleSpinBox()
+        self.path_detail_hole_dir.setRange(-360.0, 360.0)
+        self.path_detail_hole_dir.setDecimals(3)
+        self.path_detail_hole_dir.setEnabled(False)
+
+        self.path_detail_phase = QDoubleSpinBox()
+        self.path_detail_phase.setRange(-1000.0, 1000.0)
+        self.path_detail_phase.setDecimals(3)
+        self.path_detail_phase.setEnabled(False)
+
+        self.path_detail_color = QLineEdit()
+        self.path_detail_color.setReadOnly(True)
+
+        self.path_detail_width = QDoubleSpinBox()
+        self.path_detail_width.setRange(0.1, 50.0)
+        self.path_detail_width.setDecimals(3)
+        self.path_detail_width.setEnabled(False)
+
+        self.path_detail_zoom = QDoubleSpinBox()
+        self.path_detail_zoom.setRange(0.01, 100.0)
+        self.path_detail_zoom.setDecimals(3)
+        self.path_detail_zoom.setEnabled(False)
+
+        self.path_detail_tx = QDoubleSpinBox()
+        self.path_detail_tx.setRange(-10000.0, 10000.0)
+        self.path_detail_tx.setDecimals(3)
+        self.path_detail_tx.setEnabled(False)
+
+        self.path_detail_ty = QDoubleSpinBox()
+        self.path_detail_ty.setRange(-10000.0, 10000.0)
+        self.path_detail_ty.setDecimals(3)
+        self.path_detail_ty.setEnabled(False)
+
+        self.path_detail_rotate = QDoubleSpinBox()
+        self.path_detail_rotate.setRange(-360.0, 360.0)
+        self.path_detail_rotate.setDecimals(3)
+        self.path_detail_rotate.setEnabled(False)
+
+        self.path_detail_label_name = QLabel()
+        self.path_detail_label_hole = QLabel()
+        self.path_detail_hole_dir_label = QLabel()
+        self.path_detail_label_phase = QLabel()
+        self.path_detail_label_color = QLabel()
+        self.path_detail_label_width = QLabel()
+        self.path_detail_label_zoom = QLabel()
+        self.path_detail_label_tx = QLabel()
+        self.path_detail_label_ty = QLabel()
+        self.path_detail_label_rotate = QLabel()
+
+        layout.addRow(self.path_detail_label_name, self.path_detail_name)
+        layout.addRow(self.path_detail_label_hole, self.path_detail_hole)
+        layout.addRow(self.path_detail_hole_dir_label, self.path_detail_hole_dir)
+        layout.addRow(self.path_detail_label_phase, self.path_detail_phase)
+        layout.addRow(self.path_detail_label_color, self.path_detail_color)
+        layout.addRow(self.path_detail_label_width, self.path_detail_width)
+        layout.addRow(self.path_detail_label_zoom, self.path_detail_zoom)
+        layout.addRow(self.path_detail_label_tx, self.path_detail_tx)
+        layout.addRow(self.path_detail_label_ty, self.path_detail_ty)
+        layout.addRow(self.path_detail_label_rotate, self.path_detail_rotate)
+
+        return widget
+
+    def _on_layers_changed(self):
+        self.update_svg()
+        self._refresh_details_panel()
+        self._refresh_preview()
+
+    def _on_layer_selection_changed(self, obj, kind: str):
+        self._refresh_details_panel(obj, kind)
+        self._refresh_preview(obj, kind)
+
+    def _refresh_details_panel(self, obj=None, kind: Optional[str] = None):
+        if obj is None or not kind:
+            obj, kind = self.layer_panel.get_selected_object()
+        if kind == "layer" and isinstance(obj, LayerConfig):
+            self.details_stack.setCurrentIndex(1)
+            self.layer_detail_name.setText(obj.name)
+            self.layer_detail_zoom.setValue(getattr(obj, "zoom", 1.0))
+            self.layer_detail_tx.setValue(getattr(obj, "translate_x", 0.0))
+            self.layer_detail_ty.setValue(getattr(obj, "translate_y", 0.0))
+            self.layer_detail_rotate.setValue(getattr(obj, "rotate_deg", 0.0))
+            self.layer_detail_num_gears.setValue(max(2, min(3, len(obj.gears))))
+            for idx, gw in enumerate(self.layer_gear_details):
+                if idx < len(obj.gears):
+                    gear = obj.gears[idx]
+                    gw["container"].setVisible(True)
+                    gw["name_edit"].setText(gear.name)
+                    type_index = gw["type_combo"].findData(gear.gear_type)
+                    gw["type_combo"].setCurrentIndex(max(type_index, 0))
+                    gw["size_spin"].setValue(gear.size)
+                    gw["outer_spin"].setValue(gear.outer_size if gear.outer_size > 0 else 0)
+                    rel_index = gw["rel_combo"].findData(gear.relation)
+                    gw["rel_combo"].setCurrentIndex(max(rel_index, 0))
+                    is_ring_like = gear.gear_type in ("anneau", "modulaire")
+                    gw["outer_label"].setVisible(is_ring_like)
+                    gw["outer_spin"].setVisible(is_ring_like)
+                    is_modular = gear.gear_type == "modulaire" and idx == 0
+                    gw["modular_label"].setVisible(is_modular)
+                    gw["modular_edit"].setVisible(is_modular)
+                    gw["modular_edit"].setText(getattr(gear, "modular_notation", "") or "")
+                    is_rsdl = gear.gear_type == "rsdl"
+                    gw["rsdl_label"].setVisible(is_rsdl)
+                    gw["rsdl_edit"].setVisible(is_rsdl)
+                    gw["rsdl_edit"].setText(getattr(gear, "rsdl_expression", "") or "")
+                else:
+                    gw["container"].setVisible(False)
+            return
+
+        if kind == "path" and isinstance(obj, PathConfig):
+            self.details_stack.setCurrentIndex(2)
+            self.path_detail_name.setText(obj.name)
+            self.path_detail_hole.setValue(obj.hole_offset)
+            self.path_detail_phase.setValue(obj.phase_offset)
+            self.path_detail_color.setText(obj.color)
+            self.path_detail_width.setValue(obj.stroke_width)
+            self.path_detail_zoom.setValue(getattr(obj, "zoom", 1.0))
+            self.path_detail_tx.setValue(getattr(obj, "translate_x", 0.0))
+            self.path_detail_ty.setValue(getattr(obj, "translate_y", 0.0))
+            self.path_detail_rotate.setValue(getattr(obj, "rotate_deg", 0.0))
+            layer = self.layer_panel.find_parent_layer(obj)
+            supports_hole_dir = (
+                layer
+                and len(layer.gears) > 1
+                and layer.gears[1].gear_type == "rsdl"
+                and layer.gears[1].rsdl_expression
+            )
+            self.path_detail_hole_dir_label.setVisible(bool(supports_hole_dir))
+            self.path_detail_hole_dir.setVisible(bool(supports_hole_dir))
+            if supports_hole_dir:
+                self.path_detail_hole_dir.setValue(getattr(obj, "hole_direction", 0.0))
+            return
+
+        self.details_stack.setCurrentIndex(0)
+
+    def _refresh_preview(self, obj=None, kind: Optional[str] = None):
+        if obj is None or not kind:
+            obj, kind = self.layer_panel.get_selected_object()
+        if kind != "path" or not isinstance(obj, PathConfig):
+            self.preview_widget.clear()
+            return
+        layer = self.layer_panel.find_parent_layer(obj)
+        if not layer or len(layer.gears) < 2:
+            self.preview_widget.clear()
+            return
+
+        g0 = layer.gears[0]
+        g1 = layer.gears[1]
+        relation = g1.relation if g1.relation in ("dedans", "dehors") else "dedans"
+        side = 1 if relation == "dedans" else -1
+        epsilon = side
+        try:
+            base_curve = _curve_from_gear(
+                g0,
+                relation,
+                rsdl_curve_builder=_rsdl_curve_builder,
+                modular_curve_builder=_modular_curve_builder,
+            )
+            base_curve = _align_base_curve_start(
+                base_curve,
+                g0,
+                g1,
+                relation,
+                rsdl_is_polygon=is_polygon_expression,
+            )
+            wheel_curve = _curve_from_gear(
+                g1,
+                relation,
+                rsdl_curve_builder=_rsdl_curve_builder,
+            )
+        except RsdlParseError:
+            base_curve = None
+            wheel_curve = None
+
+        if base_curve is None or wheel_curve is None or base_curve.length <= 0:
+            self.preview_widget.clear()
+            return
+
+        alpha0 = (
+            math.pi
+            if relation == "dedans"
+            and (isinstance(base_curve, CircleCurve) or (g0.gear_type == "rsdl" and g0.rsdl_expression))
+            else 0.0
+        )
+
+        samples = 240
+        track_points: List[Tuple[float, float]] = []
+        for i in range(samples):
+            s = base_curve.length * i / max(1, samples - 1)
+            x, y, _, _ = base_curve.eval(s)
+            track_points.append((x, y))
+
+        if g1.gear_type == "rsdl" and g1.rsdl_expression:
+            center_offset = _rsdl_curve_center(wheel_curve)
+            wheel_curve = _OffsetCurve(wheel_curve, center_offset)
+
+        if wheel_curve.length > 0:
+            sample_count = 180
+            tip_radius = max(
+                math.hypot(*wheel_curve.eval(wheel_curve.length * i / sample_count)[:2])
+                for i in range(sample_count + 1)
+            )
+        else:
+            tip_radius = radius_from_size(g1.size)
+
+        hole_offset = float(obj.hole_offset)
+        hole_direction = float(getattr(obj, "hole_direction", 0.0))
+        if g1.gear_type == "rsdl" and g1.rsdl_expression:
+            d = hole_offset
+            pen_local = _rsdl_pen_local_vector(wheel_curve, hole_offset, hole_direction)
+        else:
+            d = tip_radius - hole_offset
+            pen_local = wheel_pen_local_vector(base_curve, wheel_curve, d, side, alpha0)
+
+        s = 0.0
+        xb, yb, _, _ = base_curve.eval(s)
+        cos_a, sin_a = wheel_orientation(s, base_curve, wheel_curve, side, epsilon=epsilon)
+        wheel_s = epsilon * s
+        if wheel_curve.length > 0:
+            if wheel_curve.closed:
+                wheel_s %= wheel_curve.length
+            else:
+                wheel_s = max(0.0, min(wheel_s, wheel_curve.length))
+        xw, yw, _, _ = wheel_curve.eval(wheel_s)
+        xw_rot = xw * cos_a - yw * sin_a
+        yw_rot = xw * sin_a + yw * cos_a
+        cx = xb - xw_rot
+        cy = yb - yw_rot
+
+        pen_point = roll_pen_position(
+            s,
+            base_curve,
+            wheel_curve,
+            d,
+            side,
+            alpha0,
+            epsilon,
+            pen_local=pen_local,
+        )
+
+        marker_point = None
+        if wheel_curve.length > 0:
+            marker_x, marker_y, _, _ = wheel_curve.eval(0.0)
+            mx = marker_x * cos_a - marker_y * sin_a
+            my = marker_x * sin_a + marker_y * cos_a
+            marker_point = (cx + mx, cy + my)
+
+        scale = getattr(layer, "zoom", 1.0) * getattr(obj, "zoom", 1.0)
+        track_points = [(x * scale, y * scale) for (x, y) in track_points]
+        wheel_center = (cx * scale, cy * scale)
+        contact_point = (xb * scale, yb * scale)
+        pen_point = (pen_point[0] * scale, pen_point[1] * scale)
+        if marker_point:
+            marker_point = (marker_point[0] * scale, marker_point[1] * scale)
+
+        self.preview_widget.set_preview_data(
+            track_points=track_points,
+            wheel_center=wheel_center,
+            wheel_radius=tip_radius * scale,
+            contact_point=contact_point,
+            pen_point=pen_point,
+            marker_point=marker_point,
+        )
+
     def _available_svg_space(self) -> Tuple[int, int]:
-        layout = self.layout()
-        if not layout:
+        if getattr(self, "svg_container", None) is None:
             return 0, 0
-        margins = layout.contentsMargins()
-        spacing = layout.spacing()
-        available_width = max(0, self.width() - margins.left() - margins.right())
-        available_height = max(0, self.height() - margins.top() - margins.bottom())
-
-        menu_height = max(self.menu_bar.height(), self.menu_bar.sizeHint().height())
-        available_height = max(0, available_height - menu_height)
-
-        anim_height = 0
-        if getattr(self, "anim_container", None) is not None:
-            anim_height = max(
-                self.anim_container.height(), self.anim_container.sizeHint().height()
-            )
-        available_height = max(0, available_height - anim_height)
-
-        # Two spacings separate menubar/SVG and SVG/controls
-        available_height = max(0, available_height - (spacing * 2))
-
-        # Account for the SVG container margins, which stay at 0 but keep logic consistent
-        if getattr(self, "svg_container", None) is not None:
-            svg_margins = self.svg_container.layout().contentsMargins()
-            available_width = max(
-                0, available_width - svg_margins.left() - svg_margins.right()
-            )
-            available_height = max(
-                0, available_height - svg_margins.top() - svg_margins.bottom()
-            )
-
+        size = self.svg_container.size()
+        svg_margins = self.svg_container.layout().contentsMargins()
+        available_width = max(0, size.width() - svg_margins.left() - svg_margins.right())
+        available_height = max(0, size.height() - svg_margins.top() - svg_margins.bottom())
         return available_width, available_height
 
-    def _build_language_menu(self, menubar: QMenuBar):
+    def _build_language_menu(self, menu: QMenu):
+        self.menu_lang = menu
         self.menu_lang.clear()
         self.language_actions.clear()
         for code in localisation.available_languages():
-            action = QAction(menubar)
+            action = QAction(self.menu_lang)
             action.setCheckable(True)
             action.setData(code)
             action.triggered.connect(lambda _checked=False, lang=code: self.set_language(lang))
@@ -3331,211 +4511,26 @@ class SpiroWindow(QWidget):
         bg_norm = normalize_color_string(self.bg_color) or "#ffffff"
         display_width = max(1, min(self.canvas_width, self.svg_widget.width()))
         display_height = max(1, min(self.canvas_height, self.svg_widget.height()))
-        result = layers_to_svg(
+        svg_data = layers_to_svg(
             self.layers,
             width=display_width,
             height=display_height,
             bg_color=bg_norm,
             points_per_path=self.points_per_path,
             show_tracks=self.show_track,
-            return_render_data=True,
         )
-        if isinstance(result, tuple):
-            svg_data, render_data = result
-        else:
-            svg_data, render_data = result, None
-        self._last_svg_data = svg_data
-        self._animation_render_data = render_data
-        self._reset_animation_state()
         self.load_svg(svg_data)
+        self._refresh_preview()
 
     def load_svg(self, svg_string: str):
         data = QByteArray(svg_string.encode("utf-8"))
         self.svg_widget.load(data)
 
-    # ----- Animation -----
+    # ----- Options -----
 
-    def _set_animation_enabled(self, enabled: bool):
-        self.animation_enabled = bool(enabled)
-        if self.act_animation_enabled.isChecked() != self.animation_enabled:
-            self.act_animation_enabled.setChecked(self.animation_enabled)
-        if not self.animation_enabled:
-            self._stop_animation()
-        self.anim_container.setVisible(self.animation_enabled)
-        self._update_animation_controls()
-
-    def _set_show_track(self, checked: bool, trigger_update: bool = True):
+    def _toggle_show_track(self, checked: bool):
         self.show_track = bool(checked)
-        if self.act_show_track.isChecked() != self.show_track:
-            self.act_show_track.setChecked(self.show_track)
-        if trigger_update:
-            self.update_svg()
-
-    def _max_animation_points(self) -> int:
-        if not self._animation_render_data:
-            return 0
-        paths = self._animation_render_data.get("paths") or []
-        if not paths:
-            return 0
-        return max(len(p.get("points", [])) for p in paths)
-
-    def _refresh_animation_texts(self):
-        start_key = "anim_pause" if self._animation_running else "anim_start"
-        self.anim_start_btn.setText(tr(self.language, start_key))
-        self.anim_reset_btn.setText(tr(self.language, "anim_reset"))
-        self.anim_speed_label.setText(tr(self.language, "anim_speed_label"))
-        self.anim_speed_spin.setSpecialValueText(tr(self.language, "anim_speed_infinite"))
-        self.anim_speed_spin.setSuffix(tr(self.language, "anim_speed_suffix"))
-
-    def _update_animation_controls(self):
-        has_data = bool(
-            self._animation_render_data and (self._animation_render_data.get("paths") or [])
-        )
-        controls_enabled = has_data and self.animation_enabled
-        for w in (
-            self.anim_start_btn,
-            self.anim_reset_btn,
-            self.anim_speed_spin,
-            self.anim_btn_half,
-            self.anim_btn_double,
-        ):
-            w.setEnabled(controls_enabled)
-        self.anim_container.setVisible(self.animation_enabled)
-        self._refresh_animation_texts()
-
-    def _on_anim_speed_changed(self, value: float):
-        if value <= 0.0:
-            self._animation_speed = math.inf
-        else:
-            self._animation_speed = value
-
-    def _apply_anim_speed_factor(self, factor: float):
-        if factor <= 0:
-            return
-        current = self.anim_speed_spin.value()
-        if current <= 0.0:
-            return
-        new_val = max(0.25, min(self.anim_speed_spin.maximum(), current * factor))
-        self.anim_speed_spin.setValue(new_val)
-
-    def _toggle_animation(self):
-        if not self.animation_enabled:
-            return
-        if not self._animation_render_data:
-            return
-        max_pts = self._max_animation_points()
-        if max_pts <= 1:
-            return
-        if not self._animation_running:
-            if self._animation_progress >= max_pts:
-                self._animation_progress = 0.0
-            self._animation_last_time = time.monotonic()
-            self._animation_running = True
-            self._animation_timer.start(16)
-            self._update_animation_controls()
-            self._render_animation_frame()
-        else:
-            self._stop_animation()
-
-    def _stop_animation(self):
-        self._animation_timer.stop()
-        self._animation_running = False
-        self._animation_last_time = None
-        self._update_animation_controls()
-
-    def _reset_animation_state(self):
-        self._stop_animation()
-        self._animation_progress = 0.0
-        self._update_animation_controls()
-
-    def _reset_animation(self):
-        if not self.animation_enabled or not self._animation_render_data:
-            return
-        self._stop_animation()
-        self._animation_progress = 0.0
-        self._render_animation_frame()
-
-    def _on_animation_tick(self):
-        if not self._animation_render_data:
-            self._stop_animation()
-            return
-        max_pts = self._max_animation_points()
-        if max_pts <= 1:
-            self._stop_animation()
-            return
-
-        now = time.monotonic()
-        if self._animation_last_time is None:
-            self._animation_last_time = now
-        dt = max(0.0, now - self._animation_last_time)
-        self._animation_last_time = now
-
-        if math.isinf(self._animation_speed):
-            self._animation_progress = max_pts
-        else:
-            self._animation_progress += self._animation_speed * dt
-
-        if self._animation_progress >= max_pts:
-            self._animation_progress = max_pts
-            self._render_animation_frame()
-            self._stop_animation()
-            return
-
-        self._render_animation_frame()
-
-    def _render_animation_frame(self):
-        data = self._animation_render_data
-        if not data:
-            return
-        tracks = data.get("tracks") or []
-        paths = data.get("paths") or []
-        width = data.get("width", self.canvas_width)
-        height = data.get("height", self.canvas_height)
-        bg = data.get("bg_color", self.bg_color)
-        svg_parts = [
-            '<?xml version="1.0" standalone="no"?>',
-            f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}"',
-            '     xmlns="http://www.w3.org/2000/svg" version="1.1">',
-            f'  <rect x="0" y="0" width="{width}" height="{height}" fill="{bg}"/>',
-        ]
-
-        for track_entry in tracks:
-            pts = track_entry.get("points") or []
-            if len(pts) < 2:
-                continue
-            x0, y0 = pts[0]
-            cmds = [f"M {x0:.3f} {y0:.3f}"]
-            for (x, y) in pts[1:]:
-                cmds.append(f"L {x:.3f} {y:.3f}")
-            path_d = " ".join(cmds)
-            width_stroke = track_entry.get("stroke_width", 1.0)
-            svg_parts.append(
-                f'  <path d="{path_d}" fill="none" stroke="#808080" stroke-width="{width_stroke}"/>'
-            )
-
-        current = self._animation_progress
-        for entry in paths:
-            pts = entry.get("points") or []
-            if math.isinf(current):
-                count = len(pts)
-            else:
-                count = int(min(len(pts), math.floor(current)))
-            if count <= 0:
-                continue
-            t_points = pts[:count]
-            x0, y0 = t_points[0]
-            cmds = [f"M {x0:.3f} {y0:.3f}"]
-            for (x, y) in t_points[1:]:
-                cmds.append(f"L {x:.3f} {y:.3f}")
-            path_d = " ".join(cmds)
-            color = entry.get("color", "#000000")
-            width_stroke = entry.get("stroke_width", 1.0)
-            svg_parts.append(
-                f'  <path d="{path_d}" fill="none" stroke="{color}" stroke-width="{width_stroke}"/>'
-            )
-
-        svg_parts.append("</svg>")
-        self.load_svg("\n".join(svg_parts))
+        self.update_svg()
 
     # ----- Actions -----
 
@@ -3625,6 +4620,10 @@ class SpiroWindow(QWidget):
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.language, "dlg_ok"))
         btn_cancel = QPushButton(tr(self.language, "dlg_cancel"))
+        btn_ok.setDefault(True)
+        btn_ok.setAutoDefault(True)
+        btn_cancel.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), dlg, activated=dlg.reject)
         btn_ok.clicked.connect(dlg.accept)
         btn_cancel.clicked.connect(dlg.reject)
         btn_box.addWidget(btn_ok)
@@ -3635,6 +4634,7 @@ class SpiroWindow(QWidget):
             self.canvas_width = spin_w.value()
             self.canvas_height = spin_h.value()
             self.points_per_path = spin_pts.value()
+            self.layer_panel.points_per_path = self.points_per_path
             selected_backend = backend_combo.currentData()
             if selected_backend:
                 try:
@@ -3770,8 +4770,6 @@ class SpiroWindow(QWidget):
             "canvas_height": self.canvas_height,
             "points_per_path": self.points_per_path,
             "math_backend": get_backend_name(),
-            "animation_enabled": self.animation_enabled,
-            "animation_speed": self.anim_speed_spin.value(),
             "show_track": self.show_track,
             "layers": self._layers_to_json_struct(),
         }
@@ -3796,6 +4794,10 @@ class SpiroWindow(QWidget):
         self.canvas_width = int(data.get("canvas_width", self.canvas_width))
         self.canvas_height = int(data.get("canvas_height", self.canvas_height))
         self.points_per_path = int(data.get("points_per_path", self.points_per_path))
+        try:
+            self.layer_panel.points_per_path = self.points_per_path
+        except Exception:
+            pass
         backend_name = data.get("math_backend")
         if backend_name:
             try:
@@ -3803,29 +4805,19 @@ class SpiroWindow(QWidget):
             except ValueError:
                 pass
 
-        anim_enabled_val = data.get("animation_enabled")
-        if anim_enabled_val is not None:
-            self.animation_enabled = bool(anim_enabled_val)
-        self._set_animation_enabled(self.animation_enabled)
-
-        saved_speed = data.get("animation_speed")
-        if saved_speed is not None:
-            try:
-                self.anim_speed_spin.setValue(float(saved_speed))
-            except Exception:
-                pass
-
         show_track_val = data.get("show_track")
         if show_track_val is not None:
             self.show_track = bool(show_track_val)
             try:
-                self.act_show_track.setChecked(self.show_track)
+                self.show_track_checkbox.setChecked(self.show_track)
             except Exception:
                 pass
 
         if "layers" in data:
             layers_struct = data.get("layers", [])
             self.layers = self._layers_from_json_struct(layers_struct)
+            self.layer_panel.layers = self.layers
+            self.layer_panel.refresh_tree()
 
         if apply_window:
             geom_b64 = data.get("window_geometry")
@@ -3955,6 +4947,10 @@ class SpiroWindow(QWidget):
         btn_box = QHBoxLayout()
         btn_ok = QPushButton(tr(self.language, "dlg_ok"))
         btn_cancel = QPushButton(tr(self.language, "dlg_cancel"))
+        btn_ok.setDefault(True)
+        btn_ok.setAutoDefault(True)
+        btn_cancel.setAutoDefault(False)
+        QShortcut(QKeySequence(Qt.Key_Escape), dlg, activated=dlg.reject)
         btn_ok.clicked.connect(dlg.accept)
         btn_cancel.clicked.connect(dlg.reject)
         btn_box.addWidget(btn_ok)
@@ -4003,7 +4999,6 @@ class SpiroWindow(QWidget):
     def closeEvent(self, event):
         try:
             self._save_persisted_state()
-            self._stop_animation()
         finally:
             super().closeEvent(event)
 
