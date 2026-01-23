@@ -3755,73 +3755,91 @@ class SpiroWindow(QWidget):
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(10)
 
-        self.file_group = QGroupBox()
-        file_layout = QVBoxLayout(self.file_group)
-        self.btn_load_json = QPushButton()
-        self.btn_save_json = QPushButton()
-        self.btn_export_svg = QPushButton()
-        self.btn_export_png = QPushButton()
-        self.btn_quit = QPushButton()
-        for btn in (
-            self.btn_load_json,
-            self.btn_save_json,
-            self.btn_export_svg,
-            self.btn_export_png,
-            self.btn_quit,
-        ):
-            file_layout.addWidget(btn)
-        self.btn_load_json.clicked.connect(self.load_from_json)
-        self.btn_save_json.clicked.connect(self.save_to_json)
-        self.btn_export_svg.clicked.connect(self.export_svg)
-        self.btn_export_png.clicked.connect(self.export_png)
-        self.btn_quit.clicked.connect(self.close)
-        left_layout.addWidget(self.file_group)
+        self.mini_menu_container = QWidget()
+        mini_menu_layout = QHBoxLayout(self.mini_menu_container)
+        mini_menu_layout.setContentsMargins(0, 0, 0, 0)
+        mini_menu_layout.setSpacing(6)
 
-        self.options_group = QGroupBox()
-        options_layout = QVBoxLayout(self.options_group)
-        self.btn_bg_color = QPushButton()
-        self.btn_bg_color.clicked.connect(self.edit_bg_color)
-        self.btn_shape_lab = QPushButton()
-        self.btn_shape_lab.clicked.connect(self.open_shape_lab)
-        self.btn_canvas = QPushButton()
-        self.btn_canvas.clicked.connect(self.edit_canvas_settings)
-        options_layout.addWidget(self.btn_bg_color)
-        options_layout.addWidget(self.btn_shape_lab)
-        options_layout.addWidget(self.btn_canvas)
+        self.menu_file = QMenu(self)
+        self.menu_options = QMenu(self)
+        self.menu_regen = QMenu(self)
+        self.menu_help = QMenu(self)
 
-        language_row = QHBoxLayout()
-        self.language_label = QLabel()
+        self.act_load_json = QAction(self)
+        self.act_save_json = QAction(self)
+        self.act_export_svg = QAction(self)
+        self.act_export_png = QAction(self)
+        self.act_quit = QAction(self)
+        self.act_load_json.triggered.connect(self.load_from_json)
+        self.act_save_json.triggered.connect(self.save_to_json)
+        self.act_export_svg.triggered.connect(self.export_svg)
+        self.act_export_png.triggered.connect(self.export_png)
+        self.act_quit.triggered.connect(self.close)
+        self.menu_file.addAction(self.act_load_json)
+        self.menu_file.addAction(self.act_save_json)
+        self.menu_file.addSeparator()
+        self.menu_file.addAction(self.act_export_svg)
+        self.menu_file.addAction(self.act_export_png)
+        self.menu_file.addSeparator()
+        self.menu_file.addAction(self.act_quit)
+
+        self.act_bg_color = QAction(self)
+        self.act_bg_color.triggered.connect(self.edit_bg_color)
+        self.act_shape_lab = QAction(self)
+        self.act_shape_lab.triggered.connect(self.open_shape_lab)
+        self.act_canvas = QAction(self)
+        self.act_canvas.triggered.connect(self.edit_canvas_settings)
+        self.menu_options.addAction(self.act_bg_color)
+        self.menu_options.addAction(self.act_shape_lab)
+        self.menu_options.addAction(self.act_canvas)
+
         self.menu_lang = QMenu(self)
         self.language_actions: Dict[str, QAction] = {}
         self._build_language_menu(self.menu_lang)
-        self.language_button = QToolButton()
-        self.language_button.setPopupMode(QToolButton.InstantPopup)
-        self.language_button.setMenu(self.menu_lang)
-        language_row.addWidget(self.language_label)
-        language_row.addWidget(self.language_button, 1)
-        options_layout.addLayout(language_row)
-        left_layout.addWidget(self.options_group)
+        self.menu_options.addSeparator()
+        self.menu_options.addMenu(self.menu_lang)
 
-        self.help_group = QGroupBox()
-        help_layout = QVBoxLayout(self.help_group)
-        self.btn_help_manual = QPushButton()
-        self.btn_help_about = QPushButton()
-        self.btn_help_manual.clicked.connect(self.open_manual)
-        self.btn_help_about.clicked.connect(self.show_about)
-        help_layout.addWidget(self.btn_help_manual)
-        help_layout.addWidget(self.btn_help_about)
-        left_layout.addWidget(self.help_group)
+        self.act_show_track = QAction(self)
+        self.act_show_track.setCheckable(True)
+        self.act_show_track.setChecked(True)
+        self.act_show_track.toggled.connect(self._toggle_show_track)
+        self.act_regen = QAction(self)
+        self.act_regen.triggered.connect(self.update_svg)
+        self.menu_regen.addAction(self.act_show_track)
+        self.menu_regen.addSeparator()
+        self.menu_regen.addAction(self.act_regen)
 
-        self.regen_group = QGroupBox()
-        regen_layout = QVBoxLayout(self.regen_group)
-        self.show_track_checkbox = QCheckBox()
-        self.show_track_checkbox.setChecked(True)
-        self.show_track_checkbox.toggled.connect(self._toggle_show_track)
-        self.btn_regen = QPushButton()
-        self.btn_regen.clicked.connect(self.update_svg)
-        regen_layout.addWidget(self.show_track_checkbox)
-        regen_layout.addWidget(self.btn_regen)
-        left_layout.addWidget(self.regen_group)
+        self.act_help_manual = QAction(self)
+        self.act_help_about = QAction(self)
+        self.act_help_manual.triggered.connect(self.open_manual)
+        self.act_help_about.triggered.connect(self.show_about)
+        self.menu_help.addAction(self.act_help_manual)
+        self.menu_help.addAction(self.act_help_about)
+
+        self.btn_menu_file = QToolButton()
+        self.btn_menu_file.setPopupMode(QToolButton.InstantPopup)
+        self.btn_menu_file.setMenu(self.menu_file)
+        self.btn_menu_options = QToolButton()
+        self.btn_menu_options.setPopupMode(QToolButton.InstantPopup)
+        self.btn_menu_options.setMenu(self.menu_options)
+        self.btn_menu_regen = QToolButton()
+        self.btn_menu_regen.setPopupMode(QToolButton.InstantPopup)
+        self.btn_menu_regen.setMenu(self.menu_regen)
+        self.btn_menu_help = QToolButton()
+        self.btn_menu_help.setPopupMode(QToolButton.InstantPopup)
+        self.btn_menu_help.setMenu(self.menu_help)
+
+        for btn in (
+            self.btn_menu_file,
+            self.btn_menu_options,
+            self.btn_menu_regen,
+            self.btn_menu_help,
+        ):
+            btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            btn.setAutoRaise(True)
+            mini_menu_layout.addWidget(btn)
+        mini_menu_layout.addStretch(1)
+        left_layout.addWidget(self.mini_menu_container)
 
         self.layers_group = QGroupBox()
         layers_layout = QVBoxLayout(self.layers_group)
@@ -3937,36 +3955,36 @@ class SpiroWindow(QWidget):
     def apply_language(self):
         self.setWindowTitle(tr(self.language, "app_title"))
 
-        # Group titles
-        self.file_group.setTitle(tr(self.language, "menu_file"))
-        self.options_group.setTitle(tr(self.language, "menu_options"))
-        self.layers_group.setTitle(tr(self.language, "menu_layers"))
-        self.regen_group.setTitle(tr(self.language, "menu_regen"))
-        self.help_group.setTitle(tr(self.language, "menu_help"))
+        # Menu titles
+        self.menu_file.setTitle(tr(self.language, "menu_file"))
+        self.menu_options.setTitle(tr(self.language, "menu_options"))
+        self.menu_regen.setTitle(tr(self.language, "menu_regen"))
+        self.menu_help.setTitle(tr(self.language, "menu_help"))
         self.details_group.setTitle(tr(self.language, "panel_details_title"))
         self.preview_group.setTitle(tr(self.language, "panel_preview_title"))
 
-        # File buttons
-        self.btn_load_json.setText(tr(self.language, "menu_file_load_json"))
-        self.btn_save_json.setText(tr(self.language, "menu_file_save_json"))
-        self.btn_export_svg.setText(tr(self.language, "menu_file_export_svg"))
-        self.btn_export_png.setText(tr(self.language, "menu_file_export_png"))
-        self.btn_quit.setText(tr(self.language, "menu_file_quit"))
+        # Menu actions
+        self.act_load_json.setText(tr(self.language, "menu_file_load_json"))
+        self.act_save_json.setText(tr(self.language, "menu_file_save_json"))
+        self.act_export_svg.setText(tr(self.language, "menu_file_export_svg"))
+        self.act_export_png.setText(tr(self.language, "menu_file_export_png"))
+        self.act_quit.setText(tr(self.language, "menu_file_quit"))
 
-        # Options buttons
-        self.btn_bg_color.setText(tr(self.language, "menu_options_bgcolor"))
-        self.btn_shape_lab.setText(tr(self.language, "menu_options_shape_lab"))
-        self.btn_canvas.setText(tr(self.language, "menu_options_canvas"))
-        self.language_label.setText(tr(self.language, "menu_options_language"))
-        self.language_button.setText(localisation.language_display_name(self.language))
+        self.act_bg_color.setText(tr(self.language, "menu_options_bgcolor"))
+        self.act_shape_lab.setText(tr(self.language, "menu_options_shape_lab"))
+        self.act_canvas.setText(tr(self.language, "menu_options_canvas"))
+        self.menu_lang.setTitle(tr(self.language, "menu_options_language"))
 
-        # Regenerate/track options
-        self.show_track_checkbox.setText(tr(self.language, "menu_regen_show_track"))
-        self.btn_regen.setText(tr(self.language, "menu_regen_draw"))
+        self.act_show_track.setText(tr(self.language, "menu_regen_show_track"))
+        self.act_regen.setText(tr(self.language, "menu_regen_draw"))
 
-        # Help buttons
-        self.btn_help_manual.setText(tr(self.language, "menu_help_manual"))
-        self.btn_help_about.setText(tr(self.language, "menu_help_about"))
+        self.act_help_manual.setText(tr(self.language, "menu_help_manual"))
+        self.act_help_about.setText(tr(self.language, "menu_help_about"))
+
+        self.btn_menu_file.setText(tr(self.language, "menu_file"))
+        self.btn_menu_options.setText(tr(self.language, "menu_options"))
+        self.btn_menu_regen.setText(tr(self.language, "menu_regen"))
+        self.btn_menu_help.setText(tr(self.language, "menu_help"))
 
         # Details panel texts
         self.details_empty_label.setText(tr(self.language, "panel_details_empty"))
@@ -4530,6 +4548,8 @@ class SpiroWindow(QWidget):
 
     def _toggle_show_track(self, checked: bool):
         self.show_track = bool(checked)
+        if self.act_show_track.isChecked() != self.show_track:
+            self.act_show_track.setChecked(self.show_track)
         self.update_svg()
 
     # ----- Actions -----
@@ -4809,7 +4829,7 @@ class SpiroWindow(QWidget):
         if show_track_val is not None:
             self.show_track = bool(show_track_val)
             try:
-                self.show_track_checkbox.setChecked(self.show_track)
+                self.act_show_track.setChecked(self.show_track)
             except Exception:
                 pass
 
