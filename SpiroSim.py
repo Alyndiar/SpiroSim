@@ -810,6 +810,14 @@ def layers_to_svg(
             )
             for (x, y) in points
         ]
+    def filter_finite(points):
+        if not points:
+            return points
+        return [
+            (x, y)
+            for (x, y) in points
+            if math.isfinite(x) and math.isfinite(y)
+        ]
     all_points = []
     trace_points = []
     rendered_paths = []  # (layer_name, layer_zoom, path_config, points, path_zoom)
@@ -872,6 +880,7 @@ def layers_to_svg(
                 modular_curve_builder=_modular_curve_builder,
                 rsdl_is_polygon=is_polygon_expression,
             )
+            pts = filter_finite(pts)
             if not pts:
                 continue
             path_zoom = getattr(path, "zoom", 1.0)
@@ -893,6 +902,9 @@ def layers_to_svg(
             layer_transformed = apply_transform(
                 path_transformed, layer_rotate, layer_tx, layer_ty
             )
+            layer_transformed = filter_finite(layer_transformed)
+            if not layer_transformed:
+                continue
             layer_paths.append((path, layer_transformed, path_zoom))
 
         if layer_paths:
@@ -907,6 +919,9 @@ def layers_to_svg(
             track_zoomed = [
                 (x * layer_zoom, y * layer_zoom) for (x, y) in layer_track_points
             ]
+            track_zoomed = filter_finite(track_zoomed)
+            if not track_zoomed:
+                continue
             if track_zoomed:
                 track_cx = sum(p[0] for p in track_zoomed) / len(track_zoomed)
                 track_cy = sum(p[1] for p in track_zoomed) / len(track_zoomed)
