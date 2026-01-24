@@ -2170,27 +2170,44 @@ class LayerListPanel(QWidget):
             tr(self.lang, "dlg_layers_col_type"),
             tr(self.lang, "dlg_layers_col_details"),
         ])
+        self.tree.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         layout.addWidget(self.tree)
 
-        btn_layout = QHBoxLayout()
-        self.btn_add_layer = QPushButton(tr(self.lang, "dlg_layers_add_layer"))
-        self.btn_add_path = QPushButton(tr(self.lang, "dlg_layers_add_path"))
-        self.btn_edit = QPushButton(tr(self.lang, "dlg_layers_edit"))
+        btn_layout = QGridLayout()
+        btn_layout.setHorizontalSpacing(4)
+        btn_layout.setVerticalSpacing(4)
+        self.btn_add_layer = QPushButton()
+        self.btn_add_path = QPushButton()
+        self.btn_edit = QPushButton()
         self.btn_toggle_enable = QPushButton()
         self.btn_toggle_paths = QPushButton()
-        self.btn_move_up = QPushButton(tr(self.lang, "dlg_layers_move_up"))
-        self.btn_move_down = QPushButton(tr(self.lang, "dlg_layers_move_down"))
-        self.btn_test_track = QPushButton(tr(self.lang, "dlg_layers_test_track"))
-        self.btn_remove = QPushButton(tr(self.lang, "dlg_layers_remove"))
-        btn_layout.addWidget(self.btn_add_layer)
-        btn_layout.addWidget(self.btn_add_path)
-        btn_layout.addWidget(self.btn_edit)
-        btn_layout.addWidget(self.btn_toggle_enable)
-        btn_layout.addWidget(self.btn_toggle_paths)
-        btn_layout.addWidget(self.btn_move_up)
-        btn_layout.addWidget(self.btn_move_down)
-        btn_layout.addWidget(self.btn_test_track)
-        btn_layout.addWidget(self.btn_remove)
+        self.btn_move_up = QPushButton()
+        self.btn_move_down = QPushButton()
+        self.btn_test_track = QPushButton()
+        self.btn_remove = QPushButton()
+        for btn in (
+            self.btn_add_layer,
+            self.btn_add_path,
+            self.btn_edit,
+            self.btn_toggle_enable,
+            self.btn_toggle_paths,
+            self.btn_move_up,
+            self.btn_move_down,
+            self.btn_test_track,
+            self.btn_remove,
+        ):
+            btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        btn_layout.addWidget(self.btn_add_layer, 0, 0)
+        btn_layout.addWidget(self.btn_add_path, 0, 1)
+        btn_layout.addWidget(self.btn_edit, 0, 2)
+        btn_layout.addWidget(self.btn_toggle_enable, 0, 3)
+        btn_layout.addWidget(self.btn_toggle_paths, 0, 4)
+        btn_layout.addWidget(self.btn_move_up, 1, 0)
+        btn_layout.addWidget(self.btn_move_down, 1, 1)
+        btn_layout.addWidget(self.btn_test_track, 1, 2)
+        btn_layout.addWidget(self.btn_remove, 1, 3)
+        btn_layout.setColumnStretch(4, 1)
         layout.addLayout(btn_layout)
 
         self.btn_add_layer.clicked.connect(self.on_add_layer)
@@ -2206,6 +2223,7 @@ class LayerListPanel(QWidget):
         self.tree.currentItemChanged.connect(self.on_selection_changed)
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
 
+        self._update_button_labels()
         self.refresh_tree()
 
     def set_language(self, lang: str):
@@ -2215,14 +2233,24 @@ class LayerListPanel(QWidget):
             tr(self.lang, "dlg_layers_col_type"),
             tr(self.lang, "dlg_layers_col_details"),
         ])
-        self.btn_add_layer.setText(tr(self.lang, "dlg_layers_add_layer"))
-        self.btn_add_path.setText(tr(self.lang, "dlg_layers_add_path"))
-        self.btn_edit.setText(tr(self.lang, "dlg_layers_edit"))
-        self.btn_move_up.setText(tr(self.lang, "dlg_layers_move_up"))
-        self.btn_move_down.setText(tr(self.lang, "dlg_layers_move_down"))
-        self.btn_test_track.setText(tr(self.lang, "dlg_layers_test_track"))
-        self.btn_remove.setText(tr(self.lang, "dlg_layers_remove"))
+        self._update_button_labels()
         self.refresh_tree()
+
+    def _update_button_labels(self):
+        self.btn_add_layer.setText("+L")
+        self.btn_add_layer.setToolTip(tr(self.lang, "dlg_layers_add_layer"))
+        self.btn_add_path.setText("+P")
+        self.btn_add_path.setToolTip(tr(self.lang, "dlg_layers_add_path"))
+        self.btn_edit.setText("✎")
+        self.btn_edit.setToolTip(tr(self.lang, "dlg_layers_edit"))
+        self.btn_move_up.setText("↑")
+        self.btn_move_up.setToolTip(tr(self.lang, "dlg_layers_move_up"))
+        self.btn_move_down.setText("↓")
+        self.btn_move_down.setToolTip(tr(self.lang, "dlg_layers_move_down"))
+        self.btn_test_track.setText("T")
+        self.btn_test_track.setToolTip(tr(self.lang, "dlg_layers_test_track"))
+        self.btn_remove.setText("-")
+        self.btn_remove.setToolTip(tr(self.lang, "dlg_layers_remove"))
 
     def _layer_summary(self, layer: LayerConfig) -> str:
         parts = []
@@ -2344,13 +2372,16 @@ class LayerListPanel(QWidget):
         if not obj:
             self.btn_toggle_enable.setEnabled(False)
             self.btn_toggle_enable.setText("")
+            self.btn_toggle_enable.setToolTip("")
             return
         if kind == "layer":
             if obj.enable:
-                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_disable_layer"))
+                self.btn_toggle_enable.setText("✕")
+                self.btn_toggle_enable.setToolTip(tr(self.lang, "dlg_layers_disable_layer"))
                 self.btn_toggle_enable.setEnabled(not self._is_last_enabled_layer(obj))
             else:
-                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_layer"))
+                self.btn_toggle_enable.setText("✓")
+                self.btn_toggle_enable.setToolTip(tr(self.lang, "dlg_layers_enable_layer"))
                 self.btn_toggle_enable.setEnabled(True)
         elif kind == "path":
             layer = self.find_parent_layer(obj)
@@ -2358,12 +2389,14 @@ class LayerListPanel(QWidget):
                 self.btn_toggle_enable.setEnabled(False)
                 return
             if obj.enable:
-                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_disable_path"))
+                self.btn_toggle_enable.setText("✕")
+                self.btn_toggle_enable.setToolTip(tr(self.lang, "dlg_layers_disable_path"))
                 self.btn_toggle_enable.setEnabled(
                     not self._is_last_enabled_path_in_last_layer(layer, obj)
                 )
             else:
-                self.btn_toggle_enable.setText(tr(self.lang, "dlg_layers_enable_path"))
+                self.btn_toggle_enable.setText("✓")
+                self.btn_toggle_enable.setToolTip(tr(self.lang, "dlg_layers_enable_path"))
                 self.btn_toggle_enable.setEnabled(True)
 
     def _update_paths_toggle_button_state(self):
@@ -2371,6 +2404,7 @@ class LayerListPanel(QWidget):
         if not obj:
             self.btn_toggle_paths.setEnabled(False)
             self.btn_toggle_paths.setText("")
+            self.btn_toggle_paths.setToolTip("")
             return
         if kind == "layer":
             layer = obj
@@ -2385,15 +2419,18 @@ class LayerListPanel(QWidget):
         if not layer.paths:
             self.btn_toggle_paths.setEnabled(False)
             self.btn_toggle_paths.setText("")
+            self.btn_toggle_paths.setToolTip("")
             return
 
         any_disabled = any(not path.enable for path in layer.paths)
         if any_disabled:
-            self.btn_toggle_paths.setText(tr(self.lang, "dlg_layers_enable_all_paths"))
+            self.btn_toggle_paths.setText("✓A")
+            self.btn_toggle_paths.setToolTip(tr(self.lang, "dlg_layers_enable_all_paths"))
             self.btn_toggle_paths.setEnabled(True)
             return
 
-        self.btn_toggle_paths.setText(tr(self.lang, "dlg_layers_disable_all_paths"))
+        self.btn_toggle_paths.setText("✕A")
+        self.btn_toggle_paths.setToolTip(tr(self.lang, "dlg_layers_disable_all_paths"))
         if self._is_last_enabled_layer(layer):
             self.btn_toggle_paths.setEnabled(False)
             return
@@ -3749,11 +3786,14 @@ class SpiroWindow(QWidget):
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(10)
+        self._left_panel = left_panel
+        self._left_layout = left_layout
 
         self.mini_menu_container = QWidget()
         mini_menu_layout = QHBoxLayout(self.mini_menu_container)
@@ -3843,6 +3883,15 @@ class SpiroWindow(QWidget):
 
         self.layers_group = QGroupBox()
         layers_layout = QVBoxLayout(self.layers_group)
+        layers_header = QHBoxLayout()
+        self.layers_title_label = QLabel()
+        self.btn_layers_popout = QToolButton()
+        self.btn_layers_popout.setText("⤢")
+        self.btn_layers_popout.setAutoRaise(True)
+        layers_header.addWidget(self.layers_title_label)
+        layers_header.addStretch(1)
+        layers_header.addWidget(self.btn_layers_popout)
+        layers_layout.addLayout(layers_header)
         self.layer_panel = LayerListPanel(
             self.layers,
             lang=self.language,
@@ -3852,10 +3901,20 @@ class SpiroWindow(QWidget):
         self.layer_panel.layers_changed.connect(self._on_layers_changed)
         self.layer_panel.selection_changed.connect(self._on_layer_selection_changed)
         layers_layout.addWidget(self.layer_panel)
-        left_layout.addWidget(self.layers_group)
+        left_layout.addWidget(self.layers_group, stretch=4)
+        self.btn_layers_popout.clicked.connect(self._open_layers_popout)
 
         self.details_group = QGroupBox()
         details_layout = QVBoxLayout(self.details_group)
+        details_header = QHBoxLayout()
+        self.details_title_label = QLabel()
+        self.btn_details_popout = QToolButton()
+        self.btn_details_popout.setText("⤢")
+        self.btn_details_popout.setAutoRaise(True)
+        details_header.addWidget(self.details_title_label)
+        details_header.addStretch(1)
+        details_header.addWidget(self.btn_details_popout)
+        details_layout.addLayout(details_header)
         self.details_stack = QStackedWidget()
         self.details_empty_label = QLabel()
         self.details_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -3864,17 +3923,25 @@ class SpiroWindow(QWidget):
         self.path_details_widget = self._build_path_details_panel()
         self.details_stack.addWidget(self.layer_details_widget)
         self.details_stack.addWidget(self.path_details_widget)
-        details_layout.addWidget(self.details_stack)
-        left_layout.addWidget(self.details_group)
+        self.details_scroll = QScrollArea()
+        self.details_scroll.setWidgetResizable(True)
+        self.details_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.details_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.details_scroll.setWidget(self.details_stack)
+        details_layout.addWidget(self.details_scroll)
+        left_layout.addWidget(self.details_group, stretch=4)
+        self.btn_details_popout.clicked.connect(self._open_details_popout)
 
         self.preview_group = QGroupBox()
         preview_layout = QVBoxLayout(self.preview_group)
         self.preview_widget = S0PreviewWidget()
         self.preview_widget.setMinimumHeight(200)
         preview_layout.addWidget(self.preview_widget)
-        left_layout.addWidget(self.preview_group)
+        left_layout.addWidget(self.preview_group, stretch=2, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        left_layout.addStretch(1)
+        self._layers_popout_dialog: Optional[QDialog] = None
+        self._details_popout_dialog: Optional[QDialog] = None
+
         left_scroll.setWidget(left_panel)
         main_layout.addWidget(left_scroll)
 
@@ -3960,7 +4027,12 @@ class SpiroWindow(QWidget):
         self.menu_options.setTitle(tr(self.language, "menu_options"))
         self.menu_regen.setTitle(tr(self.language, "menu_regen"))
         self.menu_help.setTitle(tr(self.language, "menu_help"))
-        self.details_group.setTitle(tr(self.language, "panel_details_title"))
+        self.layers_group.setTitle("")
+        self.details_group.setTitle("")
+        self.layers_title_label.setText(tr(self.language, "menu_layers"))
+        self.details_title_label.setText(tr(self.language, "panel_details_title"))
+        self.btn_layers_popout.setToolTip(tr(self.language, "dlg_layers_title"))
+        self.btn_details_popout.setToolTip(tr(self.language, "panel_details_title"))
         self.preview_group.setTitle(tr(self.language, "panel_preview_title"))
 
         # Menu actions
@@ -3999,6 +4071,79 @@ class SpiroWindow(QWidget):
         self.layer_panel.set_language(self.language)
         self._refresh_details_panel()
         self._refresh_preview()
+
+    def _open_layers_popout(self):
+        title = self.layers_title_label.text() or tr(self.language, "menu_layers")
+        self._open_section_popout(
+            group=self.layers_group,
+            dialog_attr="_layers_popout_dialog",
+            title=title,
+            stretch=4,
+            alignment=None,
+        )
+
+    def _open_details_popout(self):
+        title = self.details_title_label.text() or tr(self.language, "panel_details_title")
+        self._open_section_popout(
+            group=self.details_group,
+            dialog_attr="_details_popout_dialog",
+            title=title,
+            stretch=4,
+            alignment=None,
+        )
+
+    def _open_section_popout(
+        self,
+        *,
+        group: QGroupBox,
+        dialog_attr: str,
+        title: str,
+        stretch: int,
+        alignment: Optional[Qt.AlignmentFlag],
+    ):
+        existing = getattr(self, dialog_attr)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
+
+        index = self._left_layout.indexOf(group)
+        if index < 0:
+            index = 0
+        self._left_layout.removeWidget(group)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog_layout = QVBoxLayout(dialog)
+        group.setParent(dialog)
+        dialog_layout.addWidget(group)
+        setattr(self, dialog_attr, dialog)
+
+        dialog.finished.connect(
+            lambda _=0, g=group, i=index, s=stretch, a=alignment, attr=dialog_attr: self._restore_section_popout(
+                g, i, s, a, attr
+            )
+        )
+        dialog.resize(500, 600)
+        dialog.show()
+
+    def _restore_section_popout(
+        self,
+        group: QGroupBox,
+        index: int,
+        stretch: int,
+        alignment: Optional[Qt.AlignmentFlag],
+        dialog_attr: str,
+    ):
+        dialog = getattr(self, dialog_attr)
+        if dialog is not None:
+            dialog.deleteLater()
+        group.setParent(self._left_panel)
+        if alignment is None:
+            self._left_layout.insertWidget(index, group, stretch=stretch)
+        else:
+            self._left_layout.insertWidget(index, group, stretch=stretch, alignment=alignment)
+        setattr(self, dialog_attr, None)
 
     def _update_detail_labels(self):
         self.layer_detail_label_name.setText(tr(self.language, "dlg_layer_name"))
@@ -4324,10 +4469,15 @@ class SpiroWindow(QWidget):
     def _refresh_preview(self, obj=None, kind: Optional[str] = None):
         if obj is None or not kind:
             obj, kind = self.layer_panel.get_selected_object()
-        if kind != "path" or not isinstance(obj, PathConfig):
+        if kind == "path" and isinstance(obj, PathConfig):
+            path = obj
+            layer = self.layer_panel.find_parent_layer(obj)
+        elif kind == "layer" and isinstance(obj, LayerConfig):
+            path = None
+            layer = obj
+        else:
             self.preview_widget.clear()
             return
-        layer = self.layer_panel.find_parent_layer(obj)
         if not layer or len(layer.gears) < 2:
             self.preview_widget.clear()
             return
@@ -4391,8 +4541,14 @@ class SpiroWindow(QWidget):
         else:
             tip_radius = radius_from_size(g1.size)
 
-        hole_offset = float(obj.hole_offset)
-        hole_direction = float(getattr(obj, "hole_direction", 0.0))
+        if path is None:
+            hole_offset = 0.0
+            hole_direction = 0.0
+            path_zoom = 1.0
+        else:
+            hole_offset = float(path.hole_offset)
+            hole_direction = float(getattr(path, "hole_direction", 0.0))
+            path_zoom = float(getattr(path, "zoom", 1.0))
         if g1.gear_type == "rsdl" and g1.rsdl_expression:
             d = hole_offset
             pen_local = _rsdl_pen_local_vector(wheel_curve, hole_offset, hole_direction)
@@ -4433,7 +4589,7 @@ class SpiroWindow(QWidget):
             my = marker_x * sin_a + marker_y * cos_a
             marker_point = (cx + mx, cy + my)
 
-        scale = getattr(layer, "zoom", 1.0) * getattr(obj, "zoom", 1.0)
+        scale = getattr(layer, "zoom", 1.0) * path_zoom
         track_points = [(x * scale, y * scale) for (x, y) in track_points]
         wheel_center = (cx * scale, cy * scale)
         contact_point = (xb * scale, yb * scale)
